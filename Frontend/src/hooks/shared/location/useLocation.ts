@@ -28,11 +28,15 @@ export const DRIVER_LOCATION_OPTIONS: UseLocationOptions = {
 };
 
 export function useLocation(options: UseLocationOptions = {}) {
+  // Defaults orientados a cliente: cada fix de GPS provoca setState → re-render
+  // de la pantalla completa. 15s/25m filtra el jitter del GPS en reposo y
+  // reduce el duty-cycle de la radio; pantallas de viaje activo del driver
+  // usan DRIVER_LOCATION_OPTIONS (2.5s/5m) explícitamente.
   const {
     highAccuracy = false,
     backgroundTracking = false,
-    interval = 5000,
-    minDistance = 10,
+    interval = 15000,
+    minDistance = 25,
     initialCoords,
   } = options;
 

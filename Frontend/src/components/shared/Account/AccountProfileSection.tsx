@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TextInput, TouchableOpacity, Image } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { LoadingIcon } from '../../ui/LoadingIcon';
 import { DatePickerField } from '../../ui/DatePickerField';
 import type { TFunction } from 'i18next';

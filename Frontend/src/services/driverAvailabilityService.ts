@@ -10,7 +10,10 @@ import driversService from './driversService';
 
 const AVAILABILITY_KEY = '@driver_availability_state';
 const LAST_UPDATE_KEY = '@driver_last_update';
-const HEARTBEAT_INTERVAL = 30000; // 30 segundos
+// Refresh defensivo del estado 'available'. El backend no aplica TTL a la
+// disponibilidad (driverOffline solo reacciona a writes de estado), así que
+// 60s bastan — antes eran 30s y duplicaba los round-trips por minuto.
+const HEARTBEAT_INTERVAL = 60000; // 60 segundos
 
 interface AvailabilityState {
   isAvailable: boolean;

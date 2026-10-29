@@ -8,7 +8,7 @@ import {
   Alert,
   ScrollView,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import rechargeFundsService, {

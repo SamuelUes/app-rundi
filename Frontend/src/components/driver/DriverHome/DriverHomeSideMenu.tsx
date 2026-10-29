@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, Pressable, Animated, Image } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { TFunction } from 'i18next';
 
 interface DriverHomeSideMenuProps {

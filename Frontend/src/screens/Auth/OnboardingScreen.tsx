@@ -10,7 +10,7 @@ import {
   ViewToken,
 } from 'react-native';
 import type { ImageSourcePropType } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 

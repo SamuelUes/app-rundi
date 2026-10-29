@@ -63,6 +63,24 @@ function rdp(
   }
 }
 
+/**
+ * Firma barata del contenido de un array de coordenadas (rolling hash).
+ * Permite memoizar la simplificación por contenido en vez de identidad de
+ * array — útil cuando el padre recrea el array en cada render (p.ej. cada
+ * snapshot de ubicación en rides activos).
+ */
+export function coordsSignature(
+  coordinates: Array<{ latitude: number; longitude: number }>,
+): number {
+  let hash = coordinates.length;
+  for (let i = 0; i < coordinates.length; i++) {
+    const c = coordinates[i];
+    hash = (hash * 31 + ((c.latitude * 1e6) | 0)) | 0;
+    hash = (hash * 31 + ((c.longitude * 1e6) | 0)) | 0;
+  }
+  return hash;
+}
+
 export function simplifyPolyline(
   coordinates: LatLng[],
   epsilonMeters: number = 10,

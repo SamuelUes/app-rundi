@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { LatLngPoint } from '../../../utils/rideTrackingHelpers';
 
 interface RideTrackingLocationsProps {

@@ -119,7 +119,30 @@ export function useDriverProfileSync() {
 
         // update() (no set) para preservar campos backend-owned que el payload
         // ya no incluye (rating, earnings, account_status, ...).
-        await update(ref(db, `driversInfo/${user.id}`), driversInfoPayload);
+        // Solo escribir campos que cambiaron: cada update() en driversInfo
+        // broadcastea a TODOS los clientes suscritos a driversInfo.
+        const { get } = await import('firebase/database');
+        const driverInfoRef = ref(db, `driversInfo/${user.id}`);
+        const existingSnap = await get(driverInfoRef);
+        const existing = (existingSnap.val() as Record<string, any> | null) ?? {};
+        const diff: Record<string, any> = {};
+        for (const [key, value] of Object.entries(driversInfoPayload)) {
+          if (key === 'updatedAt') continue; // timestamp propio, no comparar
+          const previous = existing[key];
+          const changed =
+            typeof value === 'object' && value !== null
+              ? JSON.stringify(value) !== JSON.stringify(previous)
+              : previous !== value;
+          if (changed) diff[key] = value;
+        }
+
+        if (Object.keys(diff).length === 0) {
+          console.log('[useDriverProfileSync] driversInfo ya sincronizado, sin cambios');
+          return;
+        }
+        diff.updatedAt = Date.now();
+        diff.cachedFrom = 'driverProfileSync';
+        await update(driverInfoRef, diff);
         console.log('[useDriverProfileSync] ✅ Perfil de conductor sincronizado en driversInfo');
       } catch (error) {
         console.warn(

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import StorageImage from '../../shared/StorageImage';
 import type { Ride } from '../../../utils/availableRidesHelpers';
 import { haversineKm, isDesignatedRideRequest } from '../../../utils/availableRidesHelpers';

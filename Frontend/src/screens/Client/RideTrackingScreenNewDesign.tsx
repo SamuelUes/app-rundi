@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useKeepAwake } from 'expo-keep-awake';
 import {
   View,
   Text,
@@ -22,7 +23,8 @@ import {
   Dimensions,
   ScrollView,
 } from 'react-native';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
 // Servicios y componentes
 import LoadingIcon from '../../components/ui/LoadingIcon';
@@ -249,6 +251,7 @@ const useDriverAndVehicleData = (
 };
 
 export default function RideTrackingScreenNewDesign({ route, navigation }: RideTrackingScreenNewDesignProps) {
+  useKeepAwake();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();

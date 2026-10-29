@@ -6,7 +6,7 @@ import {
   TextInput,
   Platform,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Picker } from '@react-native-picker/picker';
 
 import { useTheme } from '../../hooks/shared/theme/useTheme';

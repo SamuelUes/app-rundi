@@ -16,7 +16,6 @@ import { usePresence } from './src/hooks/shared/presence/usePresence';
 import { useDriverProfileSync } from './src/hooks/driver/DriverProfileScreen/useDriverProfileSync';
 import useDriverProximityTracking from './src/hooks/driver/DriverHomeScreen/useDriverProximityTracking';
 import AppNavigator from './src/navigation/AppNavigator';
-import { useKeepAwake } from 'expo-keep-awake';
 import TopToastProvider from './src/components/toast/TopToastProvider';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { navigationRef } from './src/navigation/NavigationService';
@@ -68,9 +67,6 @@ function AppContent() {
   useDriverProfileSync();
   // Iniciar tracking de proximidad para conductores (permite viaje por aproximación)
   useDriverProximityTracking();
-
-  // Mantener la pantalla encendida mientras la app está en primer plano
-  useKeepAwake();
 
   const appReady = (fontsLoaded || !!fontError) && (isLanguageReady || loadTimedOut);
   const hideNativeSplash = React.useCallback(() => {

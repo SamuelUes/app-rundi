@@ -8,7 +8,7 @@ import {
   Alert,
   Platform,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { LoadingIcon } from '../ui/LoadingIcon';
 import * as ImagePicker from 'expo-image-picker';
 import { launchCameraSafely } from '../../utils/cameraUtils';

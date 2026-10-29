@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
+import { useKeepAwake } from 'expo-keep-awake';
 import { StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTranslation } from 'react-i18next';
 import DynamicMap from '../../components/map/DynamicMap';
 import { MapSkeleton } from '../../components/ui/SkeletonLoader';
@@ -15,6 +16,7 @@ import { isFollowerWaitingPayment, shouldShowSeparateCrewMarkers } from '../../u
 
 export default function FollowerActiveRideScreen({ route, navigation }: any) {
   const { rideId } = route.params as { rideId: string };
+  useKeepAwake();
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);

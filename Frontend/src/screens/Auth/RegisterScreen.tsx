@@ -17,7 +17,8 @@ import {
   ScrollView,
 } from 'react-native';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 

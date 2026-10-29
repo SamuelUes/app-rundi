@@ -9,8 +9,13 @@ export function useDriverTodayStats(
 
   useEffect(() => {
     let isMounted = true;
+    let loading = false;
 
     const loadTodayStats = async () => {
+      // El evento 'focus' también se dispara al montar — sin este guard,
+      // la carga inicial y ese focus disparaban dos callables en paralelo.
+      if (loading) return;
+      loading = true;
       try {
         const response = await earningsService.getDriverEarnings('today');
         if (isMounted && response?.summary) {
@@ -21,6 +26,8 @@ export function useDriverTodayStats(
         }
       } catch (err) {
         console.error('❌ [DriverHomeScreenNewDesign] Error cargando ganancias:', err);
+      } finally {
+        loading = false;
       }
     };
 

@@ -72,6 +72,14 @@ export function useAuthInit() {
 
             if (firebaseUser) {
               try {
+                // Perfil (Firestore) y sesión (callable) son independientes:
+                // lanzarlos en paralelo recorta un round-trip del arranque.
+                const sessionPromise = sessionService
+                  .startSession({ policy: 'deny', source: 'authListener' })
+                  .then(
+                    () => ({ ok: true as const }),
+                    (error: any) => ({ ok: false as const, error }),
+                  );
                 const userData = await firebaseAuthService.getUserProfile(firebaseUser.uid);
                 if (observedUid !== firebaseUser.uid) return;
                 const role = (normalizeRoleValue(userData.role) || 'client') as User['role'];
@@ -80,10 +88,9 @@ export function useAuthInit() {
                   clearPreflightResult();
                   observedRole = role;
                 }
-                try {
-                  await sessionService.startSession({ policy: 'deny', source: 'authListener' });
-                  authStartupSessionConflict = false;
-                } catch (sessionError: any) {
+                const sessionResult = await sessionPromise;
+                if (!sessionResult.ok) {
+                  const sessionError = sessionResult.error;
                   if (observedUid !== firebaseUser.uid) return;
                   authStartupSessionConflict = sessionError?.code === 'SESSION_ACTIVE_ELSEWHERE';
                   try {
@@ -101,6 +108,7 @@ export function useAuthInit() {
                   }
                   return;
                 }
+                authStartupSessionConflict = false;
                 if (role === 'driver' || role === 'designated_driver') {
                   setUserMode('driver');
                 }

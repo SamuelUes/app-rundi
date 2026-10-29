@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import StorageImage from '../../shared/StorageImage';
 import type { TFunction } from 'i18next';
 import type { ClientProfile } from '../../../services/clientProfilesService';

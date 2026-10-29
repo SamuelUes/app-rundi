@@ -1,6 +1,6 @@
 import React from 'react';
 import { Text, Pressable, ScrollView } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../../hooks/shared/theme/useTheme';
 import type { TFunction } from 'i18next';
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useKeepAwake } from 'expo-keep-awake';
 import {
   View,
   Text,
@@ -47,6 +48,7 @@ interface RouteParams {
 
 export default function ActiveRideScreen({ route, navigation }: any) {
   const { rideId } = route.params as RouteParams;
+  useKeepAwake();
   const { colors } = useTheme();
   const { t } = useTranslation();
   const styles = useMemo(() => createStyles(colors), [colors]);

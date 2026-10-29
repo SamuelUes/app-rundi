@@ -24,6 +24,7 @@ export function useClientPresence() {
   }>(null);
   const disconnectSetupRef = useRef(false);
   const disconnectUidRef = useRef<string | null>(null);
+  const deviceIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     // Solo para usuarios autenticados en modo cliente
@@ -119,15 +120,18 @@ export function useClientPresence() {
         const auth = await getFirebaseAuth();
         const firebaseUser = auth.currentUser;
         if (!firebaseUser || firebaseUser.uid !== user.id) return;
-        const functions = await getFirebaseFunctions();
+        const [functions, deviceId] = await Promise.all([
+          getFirebaseFunctions(),
+          sessionService.getDeviceId(),
+        ]);
         const uid = firebaseUser.uid;
 
         const markActive = httpsCallable(functions, 'markAppActive');
         const markClosed = httpsCallable(functions, 'markAppClosed');
 
         actionsRef.current = { markActive, markClosed };
+        deviceIdRef.current = deviceId;
 
-        const deviceId = await sessionService.getDeviceId();
         await runWithSessionRecovery(() =>
           markActive({
             role: 'client',
@@ -144,7 +148,8 @@ export function useClientPresence() {
         // Intervalo de heartbeat (55s)
         intervalRef.current = setInterval(async () => {
           try {
-            const devId = await sessionService.getDeviceId();
+            // deviceId no cambia por sesión: reusar el obtenido en init.
+            const devId = deviceIdRef.current ?? (await sessionService.getDeviceId());
             await runWithSessionRecovery(() =>
               markActive({
                 role: 'client',

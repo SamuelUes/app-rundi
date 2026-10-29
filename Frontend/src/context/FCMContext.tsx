@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, InteractionManager } from 'react-native';
 import { useTheme } from '../hooks/shared/theme/useTheme';
 import fcmService from '../services/fcmService';
 import { initializeNotificationSetup } from '../services/notificationSetup';
@@ -35,10 +35,21 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
   const { user, loading } = useAuth();
 
   useEffect(() => {
-    initializeNotificationSetup().then(async (granted) => {
-      setHasPermission(granted);
-      await initializeFCM();
-    });
+    // Diferir tras el primer render/interacciones: permisos + callable de
+    // registro de token no deben competir con la pintura inicial.
+    const start = () => {
+      initializeNotificationSetup().then(async (granted) => {
+        setHasPermission(granted);
+        await initializeFCM();
+      });
+    };
+    const ric = (globalThis as any).requestIdleCallback as ((cb: () => void) => number) | undefined;
+    if (typeof ric === 'function') {
+      const handle = ric(start);
+      return () => (globalThis as any).cancelIdleCallback?.(handle);
+    }
+    const task = InteractionManager.runAfterInteractions(start);
+    return () => task.cancel();
   }, []);
 
   const initializeFCM = async () => {

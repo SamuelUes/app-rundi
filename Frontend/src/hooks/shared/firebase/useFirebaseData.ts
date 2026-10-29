@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getDatabase, ref, onValue, off, get, query, orderByChild, limitToLast, DatabaseReference, DataSnapshot } from 'firebase/database';
+import { getDatabase, ref, onValue, off, get, query, orderByChild, limitToLast, DatabaseReference, DataSnapshot, Query } from 'firebase/database';
 
 // Tipos para el hook
 interface FirebaseOptions {
@@ -20,6 +20,29 @@ interface CachedData {
   timestamp: number;
 }
 
+// Caché compartida entre instancias: los datos sobreviven a remounts y
+// múltiples pantallas suscritas al mismo path reusan el snapshot reciente.
+const SHARED_CACHE_MAX_ENTRIES = 50;
+const sharedCache = new Map<string, CachedData>();
+
+function makeCacheKey(path: string, options: FirebaseOptions): string {
+  return `${path}|${options.orderBy ?? ''}|${options.limit ?? ''}`;
+}
+
+function readSharedCache(cacheKey: string, maxCacheAge: number): CachedData | null {
+  const entry = sharedCache.get(cacheKey);
+  if (!entry) return null;
+  return Date.now() - entry.timestamp < maxCacheAge ? entry : null;
+}
+
+function writeSharedCache(cacheKey: string, data: any) {
+  if (sharedCache.size >= SHARED_CACHE_MAX_ENTRIES) {
+    const oldestKey = sharedCache.keys().next().value;
+    if (oldestKey !== undefined) sharedCache.delete(oldestKey);
+  }
+  sharedCache.set(cacheKey, { data, timestamp: Date.now() });
+}
+
 /**
  * Hook para obtener datos de Firebase Realtime Database
  * @param path Ruta en Firebase para obtener datos
@@ -29,145 +52,103 @@ export const useFirebaseData = <T>(path: string, options: FirebaseOptions = {}) 
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  
-  // Referencia a los datos en caché
-  const cachedData = useRef<CachedData | null>(null);
-  
-  // Referencia para limpiar el listener
-  const dbRef = useRef<DatabaseReference | null>(null);
-  
+
+  // Unsubscribe del listener activo (onValue retorna la función de limpieza —
+  // usar off(ref) sin callback eliminaría los listeners de OTROS componentes
+  // suscritos al mismo path).
+  const unsubscribeRef = useRef<(() => void) | null>(null);
+  const detachListener = useCallback(() => {
+    unsubscribeRef.current?.();
+    unsubscribeRef.current = null;
+  }, []);
+
   // Función para obtener datos
   const fetchData = useCallback(async () => {
     if (options.enabled === false) {
+      detachListener();
       setLoading(false);
       return;
     }
 
     setLoading(true);
     setError(null);
-    
+
     try {
       const db = getDatabase();
-      
-      // Verificar caché primero
-      const now = Date.now();
-      if (cachedData.current && options.maxCacheAge) {
-        const cacheAge = now - cachedData.current.timestamp;
-        if (cacheAge < options.maxCacheAge) {
-          console.log(`📦 Usando datos en caché para ${path}, edad: ${cacheAge}ms`);
-          setData(cachedData.current.data);
-          setLoading(false);
-          return;
+      const cacheKey = makeCacheKey(path, options);
+
+      // Verificar caché primero (compartida entre instancias/remounts).
+      // En consultas `once` el hit evita el fetch; en listeners pinta el dato
+      // al instante pero igual se adjunta la suscripción para datos vivos.
+      if (options.maxCacheAge) {
+        const cached = readSharedCache(cacheKey, options.maxCacheAge);
+        if (cached) {
+          setData(cached.data);
+          if (options.once) {
+            setLoading(false);
+            return;
+          }
         }
       }
-      
+
       // Crear referencia y aplicar opciones
-      let dataRef = ref(db, path);
-      
+      const dataRef = ref(db, path);
+      const queryRef: Query | DatabaseReference =
+        options.orderBy || options.limit
+          ? query(
+              dataRef,
+              ...(options.orderBy ? [orderByChild(options.orderBy)] : []),
+              ...(options.limit ? [limitToLast(options.limit)] : []),
+            )
+          : dataRef;
+
       // Si es consulta única
       if (options.once) {
-        let snapshot: DataSnapshot;
-        
-        // Aplicar restricciones si es necesario
-        if (options.orderBy || options.limit) {
-          const queryRef = query(
-            dataRef,
-            ...(options.orderBy ? [orderByChild(options.orderBy)] : []),
-            ...(options.limit ? [limitToLast(options.limit)] : [])
-          );
-          snapshot = await get(queryRef);
-        } else {
-          snapshot = await get(dataRef);
-        }
-        
+        const snapshot: DataSnapshot = await get(queryRef);
         const fetchedData = snapshot.val();
         setData(fetchedData);
-        
-        // Guardar en caché
-        cachedData.current = {
-          data: fetchedData,
-          timestamp: now
-        };
-        
+        writeSharedCache(cacheKey, fetchedData);
         setLoading(false);
-      } 
-      // Si es consulta en tiempo real
-      else {
-        // Aplicar restricciones si es necesario
-        if (options.orderBy || options.limit) {
-          const queryRef = query(
-            dataRef,
-            ...(options.orderBy ? [orderByChild(options.orderBy)] : []),
-            ...(options.limit ? [limitToLast(options.limit)] : [])
-          );
-          
-          // Para consultas, no podemos asignar directamente a dbRef porque queryRef no es DatabaseReference
-          // En lugar de eso, guardamos la referencia original para poder cancelar la suscripción
-          dbRef.current = dataRef;
-          
-          onValue(queryRef, (snapshot) => {
-            const fetchedData = snapshot.val();
-            setData(fetchedData);
-            
-            // Guardar en caché
-            cachedData.current = {
-              data: fetchedData,
-              timestamp: now
-            };
-            
-            setLoading(false);
-          }, (err) => {
-            console.error(`❌ Error obteniendo datos de ${path}:`, err);
-            setError(err as Error);
-            setLoading(false);
-          });
-        } else {
-          dbRef.current = dataRef;
-          
-          onValue(dataRef, (snapshot) => {
-            const fetchedData = snapshot.val();
-            setData(fetchedData);
-            
-            // Guardar en caché
-            cachedData.current = {
-              data: fetchedData,
-              timestamp: now
-            };
-            
-            setLoading(false);
-          }, (err) => {
-            console.error(`❌ Error obteniendo datos de ${path}:`, err);
-            setError(err as Error);
-            setLoading(false);
-          });
-        }
+        return;
       }
+
+      // Consulta en tiempo real: desuscribir cualquier listener previo de esta
+      // instancia (p.ej. refresh manual) antes de adjuntar uno nuevo.
+      detachListener();
+      unsubscribeRef.current = onValue(
+        queryRef,
+        (snapshot) => {
+          const fetchedData = snapshot.val();
+          setData(fetchedData);
+          writeSharedCache(cacheKey, fetchedData);
+          setLoading(false);
+        },
+        (err) => {
+          console.error(`❌ Error obteniendo datos de ${path}:`, err);
+          setError(err as Error);
+          setLoading(false);
+        },
+      );
     } catch (err) {
       console.error(`❌ Error en consulta Firebase para ${path}:`, err);
       setError(err as Error);
       setLoading(false);
     }
-  }, [path, options.once, options.limit, options.orderBy, options.maxCacheAge, options.enabled]);
-  
+  }, [path, options.once, options.limit, options.orderBy, options.maxCacheAge, options.enabled, detachListener]);
+
   // Función para actualizar datos manualmente
   const refresh = useCallback(() => {
     fetchData();
   }, [fetchData]);
-  
+
   // Efecto para cargar datos y limpiar al desmontar
   useEffect(() => {
-    console.log(`👂 [useFirebaseData] Iniciando listener para: ${path}`);
     fetchData();
-    
-    // Cleanup: desuscribirse al desmontar
-    return () => {
-      if (dbRef.current) {
-        console.log(`🛑 [useFirebaseData] Deteniendo listener para: ${path}`);
-        off(dbRef.current);
-      }
-    };
-  }, [fetchData, path]);
-  
+
+    // Cleanup: desuscribir solo ESTE listener al desmontar
+    return detachListener;
+  }, [fetchData, detachListener]);
+
   return { data, loading, error, refresh };
 };
 
@@ -186,7 +167,7 @@ export const useFirebaseItem = <T>(collectionPath: string, id: string | null | u
   if (!id) {
     return { data: null, loading: false, error: null, refresh: () => {} };
   }
-  
+
   const path = `${collectionPath}/${id}`;
   return useFirebaseData<T>(path, options);
 };
@@ -195,20 +176,20 @@ export const useFirebaseItem = <T>(collectionPath: string, id: string | null | u
  * Utilidad para suscribirse a un valor con limpieza automática
  */
 export const useFirebaseListener = <T>(
-  path: string, 
+  path: string,
   callback: (data: T | null) => void,
   deps: any[] = []
 ) => {
   useEffect(() => {
     const db = getDatabase();
     const dataRef = ref(db, path);
-    
+
     const unsubscribe = onValue(dataRef, (snapshot) => {
       const data = snapshot.val();
       callback(data);
     });
-    
-    return () => off(dataRef);
+
+    return unsubscribe;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, ...deps]);
 };

@@ -43,6 +43,10 @@ import type { RegistrationMethod, RegistrationAuthProvider } from './types';
 import { useOverlayVisibilityOnBackground } from '../hooks/shared/overlay/useOverlayVisibilityOnBackground';
 import { useOverlayDeepLink } from '../hooks/shared/overlay/useOverlayDeepLink';
 import proximityService from '../services/proximityService';
+import { Platform } from 'react-native';
+import { useAuth } from '../hooks/shared/auth/useAuth';
+import { warmRealtimeDbConnection } from '../config/firebase';
+import preflightService from '../services/preflightService';
 
 export type DriverStackParamList = {
   DriverPreflight: PreflightRouteConfig | undefined;
@@ -172,8 +176,19 @@ const Stack = createNativeStackNavigator<DriverStackParamList>();
 
 export default function DriverStack() {
   const { colors } = useTheme();
+  const { user } = useAuth();
   // Sistema de overlay SIMPLIFICADO - Solo cleanup al volver a foreground
   const [overlayEnabled, setOverlayEnabledState] = React.useState<boolean>(false);
+
+  // Warm-ups: socket RTDB + callable de preflight corren en paralelo con
+  // el prompt biométrico y los checks locales del PreflightCheckScreen.
+  React.useEffect(() => {
+    if (!user?.id) return;
+    warmRealtimeDbConnection().catch(() => {});
+    preflightService
+      .warmPreflightData({ role: 'driver', userId: user.id, platform: Platform.OS })
+      .catch(() => {});
+  }, [user?.id]);
 
   React.useEffect(() => {
     let cancelled = false;

@@ -1,5 +1,6 @@
 import { getFirebaseFunctions } from '../config/firebase';
 import { httpsCallable } from 'firebase/functions';
+import * as Location from 'expo-location';
 import type { GetPreflightDataRequest, GetPreflightDataResponse, TermsDocumentType } from '../types/preflight';
 import {
   forceRefreshIdTokenOrSignOut,
@@ -30,6 +31,10 @@ interface CacheEntry {
 }
 
 const preflightCache: { entry: CacheEntry | null; generation: number } = { entry: null, generation: 0 };
+
+// Dedup de llamadas en vuelo por role:uid — el warm-up del stack y la llamada
+// de la pantalla comparten una sola request aunque difiera la location.
+const inflightRequests = new Map<string, Promise<GetPreflightDataResponse>>();
 
 function makePayloadKey(payload: GetPreflightDataRequest, authenticatedUid: string): string {
   return `${payload.role}:${authenticatedUid}:${payload.location?.lat ?? ''}:${payload.location?.lng ?? ''}`;
@@ -82,46 +87,83 @@ const preflightService = {
       return cached.data;
     }
 
-    const functions = await getFirebaseFunctions();
-    const callable = httpsCallable<GetPreflightDataRequest, GetPreflightDataResponse>(
-      functions,
-      'getPreflightData',
-      { timeout: 30_000 },
-    );
-    const maxAttempts = 3;
-    let forceTokenRefresh = false;
-    let lastError: any = null;
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      try {
-        if (forceTokenRefresh) {
-          await forceRefreshIdTokenOrSignOut(authUser);
-          forceTokenRefresh = false;
-        }
-
-        const result = (await callable(requestPayload)).data;
-
-        if (!isValidPreflightResponse(result, authUser.uid, payload.role)) {
-          throw new Error('Respuesta de preflight inválida o de otro usuario');
-        }
-        if (cacheGeneration !== preflightCache.generation) {
-          throw new Error('La sesión cambió durante el preflight');
-        }
-
-        preflightCache.entry = { data: result, timestamp: Date.now(), payloadKey: cacheKey };
-        return result;
-      } catch (error: any) {
-        lastError = error;
-        const retryable = isRetryableCallableError(error);
-        if (!retryable || attempt === maxAttempts) {
-          throw error;
-        }
-        forceTokenRefresh = isUnauthenticatedError(error);
-        await delay(450 * attempt);
-      }
+    const inflightKey = `${payload.role}:${authUser.uid}`;
+    const existing = inflightRequests.get(inflightKey);
+    if (existing) {
+      return existing;
     }
 
-    throw lastError || new Error('No se pudo obtener getPreflightData');
+    const request = (async () => {
+      const functions = await getFirebaseFunctions();
+      const callable = httpsCallable<GetPreflightDataRequest, GetPreflightDataResponse>(
+        functions,
+        'getPreflightData',
+        { timeout: 30_000 },
+      );
+      const maxAttempts = 3;
+      let forceTokenRefresh = false;
+      let lastError: any = null;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          if (forceTokenRefresh) {
+            await forceRefreshIdTokenOrSignOut(authUser);
+            forceTokenRefresh = false;
+          }
+
+          const result = (await callable(requestPayload)).data;
+
+          if (!isValidPreflightResponse(result, authUser.uid, payload.role)) {
+            throw new Error('Respuesta de preflight inválida o de otro usuario');
+          }
+          if (cacheGeneration !== preflightCache.generation) {
+            throw new Error('La sesión cambió durante el preflight');
+          }
+
+          preflightCache.entry = { data: result, timestamp: Date.now(), payloadKey: cacheKey };
+          return result;
+        } catch (error: any) {
+          lastError = error;
+          const retryable = isRetryableCallableError(error);
+          if (!retryable || attempt === maxAttempts) {
+            throw error;
+          }
+          forceTokenRefresh = isUnauthenticatedError(error);
+          await delay(450 * attempt);
+        }
+      }
+
+      throw lastError || new Error('No se pudo obtener getPreflightData');
+    })();
+
+    inflightRequests.set(inflightKey, request);
+    try {
+      return await request;
+    } finally {
+      inflightRequests.delete(inflightKey);
+    }
+  },
+
+  // Pre-dispara getPreflightData mientras corren los checks locales del gate:
+  // al montar el stack, la llamada real de la pantalla comparte esta promesa
+  // (dedup in-flight) o lee el cache reciente. Errores ignorados a propósito.
+  async warmPreflightData(payload: GetPreflightDataRequest): Promise<void> {
+    try {
+      let location = payload.location;
+      if (!location) {
+        try {
+          const lastKnown = await Location.getLastKnownPositionAsync({});
+          if (lastKnown?.coords) {
+            location = { lat: lastKnown.coords.latitude, lng: lastKnown.coords.longitude };
+          }
+        } catch {
+ // sin última ubicación conocida
+        }
+      }
+      await preflightService.fetchPreflightData({ ...payload, location });
+    } catch {
+ // warm-up best-effort; la pantalla realiza la llamada autoritativa
+    }
   },
 
   async acceptTerms(

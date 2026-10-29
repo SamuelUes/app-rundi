@@ -124,6 +124,7 @@ export default {
     'expo-secure-store',
     'expo-font',
     'expo-asset',
+    'expo-image',
     "expo-web-browser",
     [
       'expo-splash-screen',

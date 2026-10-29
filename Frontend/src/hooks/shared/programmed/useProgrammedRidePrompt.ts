@@ -133,7 +133,6 @@ export const useProgrammedRidePrompt = ({
 
     let isMounted = true;
     let unsubscribe: (() => void) | null = null;
-    let fallbackSyncTimer: ReturnType<typeof setInterval> | null = null;
     let appStateSubscription: { remove: () => void } | null = null;
     let readDenied = false;
 
@@ -175,7 +174,6 @@ export const useProgrammedRidePrompt = ({
             }
             if (isPermissionDenied(error)) {
               readDenied = true;
-              if (fallbackSyncTimer) clearInterval(fallbackSyncTimer);
               appStateSubscription?.remove();
             }
             console.error('[useProgrammedRidePrompt] Error sync programmedRides (client)', error);
@@ -199,7 +197,6 @@ export const useProgrammedRidePrompt = ({
             }
             if (isPermissionDenied(error)) {
               readDenied = true;
-              if (fallbackSyncTimer) clearInterval(fallbackSyncTimer);
               appStateSubscription?.remove();
               setClientRides(null);
             }
@@ -209,10 +206,8 @@ export const useProgrammedRidePrompt = ({
 
         await syncSnapshot();
         if (!isMounted || readDenied || !isAuthCurrent()) return;
-        fallbackSyncTimer = setInterval(() => {
-          void syncSnapshot();
-        }, 45_000);
 
+        // Resync al volver a foreground como red de seguridad del listener.
         appStateSubscription = AppState.addEventListener('change', (state) => {
           if (state === 'active') {
             void syncSnapshot();
@@ -226,9 +221,6 @@ export const useProgrammedRidePrompt = ({
     return () => {
       isMounted = false;
       unsubscribe?.();
-      if (fallbackSyncTimer) {
-        clearInterval(fallbackSyncTimer);
-      }
       appStateSubscription?.remove();
     };
   }, [userId, listenForClient]);
@@ -241,7 +233,6 @@ export const useProgrammedRidePrompt = ({
 
     let isMounted = true;
     let unsubscribe: (() => void) | null = null;
-    let fallbackSyncTimer: ReturnType<typeof setInterval> | null = null;
     let appStateSubscription: { remove: () => void } | null = null;
     let readDenied = false;
 
@@ -283,7 +274,6 @@ export const useProgrammedRidePrompt = ({
             }
             if (isPermissionDenied(error)) {
               readDenied = true;
-              if (fallbackSyncTimer) clearInterval(fallbackSyncTimer);
               appStateSubscription?.remove();
             }
             console.error('[useProgrammedRidePrompt] Error sync programmedRides (driver)', error);
@@ -307,7 +297,6 @@ export const useProgrammedRidePrompt = ({
             }
             if (isPermissionDenied(error)) {
               readDenied = true;
-              if (fallbackSyncTimer) clearInterval(fallbackSyncTimer);
               appStateSubscription?.remove();
               setDriverRides(null);
             }
@@ -317,10 +306,8 @@ export const useProgrammedRidePrompt = ({
 
         await syncSnapshot();
         if (!isMounted || readDenied || !isAuthCurrent()) return;
-        fallbackSyncTimer = setInterval(() => {
-          void syncSnapshot();
-        }, 45_000);
 
+        // Resync al volver a foreground como red de seguridad del listener.
         appStateSubscription = AppState.addEventListener('change', (state) => {
           if (state === 'active') {
             void syncSnapshot();
@@ -334,9 +321,6 @@ export const useProgrammedRidePrompt = ({
     return () => {
       isMounted = false;
       unsubscribe?.();
-      if (fallbackSyncTimer) {
-        clearInterval(fallbackSyncTimer);
-      }
       appStateSubscription?.remove();
     };
   }, [userId, listenForDriver]);

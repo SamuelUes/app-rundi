@@ -1,6 +1,6 @@
 import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, View, GestureResponderEvent, ViewStyle } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { LoadingIcon } from '../ui/LoadingIcon';
 import { useTranslation } from 'react-i18next';
 

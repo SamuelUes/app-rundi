@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useKeepAwake } from 'expo-keep-awake';
 import type { DriverStackParamList } from '../../navigation/DriverStack';
 import {
   View,
@@ -6,7 +7,7 @@ import {
   StyleSheet,
   TouchableOpacity,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
@@ -58,6 +59,7 @@ type PendingOfferTarget = {
 };
 
 export default function DriverHomeScreenNewDesign({ navigation }: any) {
+  useKeepAwake();
   const { t } = useTranslation();
   const { user, logout, logoutInProgress } = useAuth();
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();

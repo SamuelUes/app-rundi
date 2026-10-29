@@ -19,7 +19,7 @@ import { MainMarkerContent, MarkerType } from './mapMarkers/MarkerContent';
 import PinMarkerWithBubble from './mapMarkers/PinMarkerWithBubble';
 import NearbyDriversLayer from './mapMarkers/NearbyDriversLayer';
 import RideRequestsLayer, { RideRequest } from './mapMarkers/RideRequestsLayer';
-import { simplifyPolyline } from '../../utils/polylineSimplify';
+import { simplifyPolyline, coordsSignature } from '../../utils/polylineSimplify';
 
 export interface ExtraStopMarker {
   latitude: number;
@@ -469,19 +469,33 @@ export default function GoogleMap({
 
   // 2.5m tolerance keeps the polyline glued to the streets instead of cutting
   // corners, while still dropping redundant points on long straight segments.
+  // Memoizar por firma de contenido: los padres recrean estos arrays en cada
+  // render (snapshots GPS), así que la identidad del array cambia siempre.
+  const routeRef = useRef(routeCoordinates);
+  routeRef.current = routeCoordinates;
+  const routeSignature = coordsSignature(routeCoordinates);
   const simplifiedRoute = useMemo(
-    () => simplifyPolyline(routeCoordinates.filter(isValidCoord).map(toLatLng), 2.5),
-    [routeCoordinates],
+    () => simplifyPolyline(routeRef.current.filter(isValidCoord).map(toLatLng), 2.5),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [routeSignature],
   );
 
+  const secondaryRouteRef = useRef(secondaryRouteCoordinates);
+  secondaryRouteRef.current = secondaryRouteCoordinates;
+  const secondaryRouteSignature = coordsSignature(secondaryRouteCoordinates);
   const simplifiedSecondaryRoute = useMemo(
-    () => simplifyPolyline(secondaryRouteCoordinates.filter(isValidCoord).map(toLatLng), 2.5),
-    [secondaryRouteCoordinates],
+    () => simplifyPolyline(secondaryRouteRef.current.filter(isValidCoord).map(toLatLng), 2.5),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [secondaryRouteSignature],
   );
 
+  const tertiaryRouteRef = useRef(tertiaryRouteCoordinates);
+  tertiaryRouteRef.current = tertiaryRouteCoordinates;
+  const tertiaryRouteSignature = coordsSignature(tertiaryRouteCoordinates);
   const simplifiedTertiaryRoute = useMemo(
-    () => simplifyPolyline(tertiaryRouteCoordinates.filter(isValidCoord).map(toLatLng), 2.5),
-    [tertiaryRouteCoordinates],
+    () => simplifyPolyline(tertiaryRouteRef.current.filter(isValidCoord).map(toLatLng), 2.5),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tertiaryRouteSignature],
   );
 
   const routeCasingColor = isDark ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.9)';

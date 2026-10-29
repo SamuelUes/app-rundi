@@ -1,6 +1,6 @@
 import React from 'react';
 import { ActivityIndicator, View, Text, TextInput, TouchableOpacity } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Picker } from '@react-native-picker/picker';
 import { DatePickerField } from '../../ui/DatePickerField';
 import { InsuranceCompanySelectField } from '../../shared/InsuranceCompanySelectField';

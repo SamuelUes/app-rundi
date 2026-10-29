@@ -9,7 +9,8 @@ import {
   Image,
   Alert,
 } from 'react-native';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ExpoImagePicker from 'expo-image-picker';

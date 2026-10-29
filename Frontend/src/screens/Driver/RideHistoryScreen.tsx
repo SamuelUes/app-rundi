@@ -8,7 +8,7 @@ import {
   RefreshControl,
   Image,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { RideListSkeleton } from '../../components/ui/SkeletonLoader';

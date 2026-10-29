@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
   ScrollView,
   Image,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
@@ -76,60 +76,21 @@ export default function RideRequestsScreen({ navigation }: any) {
   const [accepting, setAccepting] = useState(false);
   const [activeRideGuard, setActiveRideGuard] = useState<string | null>(null);
   const lastRedirectedRideIdRef = useRef<string | null>(null);
+  const requestedSignatureRef = useRef('');
+  const coordsRef = useRef(coords);
+  coordsRef.current = coords;
 
-  // 🔒 Guard: Si ya tengo un viaje activo (accepted/driver_on_route/driver_arrived/in_progress), redirigir y bloquear esta pantalla
-  useEffect(() => {
-    if (!user?.id) return;
+  // El callable enriquece datos del cliente (rating/foto) que RTDB no trae:
+  // se invoca solo cuando cambia el set de rides 'requested' (listener abajo)
+  // o al resolver/mover la ubicación — no por intervalo.
+  const loadRideRequests = useCallback(async () => {
+    const c = coordsRef.current;
+    if (!c) return;
 
-    const db = getDatabase();
-    const activeRef = ref(db, getActiveRidesByAreaPath());
-    const unsubscribe = onValue(activeRef, (snapshot) => {
-      const data = snapshot.val();
-      if (!data) {
-        setActiveRideGuard(null);
-        return;
-      }
-
-      let found: string | null = null;
-      for (const [id, r] of Object.entries<any>(data)) {
-        const status = String(r?.status || '').toLowerCase();
-        if (r?.driverId === user.id && ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'].includes(status)) {
-          found = id;
-          break;
-        }
-      }
-
-      if (found) {
-        setActiveRideGuard(found);
-        // Solo reemplazar cuando la pantalla está enfocada y una sola vez por
-        // ride: si está enterrada en el stack, replace convertiría su ruta en
-        // una segunda instancia de ActiveRide.
-        const focused = navigation.isFocused ? navigation.isFocused() : true;
-        if (focused && lastRedirectedRideIdRef.current !== found) {
-          lastRedirectedRideIdRef.current = found;
-          navigation.replace('ActiveRide', { rideId: found });
-        }
-      } else {
-        setActiveRideGuard(null);
-      }
-    });
-
-    return () => unsubscribe();
-  }, [user?.id, navigation]);
-
-  useEffect(() => {
-    loadRideRequests();
-    const interval = setInterval(loadRideRequests, 15000); // Actualizar cada 15s
-    return () => clearInterval(interval);
-  }, [coords]);
-
-  const loadRideRequests = async () => {
-    if (!coords) return;
-    
     try {
       const availableRides = await ridesService.getAvailableRides(
-        coords.latitude,
-        coords.longitude,
+        c.latitude,
+        c.longitude,
         RIDES_RADIUS_KM // 15 km de radio (mayor cobertura en Nicaragua)
       );
       setRides(availableRides || []);
@@ -141,7 +102,67 @@ export default function RideRequestsScreen({ navigation }: any) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  const loadRideRequestsRef = useRef(loadRideRequests);
+  loadRideRequestsRef.current = loadRideRequests;
+
+  // 🔒 Guard: Si ya tengo un viaje activo (accepted/driver_on_route/driver_arrived/in_progress), redirigir y bloquear esta pantalla
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const db = getDatabase();
+    const activeRef = ref(db, getActiveRidesByAreaPath());
+    const unsubscribe = onValue(activeRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) {
+        setActiveRideGuard(null);
+      } else {
+        let found: string | null = null;
+        for (const [id, r] of Object.entries<any>(data)) {
+          const status = String(r?.status || '').toLowerCase();
+          if (r?.driverId === user.id && ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'].includes(status)) {
+            found = id;
+            break;
+          }
+        }
+
+        if (found) {
+          setActiveRideGuard(found);
+          // Solo reemplazar cuando la pantalla está enfocada y una sola vez por
+          // ride: si está enterrada en el stack, replace convertiría su ruta en
+          // una segunda instancia de ActiveRide.
+          const focused = navigation.isFocused ? navigation.isFocused() : true;
+          if (focused && lastRedirectedRideIdRef.current !== found) {
+            lastRedirectedRideIdRef.current = found;
+            navigation.replace('ActiveRide', { rideId: found });
+          }
+        } else {
+          setActiveRideGuard(null);
+        }
+      }
+
+      // Trigger del fetch enriquecido: solo cuando cambia el set de rides
+      // 'requested' (aparece uno nuevo o uno sale del estado).
+      const requestedIds = data
+        ? Object.entries<any>(data)
+            .filter(([, r]) => String(r?.status || '').toLowerCase() === 'requested' && !r?.driverId)
+            .map(([id]) => id)
+            .sort()
+        : [];
+      const signature = requestedIds.join(',');
+      if (signature !== requestedSignatureRef.current) {
+        requestedSignatureRef.current = signature;
+        void loadRideRequestsRef.current();
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user?.id, navigation]);
+
+  useEffect(() => {
+    void loadRideRequestsRef.current();
+  }, [coords]);
 
   const handleSelectRide = (ride: RideRequest) => {
     setSelectedRide(ride);

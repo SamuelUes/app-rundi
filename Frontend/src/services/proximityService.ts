@@ -50,7 +50,8 @@ const STORAGE_KEYS = {
   registrationUploadsSetAt: 'proximity:registrationUploadsSetAt',
 };
 
-const THROTTLE_MS = 15000; // no más de 1 chequeo cada 15s
+const THROTTLE_MS = 15000; // no más de 1 chequeo cada 15s en background
+const FOREGROUND_THROTTLE_MS = 30000; // en foreground limitar a 1 chequeo cada 30s
 const SUPPRESSION_MS = 60000; // suprime notificación 60s después de disparar una
 const DISMISS_TTL_MS = 5 * 60 * 1000; // mantener rides rechazados fuera por 5 minutos
 const AUTO_DISMISS_TTL_MS = 60 * 1000; // tras auto-cierre, no re-mostrar por aproximación durante 1 minuto
@@ -504,11 +505,11 @@ async function getNearbyRides(
   }
 }
 
-async function shouldThrottle(): Promise<boolean> {
+async function shouldThrottle(minIntervalMs: number): Promise<boolean> {
   const now = Date.now();
   const lastCheck = Number(await AsyncStorage.getItem(STORAGE_KEYS.lastCheckAt)) || 0;
   const suppressionUntil = Number(await AsyncStorage.getItem(STORAGE_KEYS.suppressionUntil)) || 0;
-  if (now - lastCheck < THROTTLE_MS) return true;
+  if (now - lastCheck < minIntervalMs) return true;
   if (now < suppressionUntil) return true;
   return false;
 }
@@ -605,8 +606,10 @@ async function handleLocationForProximity(
       overrideProvided: options?.appStateOverride ? true : false,
       actualAppState: AppState.currentState,
     });
-    const applyThrottle = effectiveAppState !== 'active';
-    if (applyThrottle && (await shouldThrottle())) return;
+    // Throttle en ambos estados: en foreground el DriverHomeScreen invoca
+    // esto en cada fix de GPS (~2.5s) — sin límite eran ~20-24 callable/min.
+    const throttleMs = effectiveAppState === 'active' ? FOREGROUND_THROTTLE_MS : THROTTLE_MS;
+    if (await shouldThrottle(throttleMs)) return;
 
     const overlayEnabled = await getOverlayEnabled();
     console.log('🔍 [proximity] overlayEnabled:', overlayEnabled);

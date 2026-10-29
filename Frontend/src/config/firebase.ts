@@ -8,7 +8,7 @@ import {
   getReactNativePersistence
 } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
-import { getDatabase, connectDatabaseEmulator } from 'firebase/database';
+import { getDatabase, connectDatabaseEmulator, ref, onValue } from 'firebase/database';
 import { getFunctions, connectFunctionsEmulator, type Functions } from 'firebase/functions';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
@@ -157,6 +157,21 @@ export async function getFirebaseFunctions(): Promise<Functions> {
   }
 
   return functions;
+}
+
+/**
+ * Pre-calienta la conexión de Realtime Database.
+ * El SDK abre el socket lazily en la primera suscripción — invocar esto al
+ * montar el stack hace que el handshake corra en paralelo con el preflight
+ * en vez de cuando HomeScreen monta sus listeners.
+ */
+export async function warmRealtimeDbConnection(): Promise<void> {
+  const db = await getFirebaseDatabase();
+  if (!db) return;
+  // onlyOnce: el SDK desuscribe tras el primer evento — no referenciar la
+  // función retornada dentro del callback (puede dispararse síncronamente
+  // antes de que onValue retorne).
+  onValue(ref(db, '.info/connected'), () => {}, { onlyOnce: true });
 }
 
 // Exportar configuración para compatibilidad

@@ -38,6 +38,10 @@ import { useClientPresence } from '../hooks/shared/presence/useClientPresence';
 import { useInitializeClientProfile } from '../hooks/client/ClientProfileSync/useClientProfileSync';
 import PreflightCheckScreen from '../screens/Shared/PreflightCheckScreen';
 import type { PreflightRouteConfig } from '../types/preflight';
+import { Platform } from 'react-native';
+import { useAuth } from '../hooks/shared/auth/useAuth';
+import { warmRealtimeDbConnection } from '../config/firebase';
+import preflightService from '../services/preflightService';
 
 export type ClientStackParamList = {
   ClientPreflight: PreflightRouteConfig;
@@ -174,10 +178,21 @@ const Stack = createNativeStackNavigator<ClientStackParamList>();
 
 export default function ClientStack() {
   const { colors } = useTheme();
+  const { user } = useAuth();
   // Mantener heartbeat del cliente en Realtime DB
   useClientPresence();
   // Inicializar perfil del cliente (cacheo automático en backend)
   useInitializeClientProfile();
+
+  // Warm-ups: socket RTDB + callable de preflight corren en paralelo con
+  // los checks locales del PreflightCheckScreen y el primer render.
+  React.useEffect(() => {
+    if (!user?.id) return;
+    warmRealtimeDbConnection().catch(() => {});
+    preflightService
+      .warmPreflightData({ role: 'client', userId: user.id, platform: Platform.OS })
+      .catch(() => {});
+  }, [user?.id]);
   
   return (
     <Stack.Navigator 

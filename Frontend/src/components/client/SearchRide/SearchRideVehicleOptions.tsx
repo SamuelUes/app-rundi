@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Image, type ImageSourcePropType } from 'react-native';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { ServiceFeatureOption } from '../../../services/servicesService';
 import { getFeatureAvailability, orderFeaturesBySelection } from '../../../utils/rideFeatures';
 type TrFunction = (path: string, options?: Record<string, any>) => string;

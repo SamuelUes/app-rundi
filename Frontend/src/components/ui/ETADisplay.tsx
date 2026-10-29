@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { LoadingIcon } from '../ui/LoadingIcon';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import firebaseTrackingService from '../../services/firebaseTrackingService';
 import { httpsCallable } from 'firebase/functions';

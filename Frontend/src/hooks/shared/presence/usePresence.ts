@@ -166,18 +166,21 @@ export function usePresence() {
           console.log('⚠️ Usuario no autenticado en Firebase Auth, esperando...');
           return;
         }
-        const functions = await getFirebaseFunctions();
+        // Tres lecturas independientes: functions, deviceId y availability.
+        const [functions, deviceId, availability] = await Promise.all([
+          getFirebaseFunctions(),
+          sessionService.getDeviceId(),
+          driverAvailabilityService.getAvailabilityState(),
+        ]);
 
         const markActive = httpsCallable(functions, 'markAppActive');
         const markClosed = httpsCallable(functions, 'markAppClosed');
         actionsRef.current = { markActive, markClosed };
 
-        const deviceId = await sessionService.getDeviceId();
         if (__DEV__) {
           const ownership = await sessionService.getSessionOwnershipDiagnostic().catch(() => null);
           if (ownership) console.log('[usePresence] Session ownership:', ownership);
         }
-        const availability = await driverAvailabilityService.getAvailabilityState();
         const preserveAvailability =
           initializedPresenceUidRef.current === user.id && Boolean(availability?.isAvailable);
         await runWithSessionRecovery(() =>

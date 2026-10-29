@@ -14,7 +14,8 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import { Ionicons, FontAwesome } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -713,8 +714,8 @@ export default function DriverDataScreen({ navigation, route }: Props) {
                 accessibilityRole="button"
                 activeOpacity={0.8}
               >
-                <FontAwesome
-                  name="drivers-license-o"
+                <MaterialIcons
+                  name="badge"
                   size={16}
                   color={
                     activeTab === 'license' ? readableGold : colors.textSecondary

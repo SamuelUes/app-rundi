@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-28T00:00:00.000Z",
+  "title": "Design System: Rundi — Ride Search",
+  "extensions": {
+    "colorMeta": {
+      "accent-brass": { "role": "primary", "displayName": "Brass", "canonical": "oklch(58% 0.11 82)", "tonalRamp": ["#2b1f07", "#453510", "#5e4a19", "#7a6123", "#967a2e", "#b38737", "#d3a94e", "#f0cd78"] },
+      "accent-strong": { "role": "primary", "displayName": "Brass Strong (light)", "canonical": "oklch(62% 0.13 80)", "tonalRamp": ["#342708", "#4d3a0f", "#664d17", "#816020", "#9d752a", "#c38d28", "#ddaa45", "#f4cb74"] },
+      "accent-strong-dark": { "role": "primary", "displayName": "Brass Strong (dark)", "canonical": "oklch(82% 0.12 85)", "tonalRamp": ["#5e4a19", "#7a6123", "#967a2e", "#b38737", "#cfa04b", "#e8c47f", "#f4d9a8", "#fbeecd"] },
+      "accent-soft": { "role": "primary", "displayName": "Brass Wash", "canonical": "oklch(94% 0.03 85)", "tonalRamp": ["#b387370d", "#b387371a", "#b387372e", "#b3873742", "#b3873759", "#b3873773", "#b3873790", "#b38737b0"] },
+      "surface": { "role": "neutral", "displayName": "Warm Surface", "canonical": "oklch(96% 0.004 90)", "tonalRamp": ["#121212", "#1E1E1E", "#2C2C2C", "#3A3A3A", "#666666", "#B3B3B3", "#E0E0E0", "#F5F5F5"] },
+      "card": { "role": "neutral", "displayName": "Card White", "canonical": "oklch(100% 0 0)", "tonalRamp": ["#121212", "#1E1E1E", "#2C2C2C", "#4F4F4F", "#8a8a8a", "#c9c9c9", "#ededed", "#ffffff"] },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "oklch(13% 0.005 90)", "tonalRamp": ["#000000", "#262626", "#4a4a4a", "#666666", "#8f8f8f", "#b3b3b3", "#d9d9d9", "#ffffff"] },
+      "border": { "role": "neutral", "displayName": "Hairline", "canonical": "oklch(90% 0.005 90)", "tonalRamp": ["#3A3A3A", "#565656", "#737373", "#909090", "#adadad", "#c6c6c6", "#e0e0e0", "#f5f5f5"] }
+    },
+    "typographyMeta": {
+      "label-uppercase": { "displayName": "Label Uppercase", "purpose": "Section captions and metric labels inside the panel." },
+      "price": { "displayName": "Price", "purpose": "Largest type in the panel; always accent-strong + tabular-nums." }
+    },
+    "shadows": [
+      { "name": "sheet", "value": "0 0 12px rgba(0,0,0,0.15)", "purpose": "Only large shadow; separates the bottom sheet from the map." },
+      { "name": "floating", "value": "0 4px 10px rgba(0,0,0,0.12)", "purpose": "Floating map controls (back button, route bubble, pins)." },
+      { "name": "chip-selected", "value": "0 1px 4px rgba(0,0,0,0.08)", "purpose": "iOS-only micro-shadow on the selected mode chip." }
+    ],
+    "motion": [
+      { "name": "sheet-spring", "value": "damping 26, stiffness 300", "purpose": "Reanimated spring for sheet collapse/expand and snap on release." }
+    ],
+    "breakpoints": [
+      { "name": "sheet-collapsed", "value": "29px handle + peek content + CTA block" },
+      { "name": "sheet-expanded", "value": "min(68vh, handle + form + CTA)" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Vehicle Option Card",
+      "kind": "card",
+      "refersTo": "vehicle-option-card",
+      "description": "Selectable ride option row inside the sheet; selection is a surface-tint wash, never a border.",
+      "html": "<div class=\"ds-opt ds-opt--selected\"><div class=\"ds-opt__bubble\"><svg width=\"28\" height=\"28\" viewBox=\"0 0 24 24\" fill=\"#b38737\"><path d=\"M5 11l1.5-4.5A2 2 0 0 1 8.4 5.5h7.2a2 2 0 0 1 1.9 1L19 11m-14 0h14a2 2 0 0 1 2 2v3h-2.5M5 11a2 2 0 0 0-2 2v3h2.5m0 0a2 2 0 1 0 4 0m-4 0h4m6 0a2 2 0 1 0 4 0m-4 0h4m-8 0h4\"/></svg></div><div class=\"ds-opt__text\"><div class=\"ds-opt__title\">Viaje Normal <span class=\"ds-pill\">&#128100; 4</span></div><div class=\"ds-opt__meta\">~7 min · Recomendado</div><div class=\"ds-opt__sub\">Servicio est&aacute;ndar de transporte urbano</div></div><div class=\"ds-opt__price\">~C$115</div></div>",
+      "css": ".ds-opt{display:flex;align-items:center;gap:12px;padding:10px;border:1.5px solid transparent;border-radius:16px;min-height:64px;font-family:system-ui}.ds-opt--selected{background:#F5F5F5}.ds-opt__bubble{width:52px;height:44px;border-radius:12px;background:#F5F5F5;display:flex;align-items:center;justify-content:center}.ds-opt--selected .ds-opt__bubble{background:rgba(179,135,55,.10)}.ds-opt__text{flex:1;min-width:0}.ds-opt__title{font-size:16px;font-weight:700;color:#000;display:flex;align-items:center;gap:8px}.ds-pill{font-size:13px;font-weight:700;color:#000;background:rgba(179,135,55,.10);border-radius:999px;padding:2px 7px}.ds-opt__meta{font-size:12.5px;color:#000;margin-top:1px}.ds-opt__sub{font-size:12.5px;color:#666;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-opt__price{font-size:17px;font-weight:800;color:#c38d28;font-variant-numeric:tabular-nums;margin-left:4px}"
+    },
+    {
+      "name": "Feature Card",
+      "kind": "chip",
+      "refersTo": "feature-card",
+      "description": "Selectable service feature chip in the horizontal rail; auto-width, icon + title + radio dot + impact.",
+      "html": "<div class=\"ds-feat ds-feat--on\"><div class=\"ds-feat__row\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"#b38737\"><path d=\"M12 2l2.4 7.2H22l-6 4.4 2.3 7.4-6.3-4.6-6.3 4.6L8 13.6 2 9.2h7.6z\"/></svg><span class=\"ds-feat__title\">Premium</span><span class=\"ds-feat__dot\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"#000\"><path d=\"M9 16.2l-3.5-3.5L4 14.2 9 19l11-11-1.5-1.5z\"/></svg></span></div><div class=\"ds-feat__impact\">Incluido</div></div>",
+      "css": ".ds-feat{min-width:140px;max-width:210px;min-height:64px;display:flex;flex-direction:column;justify-content:center;gap:4px;padding:8px 12px;border:1px solid #E0E0E0;border-radius:13px;background:#F5F5F5;font-family:system-ui}.ds-feat--on{border-color:rgba(179,135,55,.45);background:rgba(179,135,55,.10)}.ds-feat__row{display:flex;align-items:center;gap:6px}.ds-feat__title{font-size:13px;font-weight:700;color:#000}.ds-feat__dot{margin-left:auto;width:20px;height:20px;border-radius:10px;border:1px solid #666;display:flex;align-items:center;justify-content:center}.ds-feat--on .ds-feat__dot{border-color:rgba(179,135,55,.45);background:rgba(179,135,55,.45)}.ds-feat__impact{font-size:12px;font-weight:700;color:#000;font-variant-numeric:tabular-nums}"
+    },
+    {
+      "name": "Passenger Counter",
+      "kind": "input",
+      "refersTo": "counter-track",
+      "description": "Surface track holding card-colored circular minus/plus buttons with centered icon and count.",
+      "html": "<div class=\"ds-count\"><button class=\"ds-count__btn\">&minus;</button><span class=\"ds-count__value\">&#128100; 1</span><button class=\"ds-count__btn\">+</button></div>",
+      "css": ".ds-count{display:flex;align-items:center;justify-content:space-between;padding:4px;border-radius:14px;background:#F5F5F5;font-family:system-ui}.ds-count__btn{width:44px;height:44px;border-radius:22px;border:none;background:#fff;font-size:20px;font-weight:600;color:#000;cursor:pointer}.ds-count__btn:disabled{opacity:.35}.ds-count__value{display:flex;align-items:center;gap:6px;font-size:17px;font-weight:800;color:#000;font-variant-numeric:tabular-nums}"
+    },
+    {
+      "name": "Mode Chip",
+      "kind": "chip",
+      "refersTo": "mode-chip",
+      "description": "Designated-driver mode toggle (auto/moto); selected chip turns card-white with a micro-shadow.",
+      "html": "<div class=\"ds-mode\"><div class=\"ds-mode__chip ds-mode__chip--on\">Auto <span class=\"ds-mode__price\">~C$230</span></div><div class=\"ds-mode__chip\">Moto <span class=\"ds-mode__price\">~C$150</span></div></div>",
+      "css": ".ds-mode{display:flex;gap:4px;padding:4px;border-radius:14px;background:#F5F5F5;font-family:system-ui}.ds-mode__chip{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px;border-radius:11px;font-size:14px;font-weight:600;color:#666}.ds-mode__chip--on{background:#fff;color:#000;box-shadow:0 1px 4px rgba(0,0,0,.08)}.ds-mode__price{font-size:12px;color:#666;font-variant-numeric:tabular-nums}"
+    },
+    {
+      "name": "Collapsed Summary",
+      "kind": "card",
+      "refersTo": "collapsed-summary",
+      "description": "Peek content of the collapsed sheet: icon bubble, title, meta pills and price.",
+      "html": "<div class=\"ds-sum\"><div class=\"ds-sum__icon\"></div><div class=\"ds-sum__text\"><div class=\"ds-sum__title\">Viaje Normal</div><div class=\"ds-sum__meta\">2.2 km · 7 min</div></div><div class=\"ds-sum__pill\">&#128100; 1</div><div class=\"ds-sum__price\">C$70</div></div>",
+      "css": ".ds-sum{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #E0E0E0;border-radius:18px;background:#F5F5F5;font-family:system-ui}.ds-sum__icon{width:40px;height:40px;border-radius:13px;background:rgba(179,135,55,.10)}.ds-sum__text{flex:1;min-width:0}.ds-sum__title{font-size:15px;font-weight:800;color:#000}.ds-sum__meta{font-size:12px;color:#666;margin-top:2px}.ds-sum__pill{display:flex;align-items:center;gap:5px;border:1px solid #E0E0E0;border-radius:999px;padding:5px 10px;background:#fff;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}.ds-sum__price{font-size:19px;font-weight:800;color:#c38d28;font-variant-numeric:tabular-nums}"
+    },
+    {
+      "name": "Primary CTA",
+      "kind": "button",
+      "refersTo": "cta-primary",
+      "description": "Full-width brass action pinned under the sheet content; always visible in both sheet states.",
+      "html": "<button class=\"ds-cta\">Confirmar y solicitar viaje</button><button class=\"ds-cta2\">Agendar viaje</button>",
+      "css": ".ds-cta{display:block;width:100%;padding:15px;border:none;border-radius:16px;background:#b38737;color:#fff;font-family:system-ui;font-size:16px;font-weight:800;text-align:center;cursor:pointer}.ds-cta:disabled{opacity:.5}.ds-cta:active{opacity:.85}.ds-cta2{display:block;width:100%;margin-top:10px;padding:12px;border:1px solid rgba(179,135,55,.45);border-radius:14px;background:rgba(179,135,55,.10);color:#c38d28;font-family:system-ui;font-weight:700;text-align:center;cursor:pointer}.ds-cta2:disabled{opacity:.65}"
+    },
+    {
+      "name": "Sheet Handle",
+      "kind": "custom",
+      "refersTo": "bottom-sheet",
+      "description": "29px grab zone with a 44×5 hairline bar; pan to resize, tap to toggle.",
+      "html": "<div class=\"ds-handle\"><div class=\"ds-handle__bar\"></div></div>",
+      "css": ".ds-handle{display:flex;align-items:center;justify-content:center;height:29px}.ds-handle__bar{width:44px;height:5px;border-radius:20px;background:#E0E0E0}"
+    }
+  ],
+  "narrative": {
+    "northStar": "La tarjeta flota, el panel respira",
+    "overview": "SearchRideScreen is a map-first screen: the map fills the viewport and a draggable bottom sheet carries the whole form (route, vehicle, features, summary, CTA). The sheet has two states — collapsed peek (compact summary + CTA always visible) and expanded (max 68% of viewport) — animated with a physical spring (damping 26, stiffness 300) and a 44×5 handle. Inside the panel there is no shadow or colored-border hierarchy: selection is expressed only through background tints (surface/inputBg wash on the card, brass accentSoft on icons, pills and active chips). Depth comes from alternating two neutrals (surface vs card), never from elevation.",
+    "keyCharacteristics": [
+      "Selection = tint, never border nor prominent check",
+      "Two alternating neutrals nest controls; hairline dividers only",
+      "Single action color: brass #b38737 in three intensities (strong, soft, border)",
+      "Every numeral uses fontVariant tabular-nums",
+      "Large radii: 11–24px by container level, plus 999 pills"
+    ],
+    "rules": [
+      { "name": "The Tinted Selection Rule", "body": "A selected state never gains a visible border or big checkmark: it gains background. Card -> inputBg; icon bubble -> accentSoft; feature chip -> accentSoft + accentBorder. The option-card border stays permanently 1.5px transparent so selection causes no layout shift.", "section": "colors" },
+      { "name": "The Two-Neutral Rule", "body": "To nest a control inside the panel, invert the neutrals: a surface track holds card-colored buttons (counter, mode chips, meta pills). A third gray is forbidden; if surface is not enough, use accentSoft.", "section": "colors" },
+      { "name": "The Tabular Numbers Rule", "body": "Every visible digit (price, ETA minutes, passenger count, multipliers) uses fontVariant tabular-nums. A price that jitters while updating is a visual bug.", "section": "typography" },
+      { "name": "The No-Shadow-Inside Rule", "body": "Zero shadows inside the sheet except the iOS micro-shadow on the selected mode chip. If an element seems to need elevation, what it needs is surface/card contrast or accentSoft.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do express selection with background washes (inputBg, accentSoft); the check is a detail, not the mechanism",
+      "Do keep card borders transparent at fixed 1.5px for zero layout shift on select",
+      "Do use hairline (StyleSheet.hairlineWidth) to separate the expanded zone from the card header",
+      "Do auto-size chips to content (min/max-width), never truncate on fixed width",
+      "Do apply fontVariant tabular-nums to every digit"
+    ],
+    "donts": [
+      "Don't add shadows inside the sheet; use surface/card alternation or accentSoft",
+      "Don't put the brass accent on long body text or on non-card/surface backgrounds",
+      "Don't introduce a second action color inside the panel; warning/success are for real states only",
+      "Don't create a third neutral; lacking contrast is a structure problem, not a palette problem",
+      "Don't render separators thicker than hairline inside cards"
+    ]
+  }
+}
