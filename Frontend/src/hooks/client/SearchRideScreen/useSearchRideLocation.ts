@@ -163,17 +163,27 @@ export function useSearchRideLocation(
     }
   }, [originCoords, coords, manualOriginDraft, manualOriginAddress, origin, savedLocation?.coords, hasPinnedOrigin]);
 
-  // Destination selection mode: set initial draft
+  // Destination selection mode: set initial draft once per entry.
+  // No re-seedear mientras el usuario mueve el mapa: cada frame de pan
+  // actualiza manualDestinationDraft con el centro y este efecto lo
+  // restauraría al origen, produciendo un bucle ping-pong de setState
+  // ("Maximum update depth exceeded").
+  const destinationDraftSeededRef = useRef(false);
   useEffect(() => {
     if (mapSelectionMode === 'destination') {
+      if (destinationDraftSeededRef.current) return;
+      destinationDraftSeededRef.current = true;
       setManualDestinationDragging(false);
       const baseDestination =
         destinationCoords ?? manualOriginDraft ?? originCoords ?? coords ?? DEFAULT_FALLBACK_COORDS;
       if (!manualDestinationDraft || metersBetween(manualDestinationDraft, baseDestination) > 5) {
         setManualDestinationDraft(baseDestination);
       }
-    } else if (manualDestinationDragging) {
-      setManualDestinationDragging(false);
+    } else {
+      destinationDraftSeededRef.current = false;
+      if (manualDestinationDragging) {
+        setManualDestinationDragging(false);
+      }
     }
   }, [mapSelectionMode, manualDestinationDraft, destinationCoords, manualOriginDraft, originCoords, coords, manualDestinationDragging]);
 
@@ -332,6 +342,7 @@ export function useSearchRideLocation(
   const originCenterIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastAppliedDestinationCenterRef = useRef<Coords | null>(null);
   const destinationCenterIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastExtraCenterRef = useRef<Coords | null>(null);
 
   const clearOriginIdleTimeout = useCallback(() => {
     if (originCenterIdleTimeoutRef.current) {
@@ -364,9 +375,96 @@ export function useSearchRideLocation(
         clearDestinationIdleTimeout();
         setManualDestinationDragging(true);
         setManualDestinationDraft(center);
+      } else if (mapSelectionMode) {
+        // Modos de parada extra: el pin central también está activo,
+        // guardamos el último centro para la confirmación manual.
+        lastExtraCenterRef.current = center;
       }
     },
     [clearDestinationIdleTimeout, clearOriginIdleTimeout, mapSelectionMode],
+  );
+
+  const applyCenterPinOrigin = useCallback(
+    async (center: Coords) => {
+      const last = lastAppliedOriginCenterRef.current;
+      if (last && metersBetween(last, center) < 20) return;
+      setManualOriginLoading(true);
+      try {
+        const validation = await validateLocationForContext(center, 'origin');
+        if (!validation) return;
+        const coordLabel = formatCoords(center);
+        let address: string | null = null;
+        try {
+          address = await mapsService.reverseGeocode(center);
+        } catch (reverseError) {
+          console.warn('reverseGeocode origin (center pin) failed', reverseError);
+        }
+        const displayAddress = address?.trim()?.length ? address : coordLabel;
+
+        setManualOriginAddress(displayAddress);
+        setOriginCoords(center);
+        setOrigin(displayAddress);
+        setHasManualOriginOverride(true);
+        rememberRecentLocation(displayAddress, center);
+        lastAppliedOriginCenterRef.current = center;
+        await recomputeRouteWith(center, undefined, undefined);
+        promptDestinationSelection();
+      } catch (err) {
+        console.warn('center-pin origin selection failed', err);
+        const fallback = formatCoords(center);
+        setManualOriginAddress(fallback);
+        setOriginCoords(center);
+        setOrigin(fallback);
+        setHasManualOriginOverride(true);
+        rememberRecentLocation(fallback, center);
+        await recomputeRouteWith(center, undefined, undefined);
+        promptDestinationSelection();
+      } finally {
+        setManualOriginLoading(false);
+        setMapSelectionMode(null);
+        setManualOriginDraft(null);
+        setHasPinnedOrigin(true);
+        clearOriginIdleTimeout();
+      }
+    },
+    [clearOriginIdleTimeout, rememberRecentLocation, recomputeRouteWith, promptDestinationSelection, validateLocationForContext],
+  );
+
+  const applyCenterPinDestination = useCallback(
+    async (center: Coords) => {
+      const last = lastAppliedDestinationCenterRef.current;
+      if (last && metersBetween(last, center) < 20) return;
+      setManualDestinationLoading(true);
+      try {
+        const coordLabel = formatCoords(center);
+        let address: string | null = null;
+        try {
+          address = await mapsService.reverseGeocode(center);
+        } catch (reverseError) {
+          console.warn('reverseGeocode destination (center pin) failed', reverseError);
+        }
+        const displayAddress = address?.trim()?.length ? address : coordLabel;
+
+        setDestination(displayAddress);
+        setDestinationCoords(center);
+        rememberRecentLocation(displayAddress, center);
+        lastAppliedDestinationCenterRef.current = center;
+        await recomputeRouteWith(undefined, center, undefined);
+      } catch (err) {
+        console.warn('center-pin destination selection failed', err);
+        const fallback = formatCoords(center);
+        setDestination(fallback);
+        setDestinationCoords(center);
+        rememberRecentLocation(fallback, center);
+        await recomputeRouteWith(undefined, center, undefined);
+      } finally {
+        setManualDestinationLoading(false);
+        setMapSelectionMode(null);
+        setManualDestinationDraft(null);
+        clearDestinationIdleTimeout();
+      }
+    },
+    [clearDestinationIdleTimeout, rememberRecentLocation, recomputeRouteWith],
   );
 
   const handleRegionChangeCompleteCenter = useCallback(
@@ -374,47 +472,8 @@ export function useSearchRideLocation(
       if (mapSelectionMode === 'origin') {
         setManualOriginDragging(false);
         clearOriginIdleTimeout();
-        originCenterIdleTimeoutRef.current = setTimeout(async () => {
-          const last = lastAppliedOriginCenterRef.current;
-          if (last && metersBetween(last, center) < 20) return;
-          setManualOriginLoading(true);
-          try {
-            const validation = await validateLocationForContext(center, 'origin');
-            if (!validation) return;
-            const coordLabel = formatCoords(center);
-            let address: string | null = null;
-            try {
-              address = await mapsService.reverseGeocode(center);
-            } catch (reverseError) {
-              console.warn('reverseGeocode origin (center pin) failed', reverseError);
-            }
-            const displayAddress = address?.trim()?.length ? address : coordLabel;
-
-            setManualOriginAddress(displayAddress);
-            setOriginCoords(center);
-            setOrigin(displayAddress);
-            setHasManualOriginOverride(true);
-            rememberRecentLocation(displayAddress, center);
-            lastAppliedOriginCenterRef.current = center;
-            await recomputeRouteWith(center, undefined, undefined);
-            promptDestinationSelection();
-          } catch (err) {
-            console.warn('center-pin origin selection failed', err);
-            const fallback = formatCoords(center);
-            setManualOriginAddress(fallback);
-            setOriginCoords(center);
-            setOrigin(fallback);
-            setHasManualOriginOverride(true);
-            rememberRecentLocation(fallback, center);
-            await recomputeRouteWith(center, undefined, undefined);
-            promptDestinationSelection();
-          } finally {
-            setManualOriginLoading(false);
-            setMapSelectionMode(null);
-            setManualOriginDraft(null);
-            setHasPinnedOrigin(true);
-            clearOriginIdleTimeout();
-          }
+        originCenterIdleTimeoutRef.current = setTimeout(() => {
+          void applyCenterPinOrigin(center);
         }, REGION_IDLE_DELAY_MS);
         return;
       }
@@ -422,42 +481,18 @@ export function useSearchRideLocation(
       if (mapSelectionMode !== 'destination') return;
       setManualDestinationDragging(false);
       clearDestinationIdleTimeout();
-      destinationCenterIdleTimeoutRef.current = setTimeout(async () => {
-        const last = lastAppliedDestinationCenterRef.current;
-        if (last && metersBetween(last, center) < 20) return;
-        setManualDestinationLoading(true);
-        try {
-          const coordLabel = formatCoords(center);
-          let address: string | null = null;
-          try {
-            address = await mapsService.reverseGeocode(center);
-          } catch (reverseError) {
-            console.warn('reverseGeocode destination (center pin) failed', reverseError);
-          }
-          const displayAddress = address?.trim()?.length ? address : coordLabel;
-
-          setDestination(displayAddress);
-          setDestinationCoords(center);
-          rememberRecentLocation(displayAddress, center);
-          lastAppliedDestinationCenterRef.current = center;
-          await recomputeRouteWith(undefined, center, undefined);
-        } catch (err) {
-          console.warn('center-pin destination selection failed', err);
-          const fallback = formatCoords(center);
-          setDestination(fallback);
-          setDestinationCoords(center);
-          rememberRecentLocation(fallback, center);
-          await recomputeRouteWith(undefined, center, undefined);
-        } finally {
-          setManualDestinationLoading(false);
-          setMapSelectionMode(null);
-          setManualDestinationDraft(null);
-          clearDestinationIdleTimeout();
-        }
+      destinationCenterIdleTimeoutRef.current = setTimeout(() => {
+        void applyCenterPinDestination(center);
       }, REGION_IDLE_DELAY_MS);
     },
-    [clearDestinationIdleTimeout, clearOriginIdleTimeout, mapSelectionMode, rememberRecentLocation, recomputeRouteWith, promptDestinationSelection, validateLocationForContext],
+    [applyCenterPinDestination, applyCenterPinOrigin, clearDestinationIdleTimeout, clearOriginIdleTimeout, mapSelectionMode],
   );
+
+  // Confirmación manual del pin central: mismo flujo que el auto-idle,
+  // pero inmediato — respaldo por si el gesto/idle no responde.
+  // Definido más abajo (tras handleMapPress) para poder reutilizarlo
+  // también en los modos de paradas extra.
+
 
   const handleMapPress = useCallback(
     async (event: { latitude: number; longitude: number }) => {
@@ -509,6 +544,45 @@ export function useSearchRideLocation(
     [mapSelectionMode, applySelectionForTarget, destinationCoords, originCoords, extraDestinations.length],
   );
 
+  // Confirmación manual del pin central: mismo flujo que el auto-idle/tap,
+  // pero inmediato — respaldo por si el gesto no responde.
+  const confirmCenterPinSelection = useCallback(() => {
+    if (mapSelectionMode === 'origin') {
+      const center = manualOriginDraft ?? originCoords ?? coords;
+      if (!center) return;
+      setManualOriginDragging(false);
+      clearOriginIdleTimeout();
+      void applyCenterPinOrigin(center);
+      return;
+    }
+    if (mapSelectionMode === 'destination') {
+      const center =
+        manualDestinationDraft ?? destinationCoords ?? manualOriginDraft ?? originCoords ?? coords;
+      if (!center) return;
+      setManualDestinationDragging(false);
+      clearDestinationIdleTimeout();
+      void applyCenterPinDestination(center);
+      return;
+    }
+    if (mapSelectionMode) {
+      const center = lastExtraCenterRef.current ?? manualOriginDraft ?? originCoords ?? coords;
+      if (!center) return;
+      void handleMapPress(center);
+    }
+  }, [
+    mapSelectionMode,
+    manualOriginDraft,
+    manualDestinationDraft,
+    originCoords,
+    destinationCoords,
+    coords,
+    clearOriginIdleTimeout,
+    clearDestinationIdleTimeout,
+    applyCenterPinOrigin,
+    applyCenterPinDestination,
+    handleMapPress,
+  ]);
+
   const manualOriginMarkerPosition = useMemo(() => {
     if (manualOriginDraft) return manualOriginDraft;
     if (originCoords) return originCoords;
@@ -525,6 +599,7 @@ export function useSearchRideLocation(
     handleManualOriginDragEnd,
     handleRegionChangeCenter,
     handleRegionChangeCompleteCenter,
+    confirmCenterPinSelection,
     handleMapPress,
     manualOriginMarkerPosition,
     promptDestinationSelection,

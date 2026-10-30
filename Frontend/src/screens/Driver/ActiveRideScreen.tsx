@@ -10,6 +10,8 @@ import {
   Animated,
 } from 'react-native';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import FloatingCompass from '../../components/driver/FloatingCompass';
 import alertService from '../../services/alertService';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { MapSkeleton } from '../../components/ui/SkeletonLoader';
@@ -51,7 +53,8 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   useKeepAwake();
   const { colors } = useTheme();
   const { t } = useTranslation();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
+  const styles = useMemo(() => createStyles(colors, insets), [colors, insets]);
   const { user } = useAuth();
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
   const { coords } = useLocation(DRIVER_LOCATION_OPTIONS);
@@ -90,6 +93,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const [routePolyline, setRoutePolyline] = useState<any[]>([]);
   const [pickupLegPolyline, setPickupLegPolyline] = useState<any[]>([]);
   const [stopsLegPolyline, setStopsLegPolyline] = useState<any[]>([]);
+  const [recenterTarget, setRecenterTarget] = useState<{ latitude: number; longitude: number } | null>(null);
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
   const [voicePaused, setVoicePaused] = useState(false);
   const [progressNow, setProgressNow] = useState(() => Date.now());
@@ -103,6 +107,12 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   useEffect(() => {
     coordsRef.current = coords;
   }, [coords]);
+
+  const handleCompassPress = useCallback(() => {
+    const current = coordsRef.current;
+    if (!current) return;
+    setRecenterTarget({ latitude: current.latitude, longitude: current.longitude });
+  }, []);
 
   useEffect(() => {
     setInspectionCompletedLocally(false);
@@ -998,6 +1008,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
             markerType="car"
             markerVehicleIconSource={captainVehicleIcon}
             markerVehicleHeading={typeof coords.heading === 'number' && Number.isFinite(coords.heading) ? coords.heading : undefined}
+            cameraTarget={recenterTarget}
             nearbyDrivers={followerMarkers}
             originMarker={(isAccepted || isDriverOnRoute || isDriverArrived) && ride?.origin ? {
               latitude: ride.origin.lat || ride.origin.latitude,
@@ -1033,6 +1044,12 @@ export default function ActiveRideScreen({ route, navigation }: any) {
           <MapSkeleton />
         )}
       </View>
+
+      <FloatingCompass
+        heading={coords?.heading}
+        onPress={handleCompassPress}
+        style={styles.compass}
+      />
 
       {/* Bottom Sheet Colapsable */}
       <Animated.View style={[styles.bottomSheet, { height: panelHeight }]}>
@@ -1161,7 +1178,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   );
 }
 
-const createStyles = (colors: any) => StyleSheet.create({
+const createStyles = (colors: any, insets: { top: number; bottom: number }) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -1169,6 +1186,10 @@ const createStyles = (colors: any) => StyleSheet.create({
   mapContainer: {
     flex: 1,
     width: '100%',
+  },
+  compass: {
+    top: insets.top + 12,
+    right: 16,
   },
   loadingContainer: {
     flex: 1,

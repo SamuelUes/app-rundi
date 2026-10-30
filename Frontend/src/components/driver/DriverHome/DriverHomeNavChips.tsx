@@ -28,8 +28,9 @@ const NAV_CHIPS: NavChipConfig[] = [
     driverOnly: true,
   },
   { route: 'RideHistory', icon: 'receipt-long', labelKey: 'driver.home.menu.history' },
-  { route: 'PaymentMethods', icon: 'credit-card', labelKey: 'driver.home.menu.paymentMethods' },
+  // { route: 'PaymentMethods', icon: 'credit-card', labelKey: 'driver.home.menu.paymentMethods' },
   { route: 'Settings', icon: 'settings', labelKey: 'driver.home.menu.settings' },
+   { route: 'SupportComplaints', icon: 'support-agent', labelKey: 'shared.profile.support.title' },
   { route: 'Help', icon: 'help-outline', labelKey: 'driver.home.menu.help' },
 ];
 

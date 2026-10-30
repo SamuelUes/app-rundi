@@ -1466,6 +1466,12 @@ const driver = {
               'The client did not respond in time. Your offer was withdrawn and the ride is available to other drivers.',
           },
         },
+        compass: {
+          accessibility: {
+            label: 'Compass. Heading {{degrees}} degrees. Tap to center the map facing north.',
+            labelUnknown: 'Compass. Tap to center the map facing north.',
+          },
+        },
       };
 
 export default driver;

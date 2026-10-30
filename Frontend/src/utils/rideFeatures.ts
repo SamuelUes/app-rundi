@@ -72,10 +72,16 @@ export function getSelectedFeatureCodes(
 export function orderFeaturesBySelection(
   features: ServiceFeatureOption[],
   selectedCodes: readonly string[],
+  at?: Date,
 ): ServiceFeatureOption[] {
   const selected = new Set(selectedCodes);
+  const rank = (feature: ServiceFeatureOption) => {
+    if (selected.has(feature.code)) return 0;
+    if (at && getFeatureAvailability(feature, at) !== 'eligible') return 2;
+    return 1;
+  };
   return [...features].sort((left, right) => {
-    const selectedOrder = Number(!selected.has(left.code)) - Number(!selected.has(right.code));
-    return selectedOrder || left.priority - right.priority || left.code.localeCompare(right.code);
+    const rankOrder = rank(left) - rank(right);
+    return rankOrder || left.priority - right.priority || left.code.localeCompare(right.code);
   });
 }

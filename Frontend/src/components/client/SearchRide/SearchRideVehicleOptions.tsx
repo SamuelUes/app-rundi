@@ -35,6 +35,15 @@ const ION_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> =
   'check-circle': 'checkmark-circle',
   'chevron-right': 'chevron-forward',
   'expand-more': 'chevron-down',
+  'expand-less': 'chevron-up',
+  close: 'close',
+  search: 'search',
+  'my-location': 'locate',
+  map: 'map-outline',
+  place: 'location-outline',
+  star: 'star',
+  history: 'time-outline',
+  schedule: 'time-outline',
   route: 'navigate',
   payments: 'cash',
   sell: 'pricetag',
@@ -122,7 +131,7 @@ const FEATURE_ICONS: Record<string, IconName> = {
   pet_friendly: 'pets',
 };
 
-const VEHICLE_OPTION_IMAGES: Record<VehicleType, ImageSourcePropType> = {
+export const VEHICLE_OPTION_IMAGES: Record<VehicleType, ImageSourcePropType> = {
   moto: require('../../../assets/images/searchImage/moto-services.png'),
   auto: require('../../../assets/images/searchImage/auto-services.png'),
   designated_driver: require('../../../assets/images/searchImage/designated-services.png'),
@@ -219,7 +228,7 @@ export function SearchRideVehicleOptions({
             !designatedDriverEligibility.motoEligible &&
             (designatedDriverEstimates.moto.price ?? 0) > 0;
           const showFeatureRail = isSelected && featuresCatalogAvailable && serviceFeatures.length > 0;
-          const orderedFeatures = orderFeaturesBySelection(serviceFeatures, selectedFeatureCodes);
+          const orderedFeatures = orderFeaturesBySelection(serviceFeatures, selectedFeatureCodes, calculationAt);
 
           return (
             <View key={option.type} style={[styles.vehicleOptionCard, isSelected && styles.vehicleOptionCardSelected]}>
@@ -245,10 +254,10 @@ export function SearchRideVehicleOptions({
                     <Text style={styles.vehicleOptionTitle} numberOfLines={1}>
                       {option.label}
                     </Text>
-                    <View style={styles.vehicleOptionPassengerDisplay}>
+                    {/* <View style={styles.vehicleOptionPassengerDisplay}>
                       <RideIcon name="person" iconSet={iconSet} size={13} color={iconColor} />
                       <Text style={styles.vehicleOptionPassengerValue}>{passengers}</Text>
-                    </View>
+                    </View> */}
                   </View>
                   <Text style={styles.vehicleOptionMeta} numberOfLines={1}>
                     {etaLabel}
@@ -375,23 +384,27 @@ export function SearchRideVehicleOptions({
                                   : tr('features.notSelected'),
                               })}
                             >
-                              <View style={styles.vehicleFeatureCardTitleRow}>
-                                <RideIcon name={icon} iconSet={iconSet} size={16} color={conditionDisabled ? metaColor : iconColor} />
+                              <RideIcon
+                                name={icon}
+                                iconSet={iconSet}
+                                size={18}
+                                color={conditionDisabled ? metaColor : iconColor}
+                              />
+                              <View style={styles.vehicleFeatureCardBody}>
                                 <Text style={styles.vehicleFeatureCardTitle} numberOfLines={1}>
                                   {featureTitle(feature)}
                                 </Text>
-                                <View style={[styles.vehicleFeatureToggle, selected && styles.vehicleFeatureToggleSelected]}>
-                                  {selected ? <RideIcon name="check" iconSet={iconSet} size={12} color={textColor} /> : null}
-                                </View>
-                              </View>
-                              <Text style={styles.vehicleFeatureImpact} numberOfLines={1}>
-                                {featureImpact(feature)}
-                              </Text>
-                              {statusHint ? (
-                                <Text style={styles.vehicleFeatureCondition} numberOfLines={1}>
-                                  {statusHint}
+                                <Text style={styles.vehicleFeatureCardMeta} numberOfLines={1}>
+                                  {`${featureImpact(feature)}${statusHint ? ` · ${statusHint}` : ''}`}
                                 </Text>
-                              ) : null}
+                              </View>
+                              {conditionDisabled ? null : (
+                                <View
+                                  style={[styles.vehicleFeatureToggle, selected && styles.vehicleFeatureToggleSelected]}
+                                >
+                                  {selected ? <RideIcon name="check" iconSet={iconSet} size={12} color="#FFFFFF" /> : null}
+                                </View>
+                              )}
                             </TouchableOpacity>
                           );
                         })}

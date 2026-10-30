@@ -15,6 +15,7 @@ const MAP_TRAFFIC_STORAGE_KEY = '@rundi_map_traffic';
 export const lightColors = {
   background: '#FFFFFF',
   surface: '#F5F5F5',
+  surface2: '#ededed',
   card: '#FFFFFF',
   text: '#000000',
   textSecondary: '#666666',
@@ -36,7 +37,7 @@ export const lightColors = {
 export const darkColors = {
   background: '#121212',
   surface: '#1E1E1E',
-  surface2: '#2F2F2F',
+  surface2: '#484848',
   card: '#2C2C2C',
   card2: '#4f4f4f',
   text: '#FFFFFF',

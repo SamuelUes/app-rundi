@@ -1441,6 +1441,12 @@ const driver = {
               'El cliente no respondió a tiempo. Tu oferta fue retirada y el viaje quedó disponible para otros conductores.',
           },
         },
+        compass: {
+          accessibility: {
+            label: 'Brújula. Orientación {{degrees}} grados. Toca para centrar el mapa mirando al norte.',
+            labelUnknown: 'Brújula. Toca para centrar el mapa mirando al norte.',
+          },
+        },
        };
 
 export default driver;

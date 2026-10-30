@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import type { TFunction } from 'i18next';
 
 interface AvailableRidesEmptyProps {
@@ -117,7 +118,7 @@ export function AvailableRidesEmpty({
               { backgroundColor: isDark ? 'rgba(212,175,55,0.22)' : 'rgba(179,135,55,0.16)' },
             ]}
           >
-            <MaterialIcons name="directions-car" size={30} color={colors.primary} />
+            <Ionicons name="car-sport-sharp" size={30} color={colors.primary} />
           </View>
         </View>
       </View>

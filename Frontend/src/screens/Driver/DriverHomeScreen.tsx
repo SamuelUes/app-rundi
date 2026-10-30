@@ -40,6 +40,7 @@ import { useDesignatedCrew } from '../../hooks/driver/DriverHomeScreen/useDesign
 import { DesignatedCrewChip } from '../../components/driver/DesignatedCrew/DesignatedCrewChip';
 import { DesignatedCrewSearchModal } from '../../components/driver/DesignatedCrew/DesignatedCrewSearchModal';
 import { DesignatedCrewInviteCard } from '../../components/driver/DesignatedCrew/DesignatedCrewInviteCard';
+import FloatingCompass from '../../components/driver/FloatingCompass';
 import designatedCrewService from '../../services/designatedCrewService';
 import alertService from '../../services/alertService';
 import type { ImageSourcePropType } from 'react-native';
@@ -97,6 +98,11 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   useDriverProximityTracking();
   const { membership: crewMembership, partner: crewPartner, invite: crewInvite, isFollower } = useDesignatedCrew(user?.id, navigation);
   const [crewSearchVisible, setCrewSearchVisible] = useState(false);
+  const [recenterTarget, setRecenterTarget] = useState<{ latitude: number; longitude: number } | null>(null);
+  const handleCompassPress = useCallback(() => {
+    if (!coords) return;
+    setRecenterTarget({ latitude: coords.latitude, longitude: coords.longitude });
+  }, [coords]);
 
   const [rechargeFundsSummaryInitial] = useState(() => {
     const summary = preflightSummary?.preflightData?.rechargeFunds;
@@ -284,6 +290,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           longitude={coords.longitude}
           markerType="car"
           markerPosition={{ latitude: coords.latitude, longitude: coords.longitude }}
+          cameraTarget={recenterTarget}
           rideRequests={visibleRideRequests}
           requestPinScale={1.2}
           markerVehicleType={currentVehicleType ?? undefined}
@@ -341,6 +348,12 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           onNavigateProfile={() => navigation.navigate('DriverProfile')}
           styles={styles}
           t={t}
+        />
+
+        <FloatingCompass
+          heading={coords.heading}
+          onPress={handleCompassPress}
+          style={styles.compass}
         />
       </View>
 
@@ -445,6 +458,10 @@ const createStyles = (
     leftHeaderGroup: {
       gap: 10,
       alignItems: 'center',
+    },
+    compass: {
+      top: insets.top + 66,
+      right: 16,
     },
     chipButton: {
       width: 48,

@@ -11,10 +11,11 @@ import {
   Platform,
   Animated,
   Easing,
+  Image,
   useWindowDimensions,
+  BackHandler,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Reanimated, {
   Extrapolation,
@@ -49,10 +50,15 @@ import { useSearchRideSubmission } from '../../hooks/client/SearchRideScreen/use
 import { useVehiclePhoto } from '../../hooks/client/SearchRideScreen/useVehiclePhoto';
 import { useDriversAvailability } from '../../hooks/client/SearchRideScreen/useDriversAvailability';
 import { SearchRideRouteBubble } from '../../components/client/SearchRide/SearchRideRouteBubble';
-import { SearchRideVehicleOptions, RideIcon } from '../../components/client/SearchRide/SearchRideVehicleOptions';
+import {
+  SearchRideVehicleOptions,
+  RideIcon,
+  VEHICLE_OPTION_IMAGES,
+} from '../../components/client/SearchRide/SearchRideVehicleOptions';
 import { SearchRideSummary } from '../../components/client/SearchRide/SearchRideSummary';
 import { SearchRideCTA } from '../../components/client/SearchRide/SearchRideCTA';
 import { SearchRideSearchOverlay } from '../../components/client/SearchRide/SearchRideSearchOverlay';
+import { SearchRideConfirmPinButton } from '../../components/client/SearchRide/SearchRideConfirmPinButton';
 import { SearchRideScheduleModal } from '../../components/client/SearchRide/SearchRideScheduleModal';
 import type { RecurringRide } from '../../types/recurringRide';
 
@@ -120,6 +126,8 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
     manualOriginDraft, manualOriginAddress,
     manualOriginLoading, manualOriginDragging,
     manualDestinationDraft, manualDestinationLoading, manualDestinationDragging,
+    setManualOriginDraft, setManualDestinationDraft,
+    setManualOriginDragging, setManualDestinationDragging,
     extraStopSelectionLoading,
     hasPinnedOrigin, setHasPinnedOrigin,
     cameraTarget,
@@ -301,6 +309,7 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
     handleManualOriginDragStart,
     handleManualOriginDragEnd,
     handleRegionChangeCenter,
+    confirmCenterPinSelection,
     handleRegionChangeCompleteCenter,
     handleMapPress,
     manualOriginMarkerPosition,
@@ -668,13 +677,6 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
     return tr('search.selectionGenericTitle');
   }, [activeSelection, extraDestinations.length, tr]);
 
-  const selectionDescription = useMemo(() => {
-    if (activeSelection === 'origin') return tr('search.descriptionOrigin');
-    if (activeSelection === 'destination') return tr('search.descriptionDestination');
-    if (activeSelection === 'new-stop' || typeof activeSelection === 'number') return tr('search.descriptionExtra');
-    return tr('search.descriptionGeneric');
-  }, [activeSelection, tr]);
-
   const isDestinationSelection = activeSelection === 'destination';
   const shouldHighlightMapAction = isDestinationSelection && !destinationCoords;
   const hasConfirmedDestination = !!destinationCoords;
@@ -726,6 +728,54 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
   const autoFitEnabled = !centerPinActive && !manualOriginDragging && !manualOriginLoading && !manualDestinationDragging && !manualDestinationLoading;
   const showManualOriginMarker = (!centerPinActive && (hasPinnedOrigin || !!originCoords || !!manualOriginDraft)) || mapSelectionMode === 'destination';
   const bottomPanelReady = hasRouteMetrics && !calculatingRoute && !centerPinActive && !manualOriginDragging && !manualDestinationDragging && !manualOriginLoading && !manualDestinationLoading;
+
+  // Salir del modo de selección por pin sin tocar origen/destino/paradas ya
+  // confirmadas: solo limpia borradores y flags de arrastre.
+  const cancelMapSelection = useCallback(() => {
+    setManualOriginDragging(false);
+    setManualDestinationDragging(false);
+    setManualOriginDraft(null);
+    setManualDestinationDraft(null);
+    setMapSelectionMode(null);
+  }, [setManualOriginDragging, setManualDestinationDragging, setManualOriginDraft, setManualDestinationDraft, setMapSelectionMode]);
+
+  // Mientras se selecciona con el pin (o se arrastra el mapa), "atrás" no debe
+  // salir de la pantalla: la primera pulsación cancela la selección; la
+  // siguiente ya navega normal. Cubre botón físico, gesto iOS y botón propio.
+  useEffect(() => {
+    const interactionActive =
+      centerPinActive || manualOriginDragging || manualDestinationDragging || showSearchOverlay;
+    if (!interactionActive) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (showSearchOverlay) {
+        setShowSearchOverlay(false);
+        return true;
+      }
+      if (centerPinActive) cancelMapSelection();
+      return true;
+    });
+    return () => sub.remove();
+  }, [centerPinActive, manualOriginDragging, manualDestinationDragging, showSearchOverlay, setShowSearchOverlay, cancelMapSelection]);
+
+  useEffect(() => {
+    const unsubscribe = navigation?.addListener?.('beforeRemove', (event: any) => {
+      if (manualOriginDragging || manualDestinationDragging) {
+        event.preventDefault();
+        return;
+      }
+      if (centerPinActive) {
+        event.preventDefault();
+        cancelMapSelection();
+        return;
+      }
+      if (showSearchOverlay) {
+        event.preventDefault();
+        setShowSearchOverlay(false);
+      }
+    });
+    return unsubscribe;
+  }, [navigation, centerPinActive, manualOriginDragging, manualDestinationDragging, showSearchOverlay, setShowSearchOverlay, cancelMapSelection]);
+
   const { height: windowHeight } = useWindowDimensions();
   const sheetMaxHeight = Math.round(windowHeight * SHEET_EXPANDED_RATIO);
   const [peekContentHeight, setPeekContentHeight] = useState(140);
@@ -736,23 +786,30 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
     collapsedSheetHeight + 60,
     Math.min(sheetMaxHeight, SHEET_HANDLE_HEIGHT + formContentHeight + ctaBlockHeight + 8),
   );
+  const fullSheetHeight = Math.max(
+    expandedSheetHeight,
+    Math.round(windowHeight - insets.top - 8),
+  );
   const sheetHeight = useSharedValue(windowHeight * SHEET_EXPANDED_RATIO);
   const dragStartHeight = useSharedValue(0);
+  const [panelLevel, setPanelLevel] = useState(1);
 
   const expandSheet = useCallback(() => {
     sheetHeight.value = withSpring(expandedSheetHeight, SHEET_SPRING);
+    setPanelLevel(1);
     setBottomPanelExpanded(true);
   }, [expandedSheetHeight, sheetHeight, setBottomPanelExpanded]);
 
   const collapseSheet = useCallback(() => {
     sheetHeight.value = withSpring(collapsedSheetHeight, SHEET_SPRING);
+    setPanelLevel(0);
     setBottomPanelExpanded(false);
   }, [collapsedSheetHeight, sheetHeight, setBottomPanelExpanded]);
 
   const toggleSheet = useCallback(() => {
-    if (bottomPanelExpanded) collapseSheet();
+    if (panelLevel > 0) collapseSheet();
     else expandSheet();
-  }, [bottomPanelExpanded, collapseSheet, expandSheet]);
+  }, [panelLevel, collapseSheet, expandSheet]);
 
   const makeSheetPan = useCallback(
     () =>
@@ -765,17 +822,25 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
         .onUpdate((e) => {
           'worklet';
           const next = dragStartHeight.value - e.translationY;
-          sheetHeight.value = Math.min(Math.max(next, collapsedSheetHeight), expandedSheetHeight);
+          sheetHeight.value = Math.min(Math.max(next, collapsedSheetHeight), fullSheetHeight);
         })
         .onEnd((e) => {
           'worklet';
           const projected = sheetHeight.value - e.velocityY * 0.18;
-          const mid = (collapsedSheetHeight + expandedSheetHeight) / 2;
-          const target = projected >= mid ? expandedSheetHeight : collapsedSheetHeight;
+          const detents = [collapsedSheetHeight, expandedSheetHeight, fullSheetHeight];
+          let target = collapsedSheetHeight;
+          let targetLevel = 0;
+          for (let i = 0; i < detents.length; i += 1) {
+            if (Math.abs(projected - detents[i]) < Math.abs(projected - target)) {
+              target = detents[i];
+              targetLevel = i;
+            }
+          }
           sheetHeight.value = withSpring(target, SHEET_SPRING);
-          runOnJS(setBottomPanelExpanded)(target === expandedSheetHeight);
+          runOnJS(setPanelLevel)(targetLevel);
+          runOnJS(setBottomPanelExpanded)(targetLevel > 0);
         }),
-    [collapsedSheetHeight, expandedSheetHeight, dragStartHeight, sheetHeight, setBottomPanelExpanded],
+    [collapsedSheetHeight, expandedSheetHeight, fullSheetHeight, dragStartHeight, sheetHeight, setBottomPanelExpanded, setPanelLevel],
   );
   const handlePan = useMemo(() => {
     const tap = Gesture.Tap().onEnd(() => {
@@ -799,8 +864,8 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
   });
 
   const bottomPanelTranslate = useMemo(
-    () => bottomPanelAnim.interpolate({ inputRange: [0, 1], outputRange: [sheetMaxHeight + 60, 0] }),
-    [bottomPanelAnim, sheetMaxHeight],
+    () => bottomPanelAnim.interpolate({ inputRange: [0, 1], outputRange: [fullSheetHeight + 60, 0] }),
+    [bottomPanelAnim, fullSheetHeight],
   );
   const isLocationLoading = manualOriginLoading || manualDestinationLoading || extraStopSelectionLoading;
 
@@ -826,6 +891,7 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
   useEffect(() => {
     if (!bottomPanelReady) {
       sheetHeight.value = expandedSheetHeight;
+      setPanelLevel(1);
       setBottomPanelExpanded(true);
     }
   }, [bottomPanelReady, expandedSheetHeight, sheetHeight, setBottomPanelExpanded]);
@@ -833,10 +899,10 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
   // Keep the open sheet glued to the measured content height (e.g. when the
   // vehicle photo row appears or the form finishes measuring on first render).
   useEffect(() => {
-    if (bottomPanelReady && bottomPanelExpanded && Math.abs(sheetHeight.value - expandedSheetHeight) > 1) {
+    if (bottomPanelReady && panelLevel === 1 && Math.abs(sheetHeight.value - expandedSheetHeight) > 1) {
       sheetHeight.value = withTiming(expandedSheetHeight, { duration: 200 });
     }
-  }, [expandedSheetHeight, bottomPanelReady, bottomPanelExpanded, sheetHeight]);
+  }, [expandedSheetHeight, bottomPanelReady, panelLevel, sheetHeight]);
 
   return (
     <View style={styles.container}>
@@ -891,14 +957,27 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
         )}
       </View>
 
-      <TouchableOpacity
-        style={[styles.backButton, { top: insets.top + 12 }]}
-        onPress={() => navigation?.goBack?.()}
-        accessibilityLabel={tr('accessibility.back')}
-        accessibilityRole="button"
-      >
-        <Ionicons name="chevron-back" size={20} color={colors.text} />
-      </TouchableOpacity>
+      {centerPinActive ? (
+        <SearchRideConfirmPinButton
+          colors={colors}
+          bottom={insets.bottom + 28}
+          loading={isLocationLoading}
+          onPress={confirmCenterPinSelection}
+          tr={tr}
+        />
+      ) : null}
+
+      {panelLevel < 2 ? (
+        <TouchableOpacity
+          style={[styles.backButton, { top: insets.top + 12 }]}
+          onPress={() => (centerPinActive ? cancelMapSelection() : navigation?.goBack?.())}
+          disabled={showSearchOverlay}
+          accessibilityLabel={tr('accessibility.back')}
+          accessibilityRole="button"
+        >
+          <Ionicons name="chevron-back" size={20} color={colors.text} />
+        </TouchableOpacity>
+      ) : null}
 
       <SearchRideRouteBubble
         top={insets.top + 12}
@@ -1018,51 +1097,53 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
                   pointerEvents={bottomPanelExpanded ? 'none' : 'auto'}
                 >
                   <GestureDetector gesture={collapsedPan}>
-                    <TouchableOpacity activeOpacity={1} onPress={expandSheet} accessibilityRole="button">
+                    <TouchableOpacity
+                      activeOpacity={1}
+                      onPress={expandSheet}
+                      accessibilityRole="button"
+                      accessibilityLabel={tr('labels.viewOptions')}
+                    >
                       <View
                         style={styles.collapsedSummary}
                         onLayout={(e) => setPeekContentHeight(Math.round(e.nativeEvent.layout.height))}
                       >
                         <View style={styles.collapsedSummaryRow}>
-                          <View style={styles.collapsedSummaryIcon}>
-                            <RideIcon
-                              name={(selectedVehicleOption?.icon ?? 'directions-car') as never}
-                              size={20}
-                              color={colors.primary || '#b38737'}
-                            />
-                          </View>
+                          <Image
+                            source={VEHICLE_OPTION_IMAGES[vehicleType]}
+                            style={styles.collapsedSummaryImage}
+                            resizeMode="contain"
+                            accessibilityIgnoresInvertColors
+                          />
                           <View style={styles.collapsedSummaryText}>
-                            <Text style={styles.collapsedSummaryTitle} numberOfLines={1}>
-                              {selectedVehicleOption?.label ?? defaultLabels.service}
-                            </Text>
+                            <View style={styles.collapsedSummaryTitleRow}>
+                              <Text style={styles.collapsedSummaryTitle} numberOfLines={1}>
+                                {selectedVehicleOption?.label ?? defaultLabels.service}
+                              </Text>
+                              <View style={styles.collapsedSummaryPassengers}>
+                                <RideIcon name="person" size={12} color={colors.textSecondary || '#666666'} />
+                                <Text style={styles.collapsedSummaryPassengersText}>
+                                  {getPassengersForVehicle(vehicleType)}
+                                </Text>
+                              </View>
+                            </View>
                             <Text style={styles.collapsedSummaryMeta} numberOfLines={1}>
-                              {selectedVehicleOption?.subtitle ?? ''}
+                              {`${estimatedDistance > 0 ? estimatedDistance.toFixed(1) : '--'} km · ${
+                                calculatingRoute
+                                  ? tr('labels.calculating')
+                                  : estimatedDuration > 0
+                                  ? tr('labels.etaValue', { minutes: estimatedDuration })
+                                  : tr('labels.etaUnavailable')
+                              }${selectedVehicleOption?.subtitle ? ` · ${selectedVehicleOption.subtitle}` : ''}`}
                             </Text>
                           </View>
-                          <Text style={styles.collapsedSummaryPrice}>
-                            {formatPriceValue(vehicleEstimates[vehicleType]?.price ?? null)}
-                          </Text>
-                        </View>
-                        <View style={styles.collapsedSummaryMetaRow}>
-                          <View style={styles.collapsedSummaryMetaPill}>
-                            <MaterialIcons name="schedule" size={13} color={colors.textSecondary || '#666666'} />
-                            <Text style={styles.collapsedSummaryMetaPillText}>
-                              {calculatingRoute
-                                ? tr('labels.calculating')
-                                : estimatedDuration > 0
-                                ? tr('labels.etaValue', { minutes: estimatedDuration })
-                                : tr('labels.etaUnavailable')}
+                          <View style={styles.collapsedSummaryRight}>
+                            <Text style={styles.collapsedSummaryPrice}>
+                              {formatPriceValue(vehicleEstimates[vehicleType]?.price ?? null)}
                             </Text>
-                          </View>
-                          <View style={styles.collapsedSummaryMetaPill}>
-                            <MaterialIcons name="person" size={13} color={colors.textSecondary || '#666666'} />
-                            <Text style={styles.collapsedSummaryMetaPillText}>
-                              {tr('labels.passengersCount', { count: getPassengersForVehicle(vehicleType) })}
-                            </Text>
-                          </View>
-                          <View style={styles.collapsedSummaryExpandHint}>
-                            <Text style={styles.collapsedSummaryExpandHintText}>{tr('labels.viewOptions')}</Text>
-                            <MaterialIcons name="keyboard-arrow-up" size={16} color={colors.primary || '#b38737'} />
+                            <View style={styles.collapsedSummaryExpandHint}>
+                              <Text style={styles.collapsedSummaryExpandHintText}>{tr('labels.viewOptions')}</Text>
+                              <RideIcon name="expand-less" size={14} color={colors.primary || '#b38737'} />
+                            </View>
                           </View>
                         </View>
                       </View>
@@ -1094,7 +1175,7 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
       {showSearchOverlay && (
         <SearchRideSearchOverlay
           selectionTitle={selectionTitle}
-          selectionDescription={selectionDescription}
+          topInset={insets.top}
           isDestinationSelection={isDestinationSelection}
           shouldHighlightMapAction={shouldHighlightMapAction}
           hasConfirmedDestination={hasConfirmedDestination}
@@ -1154,17 +1235,15 @@ function createStyles(colors: any, isDark: boolean = false) {
   const accentStrong = isDark ? '#e8c47f' : '#c38d28';
   const accentSoft = isDark ? 'rgba(179, 135, 55, 0.26)' : 'rgba(179, 135, 55, 0.1)';
   const accentBorder = isDark ? 'rgba(232, 196, 127, 0.45)' : 'rgba(179, 135, 55, 0.45)';
-  const accentSecondBorder = isDark ? 'rgba(147, 117, 254, 0.5)' : 'rgba(179, 135, 55, 0.1)';
   const cardBg = colors.card || '#ffffff';
   const card2Bg = colors.card2 || '#ededed';
-  const surfaceBg = colors.surface || '#f5f5f5';
-  const surface2Bg = colors.surface2|| '#fafafa';
+  const surfaceBg = colors.surface || 'rgba(245, 245, 245, 0.07)';
+  const surface2Bg = isDark ? 'rgba(255, 255, 255, 0.015)' : 'rgba(118, 118, 118, 0.03)';
   const textPrimary = colors.text || '#111111';
-  const SecondBorder = isDark ? 'rgba(110, 68, 255, 0.3)' : 'rgba(179, 135, 55, 0.1)';
   const textSecondary = colors.textSecondary || '#666666';
   const borderColor = colors.border || '#e0e0e0';
-  const inputBg = isDark ? 'rgba(255, 255, 255, 0.07)' : surfaceBg;
-  const inputBgDeep = isDark ? 'rgba(255, 255, 255, 0.08)' : surfaceBg;
+  const inputBg = isDark ? '#484848' : surfaceBg;
+  const inputBgDeep = isDark ? 'rgba(255, 255, 255, 0.07)' : surfaceBg;
   const successSoft = isDark ? 'rgba(129, 199, 132, 0.15)' : 'rgba(76, 175, 80, 0.1)';
   const successBorder = isDark ? 'rgba(129, 199, 132, 0.4)' : 'rgba(76, 175, 80, 0.35)';
 
@@ -1259,6 +1338,7 @@ function createStyles(colors: any, isDark: boolean = false) {
       shadowOpacity: 0.15,
       shadowRadius: 12,
       elevation: 12,
+      zIndex: 35,
       overflow: 'hidden',
     },
     sheetRoot: { width: '100%' },
@@ -1284,61 +1364,50 @@ function createStyles(colors: any, isDark: boolean = false) {
       backgroundColor: borderColor,
     },
     collapsedSummary: {
-      paddingHorizontal: 12,
+      paddingHorizontal: 14,
       paddingVertical: 10,
       borderRadius: 18,
-      backgroundColor: surfaceBg,
-      borderWidth: 1,
+      backgroundColor: surface2Bg,
+      borderWidth: 0,
       borderColor: borderColor,
-      gap: 9,
     },
     collapsedSummaryRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    collapsedSummaryIcon: {
-      width: 40,
-      height: 40,
-      borderRadius: 13,
-      backgroundColor: accentSoft,
-      justifyContent: 'center',
-      alignItems: 'center',
+    collapsedSummaryImage: { width: 66, height: 38 },
+    collapsedSummaryText: { flex: 1, minWidth: 0, gap: 3 },
+    collapsedSummaryTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
+    collapsedSummaryTitle: { fontSize: 15, fontWeight: '800', color: textPrimary, flexShrink: 1 },
+    collapsedSummaryPassengers: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+    collapsedSummaryPassengersText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: textSecondary,
+      fontVariant: ['tabular-nums'],
     },
-    collapsedSummaryText: { flex: 1, minWidth: 0 },
-    collapsedSummaryTitle: { fontSize: 15, fontWeight: '800', color: textPrimary },
-    collapsedSummaryMeta: { fontSize: 12, color: textSecondary, marginTop: 2 },
+    collapsedSummaryMeta: { fontSize: 12, color: textSecondary, fontVariant: ['tabular-nums'] },
+    collapsedSummaryRight: { alignItems: 'flex-end', gap: 2 },
     collapsedSummaryPrice: { fontSize: 19, fontWeight: '800', color: accentStrong, fontVariant: ['tabular-nums'] },
-    collapsedSummaryMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    collapsedSummaryMetaPill: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 5,
-      borderRadius: 999,
-      paddingHorizontal: 10,
-      paddingVertical: 5,
-      backgroundColor: cardBg,
-      borderWidth: 1,
-      borderColor: borderColor,
-    },
-    collapsedSummaryMetaPillText: { fontSize: 12, fontWeight: '700', color: textPrimary, fontVariant: ['tabular-nums'] },
-    collapsedSummaryExpandHint: {
-      marginLeft: 'auto',
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 3,
-    },
-    collapsedSummaryExpandHintText: { fontSize: 12, fontWeight: '700', color: textSecondary },
+    collapsedSummaryExpandHint: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+    collapsedSummaryExpandHintText: { fontSize: 11, fontWeight: '600', color: textSecondary },
 
     section: { marginBottom: 16 },
     vehicleSection: {},
-    summarySection: {
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderColor: borderColor,
-      paddingTop: 10,
-    },
+    summarySection: { gap: 8 },
     summaryRouteMetrics: {
       flexDirection: 'row',
       alignItems: 'center',
+      gap: 8,
+    },
+    summaryRouteTile: {
+      flex: 1,
+      minWidth: 0,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      minHeight: 52,
+      paddingHorizontal: 12,
       paddingVertical: 8,
-      paddingHorizontal: 4,
-      gap: 18,
+      borderRadius: 14,
+      backgroundColor: surface2Bg,
     },
     summaryRouteMetric: { flex: 1, minWidth: 0, gap: 2 },
     summaryRouteLabel: {
@@ -1349,8 +1418,7 @@ function createStyles(colors: any, isDark: boolean = false) {
       letterSpacing: 0.45,
     },
     summaryRouteValue: { fontSize: 17, fontWeight: '700', color: textPrimary, fontVariant: ['tabular-nums'] },
-    summaryRouteDivider: { width: StyleSheet.hairlineWidth, height: 32, backgroundColor: borderColor },
-    summaryAvailabilityRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 4, paddingBottom: 8 },
+    summaryAvailabilityRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 4 },
     summaryAvailabilityDot: { width: 7, height: 7, borderRadius: 4, marginTop: 4 },
     summaryAvailabilityText: { flex: 1, fontSize: 12, lineHeight: 16, fontWeight: '600' },
     summaryFareCard: {
@@ -1359,15 +1427,17 @@ function createStyles(colors: any, isDark: boolean = false) {
       justifyContent: 'space-between',
       gap: 12,
       minHeight: 68,
-      paddingHorizontal: 12,
-      paddingVertical: 9,
-      marginBottom: 4,
-      borderRadius: 14,
-      backgroundColor: cardBg,
-      borderWidth: 1,
-      borderColor: borderColor,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderRadius: 16,
+      backgroundColor: 'rgba(179, 135, 55, 0.1)',
+      shadowColor: '#000',
+      shadowOpacity: isDark ? 0.25 : 0.08,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 3,
     },
-    summaryFareDetails: { gap: 4 },
+    summaryFareDetails: { gap: 5 },
     summaryFareLabel: {
       color: textSecondary,
       fontSize: 10,
@@ -1375,8 +1445,17 @@ function createStyles(colors: any, isDark: boolean = false) {
       textTransform: 'uppercase',
       letterSpacing: 0.55,
     },
-    summaryPayment: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 28 },
-    summaryPaymentText: { color: textPrimary, fontSize: 14, fontWeight: '700' },
+    summaryPayment: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      alignSelf: 'flex-start',
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.7)',
+    },
+    summaryPaymentText: { color: textPrimary, fontSize: 13, fontWeight: '700' },
     summaryPriceValue: { color: accentStrong, fontSize: 22, fontWeight: '800', fontVariant: ['tabular-nums'] },
     summaryPricePending: { flexDirection: 'row', alignItems: 'center', gap: 7, flexShrink: 1 },
     summaryPricePendingText: { fontSize: 12, fontWeight: '600', color: textSecondary, flexShrink: 1 },
@@ -1384,19 +1463,17 @@ function createStyles(colors: any, isDark: boolean = false) {
     summaryRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 14,
-      minHeight: 54,
-      paddingHorizontal: 6,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderColor: borderColor,
+      gap: 10,
+      minHeight: 50,
+      paddingHorizontal: 12,
+      borderRadius: 14,
+      backgroundColor: inputBgDeep,
     },
-    summaryRowLast: { borderBottomWidth: 0 },
-    summaryRowText: { flex: 1, fontSize: 15, fontWeight: '600', color: textPrimary },
-    summaryRowInput: { flex: 1, minHeight: 50, fontSize: 15, color: textPrimary },
+    summaryRowInput: { flex: 1, minHeight: 46, fontSize: 14, fontWeight: '600', color: textPrimary, padding: 0 },
     sectionCompact: { marginBottom: 14 },
     sectionTitle: { fontSize: 16, fontWeight: '800', color: textPrimary, marginBottom: 8 },
 
-    vehicleOptionsList: { gap: 5 },
+    vehicleOptionsList: { gap: 12 },
     vehicleOptionCard: {
       borderRadius: 16,
       borderWidth: 1.5,
@@ -1405,9 +1482,9 @@ function createStyles(colors: any, isDark: boolean = false) {
       paddingHorizontal: 10,
     },
     vehicleOptionCardSelected: {
-      backgroundColor: inputBg,
+      backgroundColor: isDark ? 'rgba(69, 69, 69, 0.8)' : surfaceBg,
     },
-    vehicleOptionTopRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, minHeight: 64 },
+    vehicleOptionTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, minHeight: 64 },
     vehicleOptionIconBubble: {
       width: 52,
       height: 44,
@@ -1428,7 +1505,7 @@ function createStyles(colors: any, isDark: boolean = false) {
       paddingHorizontal: 7,
       paddingVertical: 2,
       borderRadius: 999,
-      backgroundColor: accentSoft,
+      backgroundColor: isDark ? 'rgba(179, 135, 55, 0)' : 'rgba(179, 135, 55, 0.1)',
     },
     vehicleOptionPassengerValue: { fontSize: 13, fontWeight: '700', color: textPrimary },
     vehicleOptionMeta: { fontSize: 12.5, color: textPrimary, marginTop: 1, fontVariant: ['tabular-nums'] },
@@ -1447,7 +1524,7 @@ function createStyles(colors: any, isDark: boolean = false) {
       alignItems: 'center',
       justifyContent: 'space-between',
       borderRadius: 14,
-      backgroundColor: card2Bg,
+      backgroundColor: isDark ? 'rgba(0, 0, 0, 0.08)' : '#ededed',
       padding: 4,
     },
     vehicleOptionCounterBtn: {
@@ -1474,41 +1551,32 @@ function createStyles(colors: any, isDark: boolean = false) {
     vehicleFeaturesHint: { fontSize: 11, color: textSecondary },
     vehicleFeatureRail: { gap: 8, paddingRight: 8 },
     vehicleFeatureCard: {
-      minWidth: 140,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      minWidth: 148,
       maxWidth: 210,
-      minHeight: 64,
-      justifyContent: 'center',
+      minHeight: 52,
       paddingHorizontal: 12,
       paddingVertical: 8,
-      borderRadius: 13,
-      borderWidth: 1,
-      borderColor: borderColor,
-      backgroundColor: surfaceBg,
-      gap: 4,
+      borderRadius: 14,
+      backgroundColor: surface2Bg,
     },
-    vehicleFeatureCardSelected: {
-      borderColor: accentSecondBorder,
-      backgroundColor: SecondBorder,
-    },
-    vehicleFeatureCardDisabled: { opacity: 0.56 },
-    vehicleFeatureCardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    vehicleFeatureCardTitle: { flexShrink: 1, fontSize: 13, fontWeight: '700', color: textPrimary },
+    vehicleFeatureCardSelected: { backgroundColor: accentSoft },
+    vehicleFeatureCardDisabled: { opacity: 0.45 },
+    vehicleFeatureCardBody: { flex: 1, minWidth: 0, gap: 2 },
+    vehicleFeatureCardTitle: { fontSize: 13, fontWeight: '700', color: textPrimary },
+    vehicleFeatureCardMeta: { fontSize: 11.5, fontWeight: '600', color: textSecondary, fontVariant: ['tabular-nums'] },
     vehicleFeatureToggle: {
       width: 20,
       height: 20,
       borderRadius: 10,
       alignItems: 'center',
       justifyContent: 'center',
-      borderWidth: 1,
+      borderWidth: 1.5,
       borderColor: textSecondary,
     },
-    vehicleFeatureToggleSelected: { 
-      borderColor: accentBorder, 
-      borderWidth: 1.6, 
-      backgroundColor: accentSecondBorder 
-    },
-    vehicleFeatureImpact: { fontSize: 12, fontWeight: '700', color: textPrimary, fontVariant: ['tabular-nums'] },
-    vehicleFeatureCondition: { fontSize: 10, color: textSecondary },
+    vehicleFeatureToggleSelected: { borderColor: accent, backgroundColor: accent },
     vehicleDemandNotice: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     vehicleDemandNoticeText: { fontSize: 12, fontWeight: '600', color: colors.warning || '#ffa726' },
 
@@ -1716,126 +1784,97 @@ function createStyles(colors: any, isDark: boolean = false) {
       bottom: 0,
       left: 0,
       backgroundColor: 'rgba(0,0,0,0.45)',
-      alignItems: 'center',
-      justifyContent: 'center',
       paddingHorizontal: 16,
+      zIndex: 40,
     },
     searchCard: {
-      width: '100%',
-      maxHeight: '85%',
-      borderRadius: 20,
+      borderRadius: 22,
       padding: 16,
+      maxHeight: '92%',
       backgroundColor: cardBg,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(28,25,23,0.08)',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.3,
+      shadowRadius: 20,
+      elevation: 20,
+      top: -50,
+      left: 0,
     },
-    searchHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
-    searchHeaderTextBlock: { flex: 1, paddingRight: 12 },
-    searchTitle: { fontSize: 18, fontWeight: '700', color: textPrimary },
-    searchDescription: { fontSize: 13, color: textSecondary, marginTop: 2 },
-    searchCloseButton: { paddingVertical: 4, paddingHorizontal: 6 },
-    searchCloseText: { fontSize: 14, color: accentStrong, fontWeight: '700' },
-    destinationGuidanceCard: {
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: accentBorder,
-      backgroundColor: accentSoft,
-      padding: 12,
+    searchHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
       marginBottom: 12,
     },
-    destinationGuidanceTitle: {
-      fontSize: 13,
-      fontWeight: '800',
-      color: accentStrong,
-      marginBottom: 4,
-    },
-    destinationGuidanceText: {
-      fontSize: 12,
-      color: textSecondary,
-      lineHeight: 17,
-    },
-    destinationGuidanceSteps: { flexDirection: 'row', gap: 8, marginTop: 10 },
-    destinationGuidanceStepPill: {
-      flex: 1,
-      borderRadius: 999,
-      paddingVertical: 7,
-      paddingHorizontal: 10,
-      borderWidth: 1,
-      borderColor: borderColor,
-      backgroundColor: cardBg,
+    searchTitle: { fontSize: 18, fontWeight: '800', color: textPrimary, flexShrink: 1 },
+
+    searchInputWrapper: {
+      flexDirection: 'row',
       alignItems: 'center',
-    },
-    destinationGuidanceStepText: {
-      fontSize: 11,
-      fontWeight: '700',
-      color: textSecondary,
-      textAlign: 'center',
-    },
-    destinationConfirmedPill: {
-      alignSelf: 'flex-start',
-      marginTop: 10,
-      borderRadius: 999,
-      paddingHorizontal: 10,
-      paddingVertical: 5,
-      backgroundColor: successSoft,
-      borderWidth: 1,
-      borderColor: successBorder,
-    },
-    destinationConfirmedText: {
-      fontSize: 11,
-      fontWeight: '700',
-      color: colors.success || '#4caf50',
-    },
-
-    searchInputWrapper: { marginBottom: 16 },
-    searchInputLabel: { fontSize: 12, fontWeight: '600', color: textSecondary, marginBottom: 6, textTransform: 'uppercase' },
-    searchInputHelper: { fontSize: 12, color: accentStrong, marginBottom: 6 },
-    searchInputContainer: {
-      borderRadius: 12,
+      gap: 10,
+      borderRadius: 14,
+      paddingHorizontal: 12,
+      paddingVertical: Platform.select({ ios: 12, android: 8, default: 8 }),
       backgroundColor: inputBgDeep,
-      paddingHorizontal: 14,
-      paddingVertical: Platform.select({ ios: 12, android: 6, default: 8 }),
-      borderWidth: 1,
+      borderWidth: StyleSheet.hairlineWidth,
       borderColor: borderColor,
     },
-    searchInput: { color: textPrimary, fontSize: 15, paddingVertical: Platform.select({ ios: 2, android: 0, default: 6 }) },
+    searchInput: { flex: 1, fontSize: 15, fontWeight: '600', color: textPrimary, padding: 0 },
 
-    searchActionsRow: { flexDirection: 'row', gap: 10, marginBottom: 18 },
+    searchActionsRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
     searchActionChip: {
       flex: 1,
-      paddingVertical: 12,
-      borderRadius: 12,
-      backgroundColor: surfaceBg,
+      flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      borderWidth: 1,
-      borderColor: borderColor,
-    },
-    searchActionPrimary: { backgroundColor: accent, borderColor: accent },
-    searchActionText: { fontSize: 13, fontWeight: '700', color: textPrimary },
-    searchActionTextPrimary: { color: '#fff' },
+      gap: 6,
+      paddingVertical: 11,
+      paddingHorizontal: 10,
+      borderRadius: 14,
+      backgroundColor: accentSoft,
 
-    searchScroll: { maxHeight: 360 },
-    savedSection: { marginBottom: 16 },
-    savedSectionTitle: { fontSize: 12, fontWeight: '700', color: textSecondary, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
+    },
+    searchActionChipPrimary: { backgroundColor: isDark ? 'rgba(124, 94, 234, 0.4)' : 'rgb(214, 161, 61)'},
+    searchActionText: { fontSize: 12.5, fontWeight: '800', color: accentStrong },
+    searchActionTextPrimary: { color: '#FFFFFF' },
+    searchConfirmedRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
+    searchConfirmedText: { fontSize: 12, fontWeight: '600' },
+    searchStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
+    searchStatusText: { fontSize: 13, fontWeight: '600', color: textSecondary },
+    searchErrorText: { fontSize: 13, fontWeight: '600', color: colors.error || '#e53935', marginTop: 12 },
+
+    searchScroll: { marginTop: 6, flexShrink: 1 },
+    savedSection: { marginTop: 8 },
+    savedSectionTitle: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: textSecondary,
+      marginBottom: 2,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
     savedItem: {
-      paddingVertical: 10,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderColor: borderColor,
-    },
-    savedItemLabel: { fontSize: 14, color: textPrimary, fontWeight: '600' },
-    savedItemCoords: { fontSize: 12, color: textSecondary, marginTop: 2 },
-
-    searchResultsSection: { paddingBottom: 12 },
-    searchLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12 },
-    searchLoadingText: { color: textSecondary },
-    searchErrorText: { color: colors.error || '#e53935', paddingVertical: 8 },
-    searchHintText: { color: textSecondary, paddingVertical: 8 },
-
-    searchResultItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
       paddingVertical: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderColor: borderColor,
+      borderBottomColor: borderColor,
     },
-    searchResultMain: { fontSize: 15, color: textPrimary, fontWeight: '600' },
-    searchResultSecondary: { fontSize: 12, color: textSecondary, marginTop: 2 },
+    searchResultBody: { flex: 1, minWidth: 0 },
+    searchResultsSection: { paddingBottom: 8 },
+    searchResultItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: borderColor,
+    },
+    searchResultMain: { fontSize: 14, fontWeight: '700', color: textPrimary },
+    searchResultSecondary: { fontSize: 12, fontWeight: '500', color: textSecondary, marginTop: 1 },
   });
 }

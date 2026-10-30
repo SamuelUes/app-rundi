@@ -59,27 +59,26 @@ export function SearchRideSummary({
   return (
     <View style={styles.summarySection}>
       <View style={styles.summaryRouteMetrics}>
-        <View style={styles.summaryRouteMetric}>
-          <Text style={styles.summaryRouteLabel}>{tr('summary.distance')}</Text>
-          <Text style={styles.summaryRouteValue}>
-            {estimatedDistance > 0 ? `${estimatedDistance.toFixed(1)} km` : '-- km'}
-          </Text>
+        <View style={styles.summaryRouteTile}>
+          <RideIcon iconSet={iconSet} name="route" size={16} color={metaColor} />
+          <View style={styles.summaryRouteMetric}>
+            <Text style={styles.summaryRouteLabel}>{tr('summary.distance')}</Text>
+            <Text style={styles.summaryRouteValue} numberOfLines={1}>
+              {estimatedDistance > 0 ? `${estimatedDistance.toFixed(1)} km` : '-- km'}
+            </Text>
+          </View>
         </View>
-        <View style={styles.summaryRouteDivider} />
-        <View style={styles.summaryRouteMetric}>
-          <Text style={styles.summaryRouteLabel}>{tr('summary.duration')}</Text>
-          <Text style={styles.summaryRouteValue}>
-            {estimatedDuration > 0 ? `${Math.round(estimatedDuration)} min` : '-- min'}
-          </Text>
+        <View style={styles.summaryRouteTile}>
+          <RideIcon iconSet={iconSet} name="schedule" size={16} color={metaColor} />
+          <View style={styles.summaryRouteMetric}>
+            <Text style={styles.summaryRouteLabel}>{tr('summary.duration')}</Text>
+            <Text style={styles.summaryRouteValue} numberOfLines={1}>
+              {estimatedDuration > 0 ? `${Math.round(estimatedDuration)} min` : '-- min'}
+            </Text>
+          </View>
         </View>
       </View>
 
-      <View style={styles.summaryAvailabilityRow}>
-        <View style={[styles.summaryAvailabilityDot, { backgroundColor: availability.color }]} />
-        <Text style={[styles.summaryAvailabilityText, { color: availability.color }]} numberOfLines={2}>
-          {availability.text}
-        </Text>
-      </View>
 
       <View style={styles.summaryFareCard}>
         <View style={styles.summaryFareDetails}>
@@ -92,7 +91,7 @@ export function SearchRideSummary({
           >
             <RideIcon iconSet={iconSet} name="payments" size={18} color={colors.success || '#4caf50'} />
             <Text style={styles.summaryPaymentText}>{tr(`payment.${paymentMethod}`)}</Text>
-            <RideIcon iconSet={iconSet} name="expand-more" size={16} color={metaColor} />
+            {/* <RideIcon iconSet={iconSet} name="expand-more" size={16} color={metaColor} /> */}
           </TouchableOpacity>
         </View>
         {calculatingPrice ? (
@@ -127,7 +126,7 @@ export function SearchRideSummary({
         />
       </View>
 
-      <View style={[styles.summaryRow, styles.summaryRowLast]}>
+      <View style={styles.summaryRow}>
         <RideIcon iconSet={iconSet} name="chat-bubble-outline" size={20} color={metaColor} />
         <TextInput
           placeholder={`${tr('labels.comment')} · ${tr('labels.commentPlaceholder')}`}
@@ -139,6 +138,13 @@ export function SearchRideSummary({
           returnKeyType="done"
           accessibilityLabel={tr('labels.comment')}
         />
+      </View>
+
+      <View style={styles.summaryAvailabilityRow}>
+        <View style={[styles.summaryAvailabilityDot, { backgroundColor: availability.color }]} />
+        <Text style={[styles.summaryAvailabilityText, { color: availability.color }]} numberOfLines={2}>
+          {availability.text}
+        </Text>
       </View>
     </View>
   );
