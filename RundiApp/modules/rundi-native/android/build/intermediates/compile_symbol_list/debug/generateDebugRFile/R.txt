@@ -1,0 +1,1 @@
+int drawable overlay_nearby_ride 0x0

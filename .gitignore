@@ -2,7 +2,7 @@ supabase/
 functions/
 Frontend/
 database-v2/
-rundiapp/
+#rundiapp/
 #functions-v2/
 dev/
 docs/

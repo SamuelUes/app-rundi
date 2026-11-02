@@ -1,0 +1,13 @@
+{
+  "expo.jsEngine": "hermes",
+  "EX_DEV_CLIENT_NETWORK_INSPECTOR": "true",
+  "ios.deploymentTarget": "16.4",
+  "expo.inlineModules.watchedDirectories": "[]",
+  "expo.inlineModules.xcodeProjectTargets": "{\"mainTarget\":\"Rundi\",\"targets\":[]}",
+  "ios.useFrameworks": "static",
+  "ios.forceStaticLinking": "[]",
+  "apple.extraPods": "[{\"name\":\"RecaptchaEnterprise\",\"version\":\"~> 18.9\"}]",
+  "apple.privacyManifestAggregationEnabled": "true",
+  "EXPO_USE_PRECOMPILED_MODULES": "false",
+  "ios.buildReactNativeFromSource": "true"
+}

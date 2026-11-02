@@ -1,0 +1,2 @@
+com.gruporzc.rundi.rundinative
+drawable overlay_nearby_ride

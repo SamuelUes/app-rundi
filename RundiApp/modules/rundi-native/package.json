@@ -1,0 +1,29 @@
+{
+  "name": "rundi-native",
+  "version": "1.0.0",
+  "description": "Rundi native modules (overlay, foreground service, work manager, battery optimization)",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "expo-module build",
+    "clean": "expo-module clean",
+    "lint": "expo-module lint",
+    "test": "expo-module test",
+    "prepare": "expo-module prepare",
+    "prepublishOnly": "expo-module prepublishOnly",
+    "expo-module": "expo-module"
+  },
+  "keywords": [
+    "react-native",
+    "expo",
+    "rundi-native",
+    "RundiNative"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/project/repo.git"
+  },
+  "author": "SamuelUes <dev@gruporzc.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/project/repo#readme"
+}
