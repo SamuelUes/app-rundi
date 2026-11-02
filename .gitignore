@@ -1,9 +1,9 @@
 supabase/
 functions/
-#Frontend/
-#database-v2/
+Frontend/
+database-v2/
 rundiapp/
-functions-v2/
+#functions-v2/
 dev/
 docs/
 

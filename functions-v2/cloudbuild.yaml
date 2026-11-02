@@ -1,0 +1,23 @@
+# Cloud Build: imagen por servicio en Artifact Registry (repo rundi-v2).
+#   gcloud builds submit --config cloudbuild.yaml --substitutions _SERVICE=api
+substitutions:
+  _SERVICE: api
+  _REGION: us-central1
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - Dockerfile
+      - --build-arg
+      - SERVICE=${_SERVICE}
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/rundi-v2/${_SERVICE}:$BUILD_ID
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/rundi-v2/${_SERVICE}:latest
+      - .
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/rundi-v2/${_SERVICE}:$BUILD_ID
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/rundi-v2/${_SERVICE}:latest
+options:
+  machineType: E2_HIGHCPU_8
