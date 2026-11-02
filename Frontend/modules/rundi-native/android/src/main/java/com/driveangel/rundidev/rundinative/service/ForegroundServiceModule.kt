@@ -1,4 +1,4 @@
-package com.driveangel.rundidev.rundinative.service
+package com.gruporzc.rundi.rundinative.service
 
 import android.content.Context
 import android.content.Intent

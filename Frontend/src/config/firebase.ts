@@ -69,7 +69,11 @@ export async function initializeFirebase() {
     }
 
     // Inicializar otros servicios
-    firestore = getFirestore(app);
+    // FIRESTORE_DATABASE_ID: named DB v2 (p.ej. rundi-dev-2); vacío → (default) v1
+    const firestoreDatabaseId = process.env.FIRESTORE_DATABASE_ID;
+    firestore = firestoreDatabaseId
+      ? getFirestore(app, firestoreDatabaseId)
+      : getFirestore(app);
     database = getDatabase(app);
     functions = getFunctions(app, 'us-central1'); // Especificar región
 

@@ -4,7 +4,7 @@ import WidgetKit
 
 private enum RideActivityUI {
     static let fallbackRideId = "__overlay_home__"
-    static let deepLinkScheme = "com.driveangel.rundidev"
+    static let deepLinkScheme = "com.gruporzc.rundi"
 
     static func deepLink(rideId: String) -> URL? {
         let encoded = rideId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? rideId

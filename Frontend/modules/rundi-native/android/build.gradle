@@ -1,6 +1,6 @@
 apply plugin: 'com.android.library'
 
-group = 'com.driveangel.rundidev.rundinative'
+group = 'com.gruporzc.rundi.rundinative'
 version = ''
 
 def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
@@ -39,7 +39,7 @@ dependencies {
 }
 
 android {
-  namespace "com.driveangel.rundidev.rundinative"
+  namespace "com.gruporzc.rundi.rundinative"
   defaultConfig {
     versionCode 1
     versionName ""

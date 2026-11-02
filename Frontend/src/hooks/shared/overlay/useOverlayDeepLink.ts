@@ -21,7 +21,7 @@ const parseRideIdFromUrl = (url: string | null | undefined): string | null => {
  * y navegar a RidePreviewScreen con los datos del viaje
  *
  * - Android: el módulo nativo emite 'onOverlayOpened'
- * - iOS: la Live Activity abre com.driveangel.rundidev://overlay?rideId=X (Linking)
+ * - iOS: la Live Activity abre com.gruporzc.rundi://overlay?rideId=X (Linking)
  */
 export function useOverlayDeepLink() {
   useEffect(() => {

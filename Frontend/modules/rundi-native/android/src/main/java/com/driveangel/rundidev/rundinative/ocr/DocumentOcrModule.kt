@@ -1,4 +1,4 @@
-package com.driveangel.rundidev.rundinative.ocr
+package com.gruporzc.rundi.rundinative.ocr
 
 import android.content.Context
 import android.graphics.Bitmap

@@ -68,7 +68,7 @@ function withRundiNative(config) {
 
     const services = mainApplication.service || [];
     const serviceClassName =
-      'com.driveangel.rundidev.rundinative.service.TrackingForegroundService';
+      'com.gruporzc.rundi.rundinative.service.TrackingForegroundService';
     const alreadyDeclared = services.some(
       (s) => s.$['android:name'] === serviceClassName
     );

@@ -1,4 +1,4 @@
-package com.driveangel.rundidev.rundinative.service
+package com.gruporzc.rundi.rundinative.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -116,8 +116,8 @@ class TrackingForegroundService : Service() {
   companion object {
     const val EXTRA_TITLE = "extra_notification_title"
     const val EXTRA_BODY = "extra_notification_body"
-    const val ACTION_START = "com.driveangel.action.FOREGROUND_START"
-    const val ACTION_STOP = "com.driveangel.action.FOREGROUND_STOP"
+    const val ACTION_START = "com.gruporzc.action.FOREGROUND_START"
+    const val ACTION_STOP = "com.gruporzc.action.FOREGROUND_STOP"
     const val CHANNEL_ID = "tracking_foreground_channel"
     private const val NOTIFICATION_ICON_NAME = "notification_icon"
 

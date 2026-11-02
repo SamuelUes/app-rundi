@@ -1,4 +1,4 @@
-package com.driveangel.rundidev.rundinative.service
+package com.gruporzc.rundi.rundinative.service
 
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -62,7 +62,7 @@ class WorkManagerModule : Module() {
   }
 
   companion object {
-    private const val WORK_NAME = "driveangel_location_integrity"
+    private const val WORK_NAME = "gruporzc_location_integrity"
     private const val MIN_INTERVAL_MINUTES = 15.0
   }
 }

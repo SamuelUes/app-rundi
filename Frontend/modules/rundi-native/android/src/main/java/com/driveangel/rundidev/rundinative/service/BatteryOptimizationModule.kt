@@ -1,4 +1,4 @@
-package com.driveangel.rundidev.rundinative.service
+package com.gruporzc.rundi.rundinative.service
 
 import android.content.ActivityNotFoundException
 import android.content.Intent

@@ -2,11 +2,11 @@
   "platforms": ["android", "ios"],
   "android": {
     "modules": [
-      "com.driveangel.rundidev.rundinative.overlay.OverlayModule",
-      "com.driveangel.rundidev.rundinative.service.ForegroundServiceModule",
-      "com.driveangel.rundidev.rundinative.service.WorkManagerModule",
-      "com.driveangel.rundidev.rundinative.service.BatteryOptimizationModule",
-      "com.driveangel.rundidev.rundinative.ocr.DocumentOcrModule"
+      "com.gruporzc.rundi.rundinative.overlay.OverlayModule",
+      "com.gruporzc.rundi.rundinative.service.ForegroundServiceModule",
+      "com.gruporzc.rundi.rundinative.service.WorkManagerModule",
+      "com.gruporzc.rundi.rundinative.service.BatteryOptimizationModule",
+      "com.gruporzc.rundi.rundinative.ocr.DocumentOcrModule"
     ]
   },
   "ios": {

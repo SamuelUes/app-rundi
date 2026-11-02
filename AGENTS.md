@@ -23,12 +23,91 @@
 - Heartbeats: `useClientPresence`/`usePresence` 55s (sesión/presencia), `driverAvailabilityService` 60s (defensivo — el backend no aplica TTL de disponibilidad), escritura de ubicación 15s. Consolidarlos en un solo callable requiere endpoint backend combinado (pendiente).
 - `StorageImage` usa `expo-image` (cache memory-disk de URLs firmadas); pasar `contentFit`, no `resizeMode` (hay compat para los valores RN).
 - Iconos: NUNCA importar del barrel `@expo/vector-icons` (re-exporta las 19 familias → todas las .ttf entran al bundle). Usar subpath por familia: `import MaterialIcons from '@expo/vector-icons/MaterialIcons'`. Solo se bundlean MaterialIcons e Ionicons (~750KB vs ~3.9MB).
-- `@react-native-firebase/database` y `/firestore` fueron desinstalados (0 imports — RTDB/Firestore van por el SDK JS). Solo se usan `app`, `auth`, `messaging`, `app-check` (vía `src/utils/nativeFirebase.ts`).
+- `@react-native-firebase/database` y `/firestore` fueron desinstalados (0 imports — RTDB/Firestore van por el SDK JS). Solo se usan `app`, `auth`, `messaging`, `app-check` (vía `src/utils/firebase/nativeFirebase.ts`).
 - `useKeepAwake` NO es global (quitado de App.tsx): se activa por pantalla en flujos de viaje (DriverHome, ActiveRide, FollowerActiveRide, RideTracking).
 - `RideRequestsScreen`: el callable `getAvailableRides` corre solo cuando cambia la firma de rides `requested` en `activeRidesByArea` (listener compartido con el guard de viaje activo) — no hay polling por intervalo.
 - `useProgrammedRidePrompt`: el `onValue` filtrado es la fuente de verdad; solo hay resync `get()` al volver a foreground (sin intervalo de 45s).
+- Memoria de mapas (Android): el OOM en `policy_maps_core_dynamite` venía de `MapView`s retenidos en el back stack (cada uno con su superficie GL + tiles + bitmaps de marcadores). `DynamicMap` y `RouteHistoryMap` desmontan el `MapView` nativo cuando `useIsFocused()` es falso — NO renderizar MapView adicional sin este gate. `android:largeHeap="true"` está en el manifest y lo re-aplica `modules/rundi-native/app.plugin.js` tras `expo prebuild`. Regla extra de Android: `elevation` + `backgroundColor` rgba translúcido = la sombra sangra dentro de la vista (bandas de dos tonos); usar `elevation: 0` en esos casos.
 
 ## Verificación
 - Backend: `cd functions && npm run build && node --test test/designatedCrew.test.mjs`
 - Frontend: `cd Frontend && npx tsc --noEmit` (los errores en `src/utils/tests/designatedDriverEvidence.test.ts` sobre `describe/it/expect` son preexistentes: faltan globals de Jest en tsconfig)
 - Tests locales no versionados por .gitignore: `functions/test/*.test.mjs`, `Frontend/src/utils/tests/` — ejecutarlos explícitamente.
+
+## Arquitectura v2 (migración en curso)
+- `database-v2/`: migraciones Cloud SQL PG17 numeradas (0001-0009) + `firestore/firestore.rules` e `indexes` con raíces literales `DATA-MAIN_*`/`REALTIME_*`/`SAAS_*`/`SYSTEM_*`. NUNCA colecciones sin prefijo en código v2. `0009_legacy_cleanup.sql` es el paso de UPGRADE sobre el esquema viejo ya desplegado (migra datos de tablas renombradas, aplica casts enum/timestamptz, borra objetos muertos; correr como OWNER); sobre base limpia es no-op. Seeds canónicos dentro de 0005 (services/features/surge), 0006 (reglas compliance) y 0008 (outbox events pending que proyectan el catálogo a Firestore). Deploy: `database-v2/cloudsql/deploy.sh` (migraciones como owner) y `database-v2/firestore/deploy.sh` (rules+indexes+seed.mjs — service_area ni-managua como polígono `points[]` GeoPoint + app_config; database `(default)` — FIRESTORE_DATABASE_ID vacío en .env de app y backend). Post-suspensión por billing: al reactivar el proyecto la instancia `rundi-db-sql` queda `state: SUSPENDED` (no se reanuda sola; proxy da `invalidState` 409 y el contenedor api muere en `postgres ping` → startup probe fail). Reactivar con `gcloud sql instances patch rundi-db-sql --activation-policy=ALWAYS` y esperar `RUNNABLE` (~4min, pasa por MAINTENANCE) antes de cualquier deploy. Validar: `gcloud beta billing projects describe rundi-dev-2` + `gcloud sql instances describe rundi-db-sql --format='value(state)'`.
+- Esquema SQL (post-cleanup): TIMESTAMPTZ global; enums nativos en columnas status/role/type. Renames: `driver_wallet_movements` (ex `drivers_recharges`, col `movement_type`), `support_complaints` (ex `cms_complaints`, col `visibility`), `operator_actions` (ex `cms_operator_actions`), `call_sessions` unificada con `call_type` (ex support/ride_call_sessions), `drivers.designated_role_status` (ex `designated_rol_requested`; JSON API = `designatedRoleStatus`, privilegiado — no va por PATCH ni a la proyección).
+- Borradas (sin consumidores, NO resucitar): `driver_penalties` (→ wallet `deduction`), `cards`, `insurers`, `license_types`, `license_categories`, `vehicle_types`.
+- `ride_locations` = SOLO ruta contratada (origin/waypoint/destination). Telemetría GPS → `ride_track_points` (col `recorded_at` = timestamp real de la muestra — no usar created_at para eso). Historial de ofertas → `ride_offers` (1 oferta inicial por ride+driver vía índice parcial; contraofertas append-only).
+- `payments.total` = GENERATED `(amount+tip)` — nunca asignarla en INSERT/UPDATE. `rides` persiste `service_area_id` y exige `firebase_ride_id` UNIQUE + un viaje activo por cliente (índice parcial).
+- Outbox: claim en TX corta (`UPDATE ... SELECT FOR UPDATE SKIP LOCKED RETURNING`, `attempts+1` + `next_attempt_at`=lease); el trabajo externo corre FUERA de la TX y cada resultado es su UPDATE; eventos no procesados se liberan (`next_attempt_at=NOW()`), si el sweeper muere el lease expira; tras `max_attempts` → `status='failed'`+`failed_at` (dead-letter); purga periódica de `published`; `SYSTEM_processed_events` escribe `expireAt` (TTL).
+- `functions-v2/` (Go): `cmd/api` (REST `/v1`), `cmd/consumer` (outbox→proyecciones + `SYSTEM_pending_events`), `cmd/scheduler` (programmed rides, stale calls, presencia, compliance sweep, retenciones). `SCHEDULER_ONLY=programmed` corre solo el sweep de promoción — deploy.sh crea el job `rundi-programmed` + tick por minuto (gracia de 2min); el tick de 5min sigue de respaldo. Paquetes `internal/{rides,drivers,users,payments,pricing,catalog,ratings,crew,chats,calls,support,programmed,compliance,emergency,inspections,platform,notifications,matching,projections,reconcile,fs,outbox,tasks,storage,fcm}`.
+- Autoridad: SQL para transaccional; Firestore para proyecciones/operativo/ephemeral. Outbox transaccional obligatorio en cada mutación SQL. `SYSTEM_pending_events` solo create con forma exacta (reglas) + validación de participación en consumer.
+- Calls: doc lo crea el backend (`POST /v1/calls/initiate`, roles desde SQL); LiveKit token JWT propio (15min, mic-only); webhook verifica JWT+sha256(body) y archiva sesión a SQL.
+- Programmed rides: Firestore-first (`REALTIME_programmed_rides`), sin fila SQL hasta promoción (ventana −10min/+2min grace).
+- Service areas: `DATA-MAIN_service_areas` (read auth / write claim admin desde el dashboard). El parseo backend es tolerante a GeoPoints (`*latlng.LatLng`), maps `{lat,lng}`/`{latitude,longitude}`, arrays `[lat,lng]` y strings — `internal/geo.ExtractLatLng/ExtractPolygon`. Check = polígono `points[]` primero, círculo `center`(GeoPoint) o `centerLat/centerLng`+`radiusKm` como fallback; `platform.RegionAvailability` mantiene el fallback estático de Managua de v1 (`isFallback:true`).
+- Geo points: `drivers_live.location` es GeoPoint nativo (`latlng` en reglas — `latitude()`/`longitude()` son métodos); `trips_live.origin/destination` proyecta `{latitude,longitude}` maps y `locations/{uid}` `{latitude,longitude,...}` (paridad con driverLocation/clientLocation v1). El frontend normaliza todo vía `normalizeLocation`.
+- `firebase.json` sigue apuntando a `database/` (v1) durante coexistencia — el deploy de rules/indexes v2 es paso de cutover, no cambiar antes.
+- `RundiApp` organizado por dominio: `services/{auth,ride,driver,payment,user,notification,map,media,support,analytics,catalog}`, `utils/{format,geo,ride,driver,firebase,system,preflight}`.
+- `Frontend/src/v2/` (legacy): en RundiApp quedó distribuido como `src/api/` (REST, client.ts ya antepon `/v1` — usar paths sin prefijo), `src/live/` (Firestore SDK + pending events atómicos), `src/constants/firestore.ts` (`FS_COL`), `src/config/apiConfig.ts`, `src/types/rideApi.ts`.
+- Env vars v2: `LIVEKIT_*`, `RIDE_SHARE_SECRET`, `PUNTOEXPRESS_WEBHOOK_TOKEN`, `MATCH_RADIUS_KM`, `MATCH_MAX_OFFERS`.
+- Pendiente (fase final, diferida): dashboards SAAS, tests de emulador, diagramas/deploy config, rotación del service-account del repo. OIDC de Tasks ya implementado (RequireTasksOIDC + CLOUD_TASKS_AUDIENCE).
+
+### Verificación v2
+- Backend: `cd functions-v2 && gofmt -l . && go vet ./... && go build ./... && go test ./...`
+- Frontend v2: `cd Frontend && npx tsc --noEmit` (en `RundiApp/` el comando es el mismo)
+- Reglas Firestore (emulador): `cd database-v2 && PATH="/Library/Java/JavaVirtualMachines/jdk-27.jdk/Contents/Home/bin:$PATH" firebase emulators:exec --project demo-rundi --only firestore "cd test && node --test rules.test.mjs"`
+  - Requiere JDK ≥21 en PATH (firebase-tools rechaza el default 17; jdk-27 está instalado).
+  - Workspace en `database-v2/test/` (no versionado, convención `*.test.mjs`): `@firebase/rules-unit-testing` + suite que ejercita las queries reales de RundiApp contra `firestore/firestore.rules`.
+  - Nota de reglas: `latlng` expone `latitude()`/`longitude()` como métodos (no campos) — `v.latitude` sin paréntesis da Type error y deniega.
+  - Nota de reglas: `request.resource.data.diff(resource.data)` NO es válido en reglas `create`/`write` — en create `resource.data` es `null` y `diff(null)` da "Null value error" → deny. Separar `create` (validar `request.resource.data.keys()`) de `update` (`diff`). Aplicado en `REALTIME_user_sessions` y `REALTIME_drivers_live`.
+  - Nota de reglas: en docs proyectados async por el consumer (trips_live, payments_live, driver_offers, programmed_rides, calls, chats, driver_crews, DATA-MAIN_payments) el read debe empezar con `docNotYetProjected()` (`isAuth() && resource == null`) — si el listener llega antes de la proyección, `resource.data` es Null value error → PERMISSION_DENIED; con el disjunct devuelve `!exists` y el doc llega al proyectarse. Va PRIMERO en el `||` (si un disjunct anterior toca `resource.data`, falla antes). Para subcollections con `get(padre)` usar `!exists(padre)`. En `list` el disjunct es inerte (candidatos siempre existen) → no afloja queries.
+
+## RundiApp (frontend nuevo, migrado a v2)
+- `RundiApp/` = copia de `Frontend/` rewired a la capa de datos v2 (`src/api` + `src/live`). `Frontend/` queda intacto como referencia v1.
+- CORTADO: `firebase/database` (RTDB), `httpsCallable`, Supabase, `src/api/` (axios v1). `npx tsc --noEmit` limpio (solo errores preexistentes de Jest globals en tests).
+- Mapeo aplicado: RTDB `driverLocations*` → `REALTIME_drivers_live`; `activeRides*` → `REALTIME_trips_live` (solo participante); `paymentStatus` → `REALTIME_payments_live`; `programmedRides` → `REALTIME_programmed_rides`; `driversInfo` → `DATA-MAIN_drivers` (perfil propio) / `REALTIME_driver_public_profiles` (perfil ajeno); wallet → `GET /drivers/me/recharges`; offers → `REALTIME_driver_offers/{rideId}_{uid}`; support chat id = `support-{complaintId}`.
+- `useFirebaseData`/`useFirebaseItem` ahora habla Firestore: path par=doc, impar=colección → mapa `{id: data}`.
+- Uploads → Firebase Storage (`storageService`, reemplaza supabaseStorage manteniendo firmas).
+- `functions`/`getFirebaseFunctions` eliminados de `config/firebase.ts` — todo callable va por REST v2.
+
+### Gaps de backend v2 encontrados durante la migración (NO inventar endpoints)
+- `GET /v1/rides/{id}` exige participante: el driver con oferta pendiente NO puede leer el detalle del viaje (offer doc solo trae rideId/clientId/distanceKm/expiresAt). AvailableRides/RidePreview funcionan con datos parciales hasta que el backend enriquezca el offer doc o permita lectura a oferentes.
+- Pagos con tarjeta: no hay `createPaymentIntent`/`capturePayment`/CRUD de tarjetas en v2 (solo efectivo + `change-method`). `cardsService` devuelve stubs/`[]`, `PaymentScreen` lanza error explícito.
+- Ubicación manual del cliente pre-viaje: sin superficie v2 → persistida en AsyncStorage (`clientLocation:{uid}`).
+- `rideVerificationCodes` (código pickup): leído best-effort desde `trips_live` (pickupCode/verificationCode) — si el backend no lo proyecta, queda null.
+- `useDriverProfileSync` → no-op: `DATA-MAIN_drivers` es proyección backend-only.
+- Chats: sin typing/presence (reglas solo permiten from/text/sentAt/type/metadata).
+- `getRideDetail`/`getMyRides` son la única fuente de rides propios para listados (no hay escaneo de trips_live ajenos — reglas lo prohíben, por diseño).
+
+## RundiApp/ (app v2 — migración desde Frontend/)
+App recreada en `RundiApp/` hermana de `Frontend/` (esta última queda intacta como referencia). Regla: NADA de RTDB ni Supabase; todo dato va a `src/v2` (REST Go `api/` + Firestore `live/`). Proyecto Firebase nuevo: `rundi-dev-2`.
+
+### Ya migrado (no revertir)
+- `config/firebase.ts`: sin RTDB (`databaseURL`/`getDatabase` fuera); Auth+Firestore+Storage; `getFunctions` queda TEMPORAL hasta que no queden `httpsCallable` (borrar al final).
+- Firestore: se usa la base `(default)` — la named DB `rundi-dev-2` NUNCA se creó en el proyecto; `FIRESTORE_DATABASE_ID` debe quedar VACÍA en app (.env) y backend (Cloud Run `rundi-api` ya se corrigió, rev 00012). Si algún día se crea la named DB, setear la var en ambos lados a la vez.
+- `hooks/shared/firebase/useFirebaseData.ts`: reimplementado sobre Firestore (misma firma path/options; colección→mapa {id:doc}).
+- `config/backendConfig.ts`: shim → `v2Config` (isLocal()=false siempre). `src/api/` v1 = deprecated, borrar cuando no queden consumidores.
+- `services/media/storageService.ts` (reemplaza supabaseStorage): uploads a Firebase Storage; retorna `objectPath` (no URL). `resolveDocumentPhotoUrl` → getDownloadURL.
+- `services/user/sessionService.ts`: `REALTIME_user_sessions` (conflicto por `device`+heartbeat fresco; `listenSessionConflict`).
+- `services/auth/firebaseAuthService.ts`: register=createUser+bootstrapUser(+registerDriver/registerVehicle); profile=DATA-MAIN_users; bridge RN→JS con `PhoneAuthProvider.credential`/`GoogleAuthProvider.credential` (NO hay endpoint de custom token).
+- `presence hooks`: sin onDisconnect (no existe en Firestore; scheduler backend marca offline por lastSeen).
+- `services/driver/designatedCrewService.ts`: crewApi + listeners `REALTIME_driver_crew_*` + `submitArrivalPhoto` (pending event, necesita rideId).
+- Uploads v2: cliente sube a Firebase Storage y envía `objectPath` al API (no hay endpoint de firma de upload).
+- Storage upload = `fetch(fileUri).blob()` + `uploadBytes` (NUNCA `uploadString`/`uploadBytes` con base64/Uint8Array: el SDK exige `instanceof Blob` real vía FbsBlob y RN no crea Blobs desde ArrayBuffer). El blob de fetch va respaldado por el módulo nativo y sube en streaming; cerrar con `blob.close()`. Reglas del bucket en `database-v2/storage/storage.rules` (deploy `database-v2/storage/deploy.sh`; layout `users-documents/profiles/{uid}/`, `drivers/driver-documents|vehicle-documents/{kind}/{uid}/`, `rides-documents/…`; `drivers-documents/` quedó solo-lectura legacy). Backend firma objectPaths opacos — sin validación de prefijo en functions-v2. `getInfoAsync` y lectura de archivos solo vía `expo-file-system/legacy` — las funciones legacy del entrypoint principal lanzan error de deprecation.
+- node_modules de RundiApp = clon APFS de ../Frontend/node_modules (cp -Rc — era symlink pero Metro emitía los `import()` dinámicos como bundle URL `path.relative(serverRoot, realpath)`; el realpath fuera de projectRoot corrompía el specifier a `./Frontend/...` sin `../` → "Unable to resolve" en runtime). Si Frontend reinstala, repetir el clon o hacer npm install real en RundiApp.
+
+### Mapping RTDB → Firestore (aplicar en cada archivo pendiente)
+- `activeRides/{id}` → `REALTIME_trips_live/{id}` (o DATA-MAIN_trips p/ histórico)
+- `activeRides/{id}/offers`, ofertas al driver → query `REALTIME_driver_offers`
+- `activeRidesByArea/{area}` → query trips_live por serviceAreaId+status
+- `presence/{uid}` → `REALTIME_presence/{uid}`; `sessions/{uid}` → `REALTIME_user_sessions/{uid}`
+- `driverLocations[ByArea]/*` → `REALTIME_drivers_live/{uid}`
+- `driversInfo/{uid}` → `DATA-MAIN_drivers/{uid}` (get auth / list solo operadores; el cliente usa `REALTIME_driver_public_profiles/{uid}` para oferentes/asignados — whitelist: displayName, photoUrl, averageRating, totalRides); `clientsInfo`/`users` → `DATA-MAIN_users`
+- `paymentStatus/{rideId}` → `REALTIME_payments_live/{rideId}`
+- `chats/*/messages` → `REALTIME_chats/{chatId}/messages` (chat doc lo crea backend)
+- `calls/*` → `REALTIME_calls` (initiate vía API) ; `programmedRides*` → `REALTIME_programmed_rides`
+- `notifications/{uid}` → `DATA-MAIN_notifications/{uid}/items`
+- `driverCrew*` → `REALTIME_driver_crew*`; `designatedArrivalPhotos/{uid}` → `REALTIME_designated_arrival_photos/{uid}`
+- `.info/connected` → no existe en Firestore (eliminar)
+- `ride_locations` (supabase) → `ridesApi.recordRideLocations/getRideLocations`

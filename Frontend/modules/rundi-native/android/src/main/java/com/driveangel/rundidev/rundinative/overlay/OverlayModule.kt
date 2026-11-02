@@ -1,4 +1,4 @@
-package com.driveangel.rundidev.rundinative.overlay
+package com.gruporzc.rundi.rundinative.overlay
 
 import android.app.Activity
 import android.app.Application

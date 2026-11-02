@@ -1,4 +1,4 @@
-package com.driveangel.rundidev.rundinative.overlay
+package com.gruporzc.rundi.rundinative.overlay
 
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
@@ -14,7 +14,7 @@ import android.view.ViewOutlineProvider
 import android.view.animation.OvershootInterpolator
 import android.widget.ImageView
 import android.widget.LinearLayout
-import com.driveangel.rundidev.rundinative.R
+import com.gruporzc.rundi.rundinative.R
 
 class OverlayView(
     private val context: Context,
@@ -44,7 +44,7 @@ class OverlayView(
         logger.d(TAG, "📏 Tamaño: ${bubbleSize}px, Sombra: ${shadowSize}px")
 
         val bubble = if (variant == "nearby_ride") {
-            logger.d(TAG, "🚗 Creando burbuja de viaje cercano con imagen DriveAngel...")
+            logger.d(TAG, "🚗 Creando burbuja de viaje cercano con imagen gruporzc...")
             createNearbyRideBubble(bubbleSize, shadowSize)
         } else {
             logger.d(TAG, "🔵 Creando burbuja por defecto con ícono de app...")
