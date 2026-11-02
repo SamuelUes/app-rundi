@@ -1,0 +1,10 @@
+{
+  "name": "rundi-db-v2-firestore-seed",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Seed de documentos iniciales Firestore v2 (service_areas, app_config)",
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  }
+}

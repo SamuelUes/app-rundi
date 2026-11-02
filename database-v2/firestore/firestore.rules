@@ -1,0 +1,419 @@
+rules_version = '2';
+// ============================================================================
+// RUNDI v2 — Firestore Rules (una sola database, raíces literales del doc)
+// Convención: raíz lógica prefijada en el nombre de colección:
+//   DATA-MAIN_*   modelos de lectura persistentes (proyección desde SQL)
+//   REALTIME_*    estado operacional en vivo (Firestore-authoritative en campos GPS/presencia)
+//   SAAS_*        administración y operación interna
+//   SYSTEM_*      metadatos de eventos/proyecciones (solo backend)
+//
+// Denegación por defecto. El cliente solo lee lo propio/participación y datos
+// públicos requeridos. Escrituras críticas SOLO vía API (Admin SDK bypass).
+// Claims esperados (custom claims): role ∈ client|driver|designated_driver|admin|operator
+// ============================================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- helpers ----------
+    function isAuth() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+    function role() { return request.auth.token.get('role', 'client'); }
+    function isDriver() {
+      return isAuth() && (role() == 'driver' || role() == 'designated_driver'
+                          || request.auth.token.get('isDriver', false) == true);
+    }
+    function isAdmin() { return isAuth() && role() == 'admin'; }
+    function isOperator() { return isAuth() && (role() == 'operator' || isAdmin()); }
+    function isOwner(userId) { return isAuth() && uid() == userId; }
+    // Participante de un viaje vivo (client, capitán o seguidor)
+    function isTripParticipant(data) {
+      return isAuth() && (data.clientId == uid()
+                          || data.driverId == uid()
+                          || data.followerDriverId == uid());
+    }
+    // GeoPoint nativo (tipo latlng en reglas) — drivers_live.location
+    // Nota: lat/lng se leen como métodos v.latitude()/v.longitude().
+    function validLatLng(v) {
+      return v is latlng
+        && v.latitude() >= -90 && v.latitude() <= 90
+        && v.longitude() >= -180 && v.longitude() <= 180;
+    }
+    // Mapa {latitude, longitude} — docs de ubicación por participante
+    function validGeoPoint(v) {
+      return v is map
+        && v.latitude is number && v.latitude >= -90 && v.latitude <= 90
+        && v.longitude is number && v.longitude >= -180 && v.longitude <= 180;
+    }
+    // Doc aún no proyectado (consumer async tras la mutación SQL): leerlo
+    // devuelve !exists — no hay datos que proteger. Sin este disjunct,
+    // resource es null y resource.data evalúa a "Null value error" → deny
+    // → el listener del cliente muere con PERMISSION_DENIED en la ventana
+    // entre la respuesta del API y la proyección (carerra observable al
+    // abrir HomeScreenOffers/Tracking/Payment recién creado el viaje).
+    // Debe ir PRIMERO en el ||: si un disjunct anterior toca resource.data
+    // la expresión entera falla antes de llegar aquí.
+    function docNotYetProjected() { return isAuth() && resource == null; }
+
+    // ======================================================================
+    // DATA-MAIN — proyecciones persistentes (escribe backend; lee app)
+    // ======================================================================
+
+    // Perfil proyectado del usuario (firestore-first operativo; histórico en SQL users)
+    match /DATA-MAIN_users/{userId} {
+      allow read: if isOwner(userId) || isOperator();
+      // El dueño crea su doc al registrarse con rol forzado client;
+      // campos privilegiados (role, currentRideId, driverStatus, stats) NO autoeditables.
+      allow create: if isOwner(userId)
+        && request.resource.data.id == userId
+        && request.resource.data.role == 'client'
+        && request.resource.data.keys().hasOnly([
+             'id', 'role', 'name', 'phone', 'email', 'birthDate', 'profilePhoto',
+             'authProvider', 'notificationsEnabled', 'createdAt', 'updatedAt', 'lastSeenAt']);
+      allow update: if isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'name', 'phone', 'email', 'birthDate', 'profilePhoto',
+             'authProvider', 'notificationsEnabled', 'updatedAt', 'lastSeenAt']);
+      allow delete: if false; // baja de cuenta va por API (deactivateUserAccount)
+
+      match /fcmTokens/{tokenId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /recurringRides/{rideId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // Perfil operativo/proyección de conductor (aprobación y compliance vienen de SQL)
+    match /DATA-MAIN_drivers/{driverId} {
+      // get por id (conductor lee el suyo, cliente lee al oferente/asignado);
+      // LIST solo operadores — evita enumerar toda la flota.
+      allow get: if isAuth();
+      allow list: if isOperator();
+      allow write: if false;   // solo proyección backend
+    }
+
+    match /DATA-MAIN_vehicles/{vehicleId} {
+      allow read: if isAuth();
+      allow write: if false;
+    }
+
+    match /DATA-MAIN_payments/{paymentId} {
+      // El consumer proyecta clientId/driverId top-level (payload Outbox)
+      allow read: if docNotYetProjected()
+        || isOperator() || isTripParticipant(resource.data);
+      allow write: if false;
+    }
+
+    // Catálogo de servicios/features/pricing — lectura directa de la app
+    // (sugerencia del usuario: agilizar solicitud de viajes sin pasar por API)
+    match /DATA-MAIN_services/{serviceId} {
+      allow read: if isAuth();
+      allow write: if false;
+    }
+    match /DATA-MAIN_features/{featureId} {
+      allow read: if isAuth();
+      allow write: if false;
+    }
+    match /DATA-MAIN_pricing/{docId} {
+      allow read: if isAuth();
+      allow write: if false;
+    }
+    match /DATA-MAIN_app_config/{docId} {
+      allow read: if isAuth();
+      allow write: if false;
+    }
+
+    // Notificaciones in-app
+    match /DATA-MAIN_notifications/{userId}/items/{notificationId} {
+      allow read: if isOwner(userId);
+      allow update: if isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt']);
+      allow create: if false;
+      allow delete: if isOwner(userId);
+    }
+
+    // ======================================================================
+    // REALTIME — estado operacional en vivo
+    // ======================================================================
+
+    // Sesión activa (modo cliente/conductor, dispositivo, serviceAreaId)
+    match /REALTIME_user_sessions/{userId} {
+      allow read: if isOwner(userId);
+      // En create resource.data es null: validar keys() del doc nuevo
+      // (diff() sobre null da Null value error y deniega).
+      allow create: if isOwner(userId)
+        && request.resource.data.keys().hasOnly([
+             'mode', 'device', 'platform', 'appVersion', 'serviceAreaId',
+             'lastHeartbeat', 'startedAt', 'fcmToken'])
+        && (!request.resource.data.keys().hasAny(['mode'])
+            || request.resource.data.mode in ['client', 'driver']);
+      allow update: if isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'mode', 'device', 'platform', 'appVersion', 'serviceAreaId',
+             'lastHeartbeat', 'startedAt', 'fcmToken'])
+        && (!request.resource.data.keys().hasAny(['mode'])
+            || request.resource.data.mode in ['client', 'driver']);
+      allow delete: if isOwner(userId);
+    }
+
+    // Presencia online/offline
+    match /REALTIME_presence/{userId} {
+      allow read: if isAuth();
+      allow write: if isOwner(userId)
+        && request.resource.data.keys().hasOnly([
+             'state', 'lastSeen', 'heartbeatAt'])
+        && (!request.resource.data.keys().hasAny(['state'])
+            || request.resource.data.state in ['online', 'offline', 'away']);
+    }
+
+    // GPS/estado en vivo del conductor — único doc que el driver escribe directo.
+    // NO puede tocar aprobación, rol, saldo, comisión, viaje asignado ni compliance.
+    match /REALTIME_drivers_live/{driverId} {
+      allow read: if isAuth();
+      // En create resource.data es null: validar keys() del doc nuevo
+      // (diff() sobre null da Null value error y deniega).
+      allow create: if isOwner(driverId) && isDriver()
+        && request.resource.data.keys().hasOnly([
+             'location', 'status', 'serviceAreaId', 'vehicleType',
+             'activeServiceCodes', 'lastSeen', 'heading', 'speed', 'accuracy'])
+        && (!request.resource.data.keys().hasAny(['location'])
+            || validLatLng(request.resource.data.location));
+      allow update: if isOwner(driverId) && isDriver()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'location', 'status', 'serviceAreaId', 'vehicleType',
+             'activeServiceCodes', 'lastSeen', 'heading', 'speed', 'accuracy'])
+        && (!request.resource.data.keys().hasAny(['location'])
+            || validLatLng(request.resource.data.location));
+      // delete ya quedaba denegado (request.resource es null en delete).
+      allow delete: if false;
+    }
+
+    // Estado vivo de viaje — actualizaciones críticas por consumidor/API.
+    match /REALTIME_trips_live/{tripId} {
+      allow read: if docNotYetProjected()
+        || isOperator() || isTripParticipant(resource.data);
+      // Descubrimiento driver-side: un conductor puede LISTAR viajes en
+      // 'requested' (pre-oferta); la query debe filtrar status=='requested'.
+      allow list: if isDriver() && resource.data.status == 'requested';
+      allow write: if false; // comandos vía API; el consumidor proyecta
+
+      // Subcampos de ubicación en vivo — el participante correspondiente escribe su GPS
+      match /locations/{participant} {
+        allow read: if isOperator()
+          || (isAuth() && !exists(/databases/$(database)/documents/REALTIME_trips_live/$(tripId)))
+          || isTripParticipant(get(/databases/$(database)/documents/REALTIME_trips_live/$(tripId)).data);
+        allow write: if isAuth() && participant == uid()
+          && isTripParticipant(get(/databases/$(database)/documents/REALTIME_trips_live/$(tripId)).data)
+          && validGeoPoint(request.resource.data)
+          && request.resource.data.keys().hasOnly([
+               'latitude', 'longitude', 'updatedAt', 'heading', 'speed', 'accuracy']);
+      }
+    }
+
+    // Ofertas por conductor — backend crea/actualiza; driver lee solo las suyas
+    match /REALTIME_driver_offers/{offerId} {
+      allow read: if docNotYetProjected()
+        || isOperator()
+        || (isDriver() && resource.data.driverId == uid())
+        || (isAuth() && resource.data.clientId == uid());
+      allow write: if false; // aceptación = comando API (transacción SQL)
+    }
+
+    match /REALTIME_payments_live/{tripId} {
+      allow read: if docNotYetProjected()
+        || isOperator() || isTripParticipant(resource.data);
+      allow write: if false; // confirmación financiera solo backend/SQL
+    }
+
+    // Señalización de llamadas (LiveKit) — el doc lo crea el backend con roles
+    // resueltos desde SQL (clientUid/driverUid/operatorUid no spoofeables);
+    // participantes solo actualizan estado/tiempos y escriben eventos propios.
+    match /REALTIME_calls/{callId} {
+      allow read: if docNotYetProjected()
+        || isOperator()
+        || (isAuth() && (resource.data.callerUid == uid() || resource.data.calleeUid == uid()));
+      allow create: if false; // POST /v1/calls/initiate (backend)
+      // Update: participante existente; identidades, roles y vínculos inmutables
+      allow update: if isAuth()
+        && (resource.data.callerUid == uid() || resource.data.calleeUid == uid())
+        && request.resource.data.callerUid == resource.data.callerUid
+        && request.resource.data.calleeUid == resource.data.calleeUid
+        && (!request.resource.data.diff(resource.data).affectedKeys()
+              .hasAny(['clientUid', 'driverUid', 'operatorUid', 'callType',
+                       'direction', 'rideId', 'complaintId']));
+      allow delete: if false;
+      match /events/{eventId} {
+        function callParticipant() {
+          let call = get(/databases/$(database)/documents/REALTIME_calls/$(callId)).data;
+          return isAuth() && (call.callerUid == uid() || call.calleeUid == uid());
+        }
+        allow read: if callParticipant();
+        allow create: if callParticipant() && request.resource.data.from == uid();
+      }
+    }
+
+    // Viajes programados — el doc lo crea/muta el backend vía REST
+    // (participantes lo leen; promoción a rides SQL la hace el scheduler).
+    match /REALTIME_programmed_rides/{rideId} {
+      allow read: if docNotYetProjected()
+        || isOperator()
+        || (isAuth() && (resource.data.clientId == uid()
+             || resource.data.driverId == uid()));
+      allow create, update, delete: if false;
+    }
+
+    // Perfil público del conductor — superficie mínima para identificar a
+    // oferentes/conductores asignados (nombre, foto, rating, conteo de viajes).
+    match /REALTIME_driver_public_profiles/{driverId} {
+      allow read: if isAuth();
+      allow write: if false;
+    }
+
+    // Chat vivo por viaje/soporte (mensajes efímeros; histórico a SQL si aplica)
+    match /REALTIME_chats/{chatId}/messages/{messageId} {
+      allow read: if isOperator()
+        || (isAuth() && !exists(/databases/$(database)/documents/REALTIME_chats/$(chatId)))
+        || (isAuth() && uid() in get(/databases/$(database)/documents/REALTIME_chats/$(chatId)).data.participants);
+      allow create: if isAuth()
+        && request.resource.data.from == uid()
+        && uid() in get(/databases/$(database)/documents/REALTIME_chats/$(chatId)).data.participants
+        && request.resource.data.keys().hasOnly(['from', 'text', 'sentAt', 'type', 'metadata'])
+        && request.resource.data.text is string
+        && request.resource.data.text.size() <= 4000;
+      allow update, delete: if false;
+    }
+    match /REALTIME_chats/{chatId} {
+      allow read: if docNotYetProjected()
+        || isOperator() || (isAuth() && uid() in resource.data.participants);
+      allow create, update: if false;
+    }
+
+    // Crew designado: membresía e invitaciones (solo backend escribe; actores leen)
+    match /REALTIME_driver_crews/{captainId} {
+      allow read: if docNotYetProjected()
+        || isOperator() || isOwner(captainId)
+        || (isAuth() && resource.data.followerId == uid());
+      allow write: if false;
+    }
+    match /REALTIME_driver_crew_membership/{uid} {
+      allow read: if isOwner(uid) || isOperator();
+      allow write: if false;
+    }
+    match /REALTIME_driver_crew_invites/{followerId} {
+      allow read: if isOwner(followerId) || isOperator();
+      allow write: if false;
+    }
+
+    // Foto efímera de vehículo de llegada (TTL)
+    match /REALTIME_designated_arrival_photos/{uid} {
+      allow read: if isOwner(uid) || isOperator();
+      allow write: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['path', 'takenAt'])
+        && request.resource.data.path is string; // objectPath Storage
+    }
+
+    // ======================================================================
+    // SAAS — administración y operación
+    // ======================================================================
+    match /SAAS_admin_settings/{docId} {
+      allow read, write: if isAdmin();
+    }
+    match /SAAS_operator_settings/{docId} {
+      allow read, write: if isOperator();
+    }
+    match /SAAS_dashboards/{docId} {
+      allow read: if isOperator();
+      allow write: if false; // proyección calculada por backend
+    }
+    match /SAAS_reports/{docId} {
+      allow read: if isOperator();
+      allow write: if false;
+    }
+    match /SAAS_system_config/{docId} {
+      allow read: if isOperator();
+      allow write: if isAdmin();
+    }
+    // Compat con colecciones CMS existentes durante coexistencia
+    match /cms-users/{userId} {
+      allow read: if isAdmin() || isOwner(userId);
+      allow write: if isAdmin();
+    }
+    match /cms-gruporzc/{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    // ======================================================================
+    // SYSTEM — infraestructura de eventos/proyecciones (solo backend)
+    // ======================================================================
+    match /SYSTEM_pending_events/{eventId} {
+      // Patrón doc §5.2: el cliente escribe el doc operacional + su pending
+      // event en un batch atómico; el consumidor lo persiste en SQL. Solo se
+      // acepta create con forma exacta y eventType whitelisted; el backend
+      // valida participación antes de aplicar (nunca confiar en payload).
+      allow create: if isAuth()
+        && request.resource.data.keys().hasOnly(
+             ['eventType', 'aggregateType', 'aggregateId', 'payload', 'status', 'createdAt', 'source'])
+        && request.resource.data.aggregateId is string
+        && request.resource.data.status == 'pending'
+        && request.resource.data.source == 'client'
+        && request.resource.data.payload.uid == request.auth.uid
+        && (
+          (request.resource.data.eventType == 'arrival_photo_uploaded'
+            && request.resource.data.aggregateType == 'ride'
+            && request.resource.data.payload.keys().hasOnly(['rideId', 'uid', 'path'])
+            && request.resource.data.payload.rideId is string
+            && request.resource.data.payload.path is string
+            && request.resource.data.payload.path.size() <= 500)
+          ||
+          (request.resource.data.eventType in ['call_initiated', 'call_ended']
+            && request.resource.data.aggregateType == 'call'
+            && request.resource.data.payload.keys().hasOnly(['callId', 'uid'])
+            && request.resource.data.payload.callId is string)
+          ||
+          (request.resource.data.eventType == 'chat_message'
+            && request.resource.data.aggregateType == 'chat'
+            && request.resource.data.payload.keys().hasOnly(['chatId', 'uid'])
+            && request.resource.data.payload.chatId is string)
+        );
+      allow read, update, delete: if false;
+    }
+    match /SYSTEM_processed_events/{eventId} {
+      allow read, write: if false;
+    }
+    match /SYSTEM_projection_status/{docId} {
+      allow read, write: if false;
+    }
+
+    // ======================================================================
+    // Compat temporal (migración): colecciones actuales hasta cortar puentes
+    // ======================================================================
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && request.resource.data.role == 'client';
+      allow update: if isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'name', 'phone', 'email', 'birthDate', 'profilePhoto',
+             'authProvider', 'method', 'fcmToken', 'notificationsEnabled',
+             'updatedAt', 'recurringRides']); // BLOQUEADOS: role, currentRideId, driverStatus, currentLocation, stats
+      allow delete: if false; // baja de cuenta por API (paridad con DATA-MAIN_users)
+      match /recurringRides/{rideId} { allow read, write: if isOwner(userId); }
+      match /fcmTokens/{tokenId} { allow read, write: if isOwner(userId); }
+    }
+    match /DATA-MAIN_service_areas/{areaId} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+    match /notifications/{userId}/items/{notificationId} {
+      allow read: if isOwner(userId);
+      allow update: if isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt']);
+      allow create: if false;
+      allow delete: if isOwner(userId);
+    }
+
+    // Denegación por defecto explícita
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

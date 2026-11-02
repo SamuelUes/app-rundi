@@ -1,0 +1,80 @@
+rules_version = '2';
+
+// Firebase Storage — bucket único del proyecto.
+// La app sube directo desde el cliente (objectPath) con este layout:
+//   users-documents/profiles/{uid}/…            foto de perfil (clientes y conductores)
+//   drivers/driver-documents/{kind}/{uid}/…     kind ∈ licenses (docs personales del conductor)
+//   drivers/vehicle-documents/{kind}/{uid}/…    kind ∈ registrations|insurance|vehicles
+//   rides-documents/client-vehicles/{uid}/…
+//   rides-documents/rides-inspection/{rideId}/… (incluye designated-arrival/{uid})
+// El backend (Admin SDK) salta estas reglas — las URLs firmadas de compliance
+// no dependen de `allow read`.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+    // La app siempre sube JPEG comprimido (~1600px, <2MB típico).
+    function validImageUpload() {
+      return request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Fotos de perfil — las lee cualquier usuario autenticado (se muestran en
+    // el viaje a la contraparte); escritura solo el dueño.
+    match /users-documents/profiles/{uid}/{file=**} {
+      allow write: if isOwner(uid) && validImageUpload();
+      allow read: if signedIn();
+    }
+
+    // Documentos personales del conductor (licencia) — privados; la revisión
+    // de compliance va por URLs firmadas del backend.
+    match /drivers/driver-documents/{kind}/{uid}/{file=**} {
+      allow write: if isOwner(uid) && validImageUpload();
+      allow read: if isOwner(uid);
+    }
+
+    // Fotos del vehículo — las lee cualquier autenticado (el cliente ve el
+    // auto asignado en el viaje).
+    match /drivers/vehicle-documents/vehicles/{uid}/{file=**} {
+      allow write: if isOwner(uid) && validImageUpload();
+      allow read: if signedIn();
+    }
+
+    // Resto de docs del vehículo (circulación, póliza) — privados.
+    match /drivers/vehicle-documents/{kind}/{uid}/{file=**} {
+      allow write: if isOwner(uid) && validImageUpload();
+      allow read: if isOwner(uid);
+    }
+
+    // LEGACY: objetos subidos con el layout anterior (drivers-documents/).
+    // Solo lectura con la misma semántica anterior; las escrituras nuevas van
+    // a users-documents/ y drivers/. Borrar este bloque al migrar los objetos.
+    match /drivers-documents/{kind}/{uid}/{file=**} {
+      allow write: if false;
+      allow read: if isOwner(uid) || (kind in ['profiles', 'vehicles'] && signedIn());
+    }
+
+    // Foto del vehículo del cliente (conductor designado) — la lee el
+    // capitán/seguidor asignado, no solo el dueño.
+    match /rides-documents/client-vehicles/{uid}/{file=**} {
+      allow write: if isOwner(uid) && validImageUpload();
+      allow read: if signedIn();
+    }
+
+    // Evidencia/fotos de inspección por viaje — las suben capitán/seguidor y
+    // las lee el cliente del viaje. La participación no es verificable en
+    // rules de Storage (sin lookup a trips), así que va por autenticado.
+    match /rides-documents/rides-inspection/{rideId}/{file=**} {
+      allow write: if signedIn() && validImageUpload();
+      allow read: if signedIn();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
