@@ -15,14 +15,18 @@ interface DriverDataVehicleTabProps {
   color: string;
   type: string;
   passengers: string;
+  vin: string;
+  motor: string;
+  chasis: string;
   registrationNumber: string;
-  registrationExpiry: string;
+  emissionDate: string;
   insuranceNumber: string;
   insuranceCompany: string;
   insuranceExpiry: string;
   insurancePhoto: string | null;
   registrationPhotoFront: string | null;
   registrationPhotoBack: string | null;
+  vehiclePhoto: string | null;
   inspectionDate: string;
   inspectionValidUntil: string;
   emissionsTestedAt: string;
@@ -38,8 +42,11 @@ interface DriverDataVehicleTabProps {
   onSetColor: (v: string) => void;
   onSetType: (v: string) => void;
   onSetPassengers: (v: string) => void;
+  onSetVin: (v: string) => void;
+  onSetMotor: (v: string) => void;
+  onSetChasis: (v: string) => void;
   onSetRegistrationNumber: (v: string) => void;
-  onSetRegistrationExpiry: (v: string) => void;
+  onSetEmissionDate: (v: string) => void;
   onSetInsuranceNumber: (v: string) => void;
   onSetInsuranceCompany: (v: string) => void;
   onSetInsuranceExpiry: (v: string) => void;
@@ -52,6 +59,7 @@ interface DriverDataVehicleTabProps {
   onTakeInsurancePhoto: () => void;
   onTakeRegistrationPhotoFront: () => void;
   onTakeRegistrationPhotoBack: () => void;
+  onTakeVehiclePhoto: () => void;
   ocrReading?: boolean;
   ocrMessage?: string | null;
   fieldsExpanded?: boolean;
@@ -68,14 +76,18 @@ export function DriverDataVehicleTab({
   color,
   type,
   passengers,
+  vin,
+  motor,
+  chasis,
   registrationNumber,
-  registrationExpiry,
+  emissionDate,
   insuranceNumber,
   insuranceCompany,
   insuranceExpiry,
   insurancePhoto,
   registrationPhotoFront,
   registrationPhotoBack,
+  vehiclePhoto,
   inspectionDate,
   inspectionValidUntil,
   emissionsTestedAt,
@@ -91,8 +103,11 @@ export function DriverDataVehicleTab({
   onSetColor,
   onSetType,
   onSetPassengers,
+  onSetVin,
+  onSetMotor,
+  onSetChasis,
   onSetRegistrationNumber,
-  onSetRegistrationExpiry,
+  onSetEmissionDate,
   onSetInsuranceNumber,
   onSetInsuranceCompany,
   onSetInsuranceExpiry,
@@ -105,6 +120,7 @@ export function DriverDataVehicleTab({
   onTakeInsurancePhoto,
   onTakeRegistrationPhotoFront,
   onTakeRegistrationPhotoBack,
+  onTakeVehiclePhoto,
   ocrReading = false,
   ocrMessage = null,
   fieldsExpanded = false,
@@ -162,6 +178,16 @@ export function DriverDataVehicleTab({
           photoUri={registrationPhotoBack}
           loading={loading}
           onTakePhoto={onTakeRegistrationPhotoBack}
+          styles={styles}
+          t={t}
+        />
+
+        {/* Foto del vehículo: no es documento, no corre OCR */}
+        <DriverDataPhotoField
+          title={t('authScreens.driverData.photos.vehicleTitle')}
+          photoUri={vehiclePhoto}
+          loading={loading}
+          onTakePhoto={onTakeVehiclePhoto}
           styles={styles}
           t={t}
         />
@@ -243,6 +269,9 @@ export function DriverDataVehicleTab({
               keyboardType="numeric"
               editable={!loading}
             />
+            <Text style={{ color: colors.textSecondary, marginTop: 6 }}>
+              {t('authScreens.driverData.ocr.yearWarning')}
+            </Text>
           </View>
 
           {/* Color */}
@@ -290,6 +319,51 @@ export function DriverDataVehicleTab({
             />
           </View>
 
+          {/* VIN */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>{t('authScreens.driverData.vehicle.vinLabel')}</Text>
+            <TextInput
+              style={styles.input}
+              placeholder={t('authScreens.driverData.vehicle.vinPlaceholder')}
+              placeholderTextColor={colors.textSecondary}
+              value={vin}
+              onChangeText={onSetVin}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              editable={!loading}
+            />
+          </View>
+
+          {/* Motor */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>{t('authScreens.driverData.vehicle.motorLabel')}</Text>
+            <TextInput
+              style={styles.input}
+              placeholder={t('authScreens.driverData.vehicle.motorPlaceholder')}
+              placeholderTextColor={colors.textSecondary}
+              value={motor}
+              onChangeText={onSetMotor}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              editable={!loading}
+            />
+          </View>
+
+          {/* Chasis */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>{t('authScreens.driverData.vehicle.chasisLabel')}</Text>
+            <TextInput
+              style={styles.input}
+              placeholder={t('authScreens.driverData.vehicle.chasisPlaceholder')}
+              placeholderTextColor={colors.textSecondary}
+              value={chasis}
+              onChangeText={onSetChasis}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              editable={!loading}
+            />
+          </View>
+
           <View style={styles.fieldGroup}>
             <Text style={styles.label}>{t('authScreens.driverData.vehicle.registrationNumberLabel')}</Text>
             <TextInput
@@ -303,13 +377,13 @@ export function DriverDataVehicleTab({
           </View>
 
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>{t('authScreens.driverData.vehicle.registrationExpiryLabel')}</Text>
+            <Text style={styles.label}>{t('authScreens.driverData.vehicle.emissionDateLabel')}</Text>
             <DatePickerField
               style={styles.input}
-              placeholder={t('authScreens.driverData.vehicle.registrationExpiryPlaceholder')}
+              placeholder={t('authScreens.driverData.vehicle.emissionDatePlaceholder')}
               placeholderTextColor={colors.textSecondary}
-              value={registrationExpiry}
-              onChangeText={onSetRegistrationExpiry}
+              value={emissionDate}
+              onChangeText={onSetEmissionDate}
               editable={!loading}
             />
           </View>

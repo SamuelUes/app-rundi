@@ -12,7 +12,12 @@ interface UseDriverAvailabilityOptions {
   userRole: string | undefined;
   coords: Coords | null;
   hasInsufficientFunds: boolean;
-  rechargeFundsSummary: { availableBalance: number; blocked: boolean } | null;
+  rechargeFundsSummary: {
+    availableBalance: number;
+    blocked: boolean;
+    pendingRecharges?: number;
+    pendingAmount?: number;
+  } | null;
   tr: (path: string, options?: Record<string, any>) => string;
   navigation: any;
   markTaskCompleted: (task: string) => void;
@@ -33,10 +38,12 @@ export function useDriverAvailability({
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const enforcingAvailabilityRef = useRef<boolean>(false);
   const rechargeAlertShownRef = useRef<boolean>(false);
+  const availabilityRevisionRef = useRef(0);
 
   // Restore availability state on mount
   useEffect(() => {
     let isActive = true;
+    const revision = availabilityRevisionRef.current;
 
     const finalize = () => {
       if (isActive) {
@@ -56,6 +63,7 @@ export function useDriverAvailability({
           driverAvailabilityService.getAvailabilityState(),
           getDoc(doc(db, FS_COL.driversLive, userId)),
         ]);
+        if (!isActive || revision !== availabilityRevisionRef.current) return;
         const status = String(statusSnapshot.data()?.status || 'offline').trim().toLowerCase();
         const isOnline = status === 'online' || status === 'available' || status === 'on_ride' || status === 'busy';
 
@@ -89,13 +97,16 @@ export function useDriverAvailability({
 
     let unsubscribe: (() => void) | null = null;
     let cancelled = false;
+    let restoreDesignatedMode = true;
     (async () => {
       const db = await getFirebaseFirestore();
       if (cancelled) return;
       unsubscribe = onSnapshot(doc(db, FS_COL.driversLive, userId), (snapshot) => {
+        const revision = ++availabilityRevisionRef.current;
         const raw = snapshot.data()?.status;
         const status = typeof raw === 'string' ? raw.trim().toLowerCase() : 'offline';
         const online = status === 'online' || status === 'available' || status === 'on_ride' || status === 'busy';
+        if (__DEV__) console.log('[DriverHome availability]', { status, online });
 
         setIsAvailable(online);
         if (!online) {
@@ -105,6 +116,13 @@ export function useDriverAvailability({
         void (async () => {
           try {
             const saved = await driverAvailabilityService.getAvailabilityState();
+            if (cancelled || revision !== availabilityRevisionRef.current) return;
+            if (restoreDesignatedMode) {
+              restoreDesignatedMode = false;
+              if (online && saved?.isAvailable && saved.isDesignatedDriverMode) {
+                setIsDesignatedDriverMode(true);
+              }
+            }
             if (Boolean(saved?.isAvailable) === online) return;
             await driverAvailabilityService.saveAvailabilityState({
               isAvailable: online,
@@ -130,8 +148,10 @@ export function useDriverAvailability({
     if (!coords) return;
 
     driverAvailabilityService.initAppStateListener(coords, (restoredState) => {
-      setIsAvailable(restoredState.isAvailable);
-      setIsDesignatedDriverMode(restoredState.isDesignatedDriverMode);
+      if (!restoredState.isAvailable) {
+        setIsAvailable(false);
+        setIsDesignatedDriverMode(false);
+      }
     });
 
     if (isAvailable) {
@@ -197,15 +217,23 @@ export function useDriverAvailability({
     }
 
     const availableBalance = Number(rechargeFundsSummary.availableBalance ?? 0);
+    const pendingCount = Number(rechargeFundsSummary.pendingRecharges ?? 0);
 
     if (hasInsufficientFunds) {
       if (!rechargeAlertShownRef.current) {
         rechargeAlertShownRef.current = true;
         alertService.showInfoAlert(
-          tr('driver.home.alerts.rechargeRequiredTitle'),
-          tr('driver.home.alerts.rechargeRequiredBody', {
-            amount: availableBalance.toFixed(2),
-          }),
+          tr(pendingCount > 0
+            ? 'driver.home.alerts.rechargePendingTitle'
+            : 'driver.home.alerts.rechargeRequiredTitle'),
+          pendingCount > 0
+            ? tr('driver.home.alerts.rechargePendingBody', {
+                amount: Number(rechargeFundsSummary.pendingAmount ?? 0).toFixed(2),
+                count: pendingCount,
+              })
+            : tr('driver.home.alerts.rechargeRequiredBody', {
+                amount: availableBalance.toFixed(2),
+              }),
           () => navigation.navigate('RechargeFunds'),
         );
       }
@@ -226,11 +254,19 @@ export function useDriverAvailability({
     }
 
     if (nextValue && hasInsufficientFunds && rechargeFundsSummary) {
+      const pendingCount = Number(rechargeFundsSummary.pendingRecharges ?? 0);
       alertService.showInfoAlert(
-        tr('driver.home.alerts.rechargeRequiredTitle'),
-        tr('driver.home.alerts.rechargeRequiredBody', {
-          amount: Number(rechargeFundsSummary.availableBalance).toFixed(2),
-        }),
+        tr(pendingCount > 0
+          ? 'driver.home.alerts.rechargePendingTitle'
+          : 'driver.home.alerts.rechargeRequiredTitle'),
+        pendingCount > 0
+          ? tr('driver.home.alerts.rechargePendingBody', {
+              amount: Number(rechargeFundsSummary.pendingAmount ?? 0).toFixed(2),
+              count: pendingCount,
+            })
+          : tr('driver.home.alerts.rechargeRequiredBody', {
+              amount: Number(rechargeFundsSummary.availableBalance).toFixed(2),
+            }),
         () => navigation.navigate('RechargeFunds')
       );
       return;
@@ -240,6 +276,7 @@ export function useDriverAvailability({
       return;
     }
 
+    availabilityRevisionRef.current++;
     setUpdatingStatus(true);
     try {
       const status = nextValue ? 'available' : 'offline';
@@ -277,7 +314,13 @@ export function useDriverAvailability({
         await driverAvailabilityService.clearAvailabilityState();
 
         if (nextValue) {
-          alertService.showErrorAlert(tr('driver.home.alerts.availabilityUpdateFailed'));
+          // Rechazo de activación: mostrar el motivo de compliance si vino.
+          const reason = statusResult?.activation?.reasons?.find(
+            (r) => r.blocking || r.status === 'fail',
+          );
+          alertService.showErrorAlert(
+            reason?.message || tr('driver.home.alerts.availabilityUpdateFailed'),
+          );
         }
       }
     } catch (err: any) {
@@ -295,6 +338,7 @@ export function useDriverAvailability({
     }
 
     try {
+      availabilityRevisionRef.current++;
       const next = !isDesignatedDriverMode;
       setIsDesignatedDriverMode(next);
       await driversService.updateDesignatedDriverMode(userId, next);

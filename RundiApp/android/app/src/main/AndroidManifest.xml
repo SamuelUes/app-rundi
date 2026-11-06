@@ -44,7 +44,7 @@
     <meta-data android:name="expo.modules.updates.ENABLE_BSDIFF_PATCH_SUPPORT" android:value="true"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>
-    <service android:name="com.driveangel.rundidev.rundinative.service.TrackingForegroundService" android:foregroundServiceType="location" android:exported="false"/>
+    <service android:name="com.gruporzc.rundi.rundinative.service.TrackingForegroundService" android:foregroundServiceType="location" android:exported="false"/>
     <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode|smallestScreenSize|assetsPaths|locale|layoutDirection" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true" android:screenOrientation="portrait">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
@@ -54,7 +54,7 @@
         <action android:name="android.intent.action.VIEW"/>
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:scheme="com.driveangel.rundidev"/>
+        <data android:scheme="com.gruporzc.rundi"/>
         <data android:scheme="exp+rundi"/>
       </intent-filter>
       <intent-filter data-generated="true">

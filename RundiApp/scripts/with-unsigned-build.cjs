@@ -15,7 +15,7 @@ module.exports = function withUnsignedBuild(config) {
     return c;
   });
 
-  // El bundle id alternativo (com.samuelues.rundi) usa su propio iOS OAuth client;
+  // El bundle id alternativo (com.gruporzc.rundi) usa su propio iOS OAuth client;
   // registrar su reversed client id como URL scheme para que Google Sign-In responda.
   const iosClientId = process.env.REACT_APP_GOOGLE_CLIENT_ID_IOS_AUTO_GOOGLE;
   if (iosClientId) {

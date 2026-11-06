@@ -98,7 +98,7 @@ export function useDriverPendingAction({
       return;
     }
 
-    if (pendingNegotiationRide) {
+    if (pendingNegotiationRide && userId) {
       const ride = pendingNegotiationRide;
       const originLat = parseCoordinate(ride?.origin?.lat ?? ride?.origin?.latitude ?? ride?.originLatitude) ?? 0;
       const originLng = parseCoordinate(ride?.origin?.lng ?? ride?.origin?.longitude ?? ride?.originLongitude) ?? 0;
@@ -113,27 +113,32 @@ export function useDriverPendingAction({
             address: stop?.address,
           }))
         : [];
-      const estimatedFare = Number.isFinite(ride?.finalFare)
-        ? Number(ride.finalFare)
-        : Number.isFinite(ride?.clientSuggestedPrice)
-          ? Number(ride.clientSuggestedPrice)
-          : Number.isFinite(ride?.estimatedPrice)
-            ? Number(ride.estimatedPrice)
-            : 0;
+
+      // El doc de contraoferta proyecta el contexto completo del viaje —
+      // mismo fallback que el cache local, así el preview se reconstruye
+      // desde Firestore sin tocar AsyncStorage ni REST.
+      const cacheEntry = {
+        rideId: ride.id,
+        driverId: userId,
+        clientId: ride.clientId,
+        clientName: ride.clientName,
+        origin: { lat: originLat, lng: originLng, address: originAddress },
+        destination: { lat: destinationLat, lng: destinationLng, address: destinationAddress },
+        extraDestinations,
+        offeredPrice: ride.offeredPrice,
+        clientSuggestedPrice: ride.clientSuggestedPrice,
+        estimatedPrice: ride.estimatedPrice,
+        negotiationStatus: 'pending',
+        createdAt: Date.now(),
+      };
+      const normalizedRide = normalizeRidePreviewPayload(ride, cacheEntry, userId);
 
       setPendingAction({
         type: 'active_ride',
         title: t('driver.home.pendingAction.negotiationTitle'),
         subtitle: t('driver.home.pendingAction.negotiationSubtitle'),
         onPress: () => {
-          navigation.replace('WaitingClientConfirmation', {
-            rideId: ride.id,
-            clientId: ride.clientId,
-            origin: { lat: originLat, lng: originLng, address: originAddress },
-            destination: { lat: destinationLat, lng: destinationLng, address: destinationAddress },
-            estimatedFare,
-            extraDestinations,
-          });
+          navigation.replace('RidePreview', { ride: normalizedRide, proximity: true });
         },
       });
       return;

@@ -280,6 +280,40 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
     let cancelled = false;
     console.log('🕐 Esperando confirmación del cliente para viaje:', rideId);
 
+    const handleAccepted = (fare: any) => {
+      setOfferStatus('accepted');
+      if (!navigationScheduledRef.current) {
+        navigationScheduledRef.current = true;
+        navigationTimeoutRef.current = setTimeout(() => {
+          navigationTimeoutRef.current = null;
+          if (navigation.isFocused?.() === false) return;
+          navigation.replace('ActiveRide', {
+            rideId: rideId,
+            clientId: clientId,
+            origin: origin,
+            destination: destination,
+            estimatedFare: fare || estimatedFare,
+          });
+        }, 1500);
+      }
+    };
+
+    const handleTerminalOffer = (status: string) => {
+      if (status === 'accepted') {
+        handleAccepted(estimatedFare);
+        return;
+      }
+      if (status === 'rejected' || status === 'canceled') {
+        setOfferStatus('rejected');
+        const key = status === 'rejected' ? 'offerRejectedMe' : 'offerClosed';
+        Alert.alert(
+          t(`${ns}.alerts.${key}Title`),
+          t(`${ns}.alerts.${key}Message`),
+          [{ text: 'OK', onPress: () => navigation.replace('AvailableRides') }]
+        );
+      }
+    };
+
     const handleRideData = (data: any) => {
 
       if (!data) {
@@ -369,16 +403,19 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
       unsubs.push(
         onSnapshot(doc(db, FS_COL.tripsLive, await liveTripDocId(rideId)), (snap) => {
           handleRideData(snap.data());
+        }, (err) => {
+          // trips_live es ilegible para el oferente mientras negocia
+          // (no participante): el doc de mi oferta cubre esa ventana.
+          console.warn('[WaitingClientConfirmation] trips_live listener:', err);
         }),
       );
-      // Mi oferta (legible siempre): rechazo explícito del sistema/cliente.
+      // Mi oferta (legible siempre): cubre aceptación, rechazo y cierre
+      // mientras trips_live sigue denegado durante la negociación.
       if (user?.id) {
         unsubs.push(
           onSnapshot(doc(db, FS_COL.driverOffers, `${rideId}_${user.id}`), (snap) => {
             const offer = snap.data();
-            if (offer && String(offer.status) === 'rejected') {
-              setOfferStatus('rejected');
-            }
+            if (offer) handleTerminalOffer(String(offer.status));
           }),
         );
       }

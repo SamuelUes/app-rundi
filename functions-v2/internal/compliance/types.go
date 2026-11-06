@@ -38,6 +38,10 @@ type Evaluation struct {
 	DriverID     *string  `json:"driverId,omitempty"`
 	VehicleID    *string  `json:"vehicleId,omitempty"`
 	ServiceCode  *string  `json:"serviceCode,omitempty"`
+	// NicaraguaDay e InputGenerations alimentan la caché diaria reutilizable;
+	// ausentes cuando la evaluación no puede cachearse (sin conductor, etc.).
+	NicaraguaDay     string           `json:"nicaraguaDay,omitempty"`
+	InputGenerations map[string]int64 `json:"inputGenerations,omitempty"`
 }
 
 type RuleConfig struct {

@@ -24,6 +24,7 @@ const RESIZE_MODE_TO_CONTENT_FIT: Record<LegacyResizeMode, ImageContentFit> = {
 // `null` en cada remount del componente dentro de la sesión.
 const RESOLVED_URI_TTL_MS = 30 * 60 * 1000;
 const resolvedUriCache = new Map<string, { uri: string; timestamp: number }>();
+const needsResolution = (uri: string) => !/^(file:|content:|ph:|assets-library:|data:)/i.test(uri);
 
 /**
  * <Image> que resuelve URLs de Supabase Storage a URLs firmadas temporales
@@ -32,7 +33,7 @@ const resolvedUriCache = new Map<string, { uri: string; timestamp: number }>();
  */
 export default function StorageImage({ uri, resizeMode, ...props }: StorageImageProps) {
   const [resolvedUri, setResolvedUri] = useState<string | null | undefined>(() => {
-    if (!uri || !/^https?:\/\//.test(uri)) return uri;
+    if (!uri || !needsResolution(uri)) return uri;
     const cached = resolvedUriCache.get(uri);
     return cached && Date.now() - cached.timestamp < RESOLVED_URI_TTL_MS ? cached.uri : null;
   });
@@ -40,7 +41,7 @@ export default function StorageImage({ uri, resizeMode, ...props }: StorageImage
   useEffect(() => {
     let cancelled = false;
 
-    if (uri && /^https?:\/\//.test(uri)) {
+    if (uri && needsResolution(uri)) {
       const cached = resolvedUriCache.get(uri);
       if (cached && Date.now() - cached.timestamp < RESOLVED_URI_TTL_MS) {
         setResolvedUri(cached.uri);

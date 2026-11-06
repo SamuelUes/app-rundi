@@ -256,7 +256,7 @@ class FCMService {
       if (Platform.OS === 'ios') {
         const apnsToken = await this.waitForApnsToken();
         if (!apnsToken) {
-          console.warn('⚠️ No hay token APNs disponible; en simulador iOS ARM64 se requiere un iPhone físico para obtener token FCM.');
+          console.warn('⚠️ No hay token APNs disponible. En un iPhone físico, revisa la firma, el entitlement aps-environment y el registro de notificaciones remotas.');
           return null;
         }
       }

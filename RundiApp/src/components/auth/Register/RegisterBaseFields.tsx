@@ -53,6 +53,9 @@ export function RegisterBaseFields({
           value={name}
           onChangeText={onSetName}
           editable={!loading}
+          autoCapitalize="words"
+          textContentType="name"
+          autoComplete="name"
         />
       </View>
 
@@ -69,6 +72,11 @@ export function RegisterBaseFields({
           onChangeText={onSetEmail}
           keyboardType="email-address"
           editable={!loading}
+          autoCapitalize="none"
+          autoCorrect={false}
+          textContentType="username"
+          autoComplete="email"
+          importantForAutofill="yes"
         />
         <Text style={styles.helperText}>
           {isEmailMethod

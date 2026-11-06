@@ -11,6 +11,7 @@ import { doc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { getFirebaseFirestore } from '../config/firebase';
 import { FS_COL } from '../constants/firestore';
 import client from '../api/client';
+import { pokeConsumer } from '../api/events';
 
 export type CallType = 'ride' | 'support';
 
@@ -65,6 +66,7 @@ export async function endCall(
     createdAt: serverTimestamp(),
   });
   await batch.commit();
+  pokeConsumer();
 }
 
 /** pushCallEvent — evento de señalización propio (reglas: from==uid). */

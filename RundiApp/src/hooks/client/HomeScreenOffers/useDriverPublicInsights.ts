@@ -1,13 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import type { TFunction } from 'i18next';
 import {
-  fetchDriverPublicInsights,
   type DriverPublicInsights,
 } from '../../../services/driver/driverPublicInsightsService';
 import {
   DriverComplimentItem,
   DriverReviewItem,
-} from '../../../components/shared/DriverReviewsModal';
+} from '../../../components/client/HomeScreenOffers/DriverReviewsModal';
 import { parseInteger, parseTimestamp } from '../../../utils/geo/coordinates';
 import { extractRatingValue } from '../../../utils/ride/rating';
 
@@ -37,8 +36,9 @@ const formatRelativeDate = (value: any, t: TFunction): string => {
 };
 
 export interface DriverReviewsData {
-  ridesCount: number;
+  ridesCount: number | null;
   yearsWithApp: number;
+  available: boolean;
   compliments: DriverComplimentItem[];
   reviews: DriverReviewItem[];
 }
@@ -50,36 +50,7 @@ export function useDriverPublicInsights(
   driverPublicInsights: DriverPublicInsights | null,
   t: TFunction,
 ) {
-  const [insights, setInsights] = useState<DriverPublicInsights | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!selectedDriverId) {
-      setInsights(null);
-      return;
-    }
-
-    (async () => {
-      try {
-        const result = await fetchDriverPublicInsights(selectedDriverId, {
-          limit: 20,
-          forceRefresh: true,
-        });
-        if (!cancelled) {
-          setInsights(result);
-        }
-      } catch {
-        if (!cancelled) {
-          setInsights(null);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedDriverId]);
+  const insights = driverPublicInsights;
 
   const reviewsData: DriverReviewsData = useMemo(() => {
     const effectiveInsights = insights ?? driverPublicInsights;
@@ -93,8 +64,9 @@ export function useDriverPublicInsights(
 
     if (!selectedDriverId) {
       return {
-        ridesCount: 0,
+        ridesCount: null,
         yearsWithApp: 0,
+        available: false,
         compliments: defaultCompliments,
         reviews: [],
       };
@@ -111,7 +83,7 @@ export function useDriverPublicInsights(
       parseInteger(info?.totalRides) ??
       parseInteger(info?.completedRides) ??
       parseInteger(raw?.completedRides) ??
-      0;
+      null;
 
     const yearsWithApp =
       parseInteger(effectiveInsights?.stats?.yearsOnPlatform) ??
@@ -151,9 +123,9 @@ export function useDriverPublicInsights(
 
     const rawReviews =
       (Array.isArray(effectiveInsights?.reviews) ? effectiveInsights.reviews : null) ||
+      (Array.isArray(info?.reviews) ? info.reviews : null) ||
       (Array.isArray(info?.topReviews) ? info.topReviews : null) ||
       (Array.isArray(raw?.topReviews) ? raw.topReviews : null) ||
-      (Array.isArray(info?.reviews) ? info.reviews : null) ||
       (Array.isArray(raw?.reviews) ? raw.reviews : null) ||
       [];
 
@@ -169,16 +141,9 @@ export function useDriverPublicInsights(
 
         if (!comment) return null;
 
-        const author =
-          typeof entry?.author === 'string' && entry.author.trim().length > 0
-            ? entry.author.trim()
-            : typeof entry?.name === 'string' && entry.name.trim().length > 0
-            ? entry.name.trim()
-            : t('client.homeOffers.reviews.anonymous');
-
         return {
           id: String(entry?.id || index),
-          author,
+          author: t('client.homeOffers.reviews.anonymous'),
           comment,
           rating: parsedRating,
           relativeDate: formatRelativeDate(
@@ -193,6 +158,7 @@ export function useDriverPublicInsights(
     return {
       ridesCount,
       yearsWithApp,
+      available: Array.isArray(info?.reviews) || Array.isArray(effectiveInsights?.reviews),
       compliments,
       reviews,
     };

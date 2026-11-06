@@ -70,7 +70,12 @@ export function useChat(rideId: string, userId: string, _userName: string, _isVi
 
     (async () => {
       try {
-        const { chatId } = await createRideChat(rideId);
+        // Support chats (support-{complaintId}): el doc lo crea
+        // POST /support/complaints/{id}/chat (joinSupportChat en la pantalla)
+        // — no va por /chats, que resuelve solo rides.
+        const { chatId } = rideId.startsWith('support-')
+          ? { chatId: rideId }
+          : await createRideChat(rideId);
         if (!mounted) return;
         chatIdRef.current = chatId;
         unsubscribe = await listenChatMessages(chatId, (msgs, oldestDoc) => {

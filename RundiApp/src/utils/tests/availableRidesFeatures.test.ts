@@ -10,16 +10,31 @@ jest.mock('../../services/ride/ridesService', () => ({
 }));
 
 import { checkRideDriverCompatibility } from '../ride/availableRidesHelpers';
-import { getRideServiceTypeLabel } from '../ride/rideFeatureLabels';
+import { getRideFeatureLabels, getRideServiceTypeLabel } from '../ride/rideFeatureLabels';
 
 describe('available ride feature compatibility', () => {
-  it('shows senior auto and designated-auto rides without requiring badges', () => {
+  it('labels all selected features without duplicates, including the pricing snapshot', () => {
+    const translate = ((key: string) => key) as any;
+    expect(getRideFeatureLabels({
+      featureCodes: ['senior', 'pet_friendly'],
+      pricingSnapshot: { featureCodes: ['senior', 'premium'] },
+    }, translate)).toEqual([
+      'shared.searchRide.features.senior',
+      'shared.searchRide.features.petFriendly',
+      'shared.searchRide.features.premium',
+    ]);
+    expect(getRideFeatureLabels({ featureCodes: [] }, translate)).toEqual([]);
+  });
+  it('requires the senior preference for auto and designated-auto rides', () => {
     expect(checkRideDriverCompatibility({
       rideType: 'normal',
       vehicleType: 'auto',
       serviceCode: 'normal',
       featureCodes: ['senior'],
-    }, 'auto', false).ok).toBe(true);
+    }, 'auto', false).ok).toBe(false);
+    expect(checkRideDriverCompatibility({
+      rideType: 'normal', vehicleType: 'auto', serviceCode: 'normal', featureCodes: ['senior'],
+    }, 'auto', false, ['senior']).ok).toBe(true);
 
     expect(checkRideDriverCompatibility({
       rideType: 'designated_driver',
@@ -27,7 +42,7 @@ describe('available ride feature compatibility', () => {
       designatedDriverVehicle: 'auto',
       serviceCode: 'designated_driver_auto',
       featureCodes: ['senior'],
-    }, 'auto', true).ok).toBe(true);
+    }, 'auto', true, ['senior']).ok).toBe(true);
   });
 
   it('rejects senior and premium motorcycle requests', () => {
@@ -63,14 +78,14 @@ describe('available ride feature compatibility', () => {
     }, 'auto', true, [], ['premium']).ok).toBe(false);
   });
 
-  it('requires the driver capability for pet-friendly auto and does not require it for night', () => {
+  it('allows pet-friendly by default and does not require a badge for night', () => {
     const petRide = {
       rideType: 'normal',
       vehicleType: 'auto',
       serviceCode: 'normal',
       featureCodes: ['pet_friendly'],
     };
-    expect(checkRideDriverCompatibility(petRide, 'auto', false).ok).toBe(false);
+    expect(checkRideDriverCompatibility(petRide, 'auto', false).ok).toBe(true);
     expect(checkRideDriverCompatibility(petRide, 'auto', false, ['pet_friendly']).ok).toBe(true);
     expect(checkRideDriverCompatibility({
       rideType: 'normal',

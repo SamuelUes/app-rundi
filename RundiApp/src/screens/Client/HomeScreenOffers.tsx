@@ -6,8 +6,8 @@ import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useLocation } from '../../hooks/shared/location/useLocation';
 import DynamicMap from '../../components/map/DynamicMap';
 import { MAP_ICONS } from '../../constants/mapIcons';
-import PriceNegotiationModal from '../../components/shared/PriceNegotiationModal';
-import DriverReviewsModal from '../../components/shared/DriverReviewsModal';
+import PriceNegotiationModal from '../../components/client/HomeScreenOffers/PriceNegotiationModal';
+import DriverReviewsModal from '../../components/client/HomeScreenOffers/DriverReviewsModal';
 import { useRideOffers, type OfferItem } from '../../hooks/client/HomeScreenOffers/useRideOffers';
 import { useDriverLocations } from '../../hooks/client/HomeScreenOffers/useDriverLocations';
 import { useDriverPublicInsights } from '../../hooks/client/HomeScreenOffers/useDriverPublicInsights';
@@ -189,37 +189,35 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       return t('client.homeOffers.primaryAction.confirmDriver');
     }
 
-    const negotiationStatus = rideSnapshot?.negotiationStatus;
+    // El precio del conductor vive en SU oferta (pending hasta que el
+    // cliente confirme — 'accepted' solo llega post-confirmación).
     const hasDriverPrice =
-      typeof rideSnapshot?.driverOfferedPrice === 'number' && rideSnapshot.driverOfferedPrice > 0;
-    const hasClientPrice =
-      typeof rideSnapshot?.clientSuggestedPrice === 'number' && rideSnapshot.clientSuggestedPrice > 0;
+      typeof selectedOffer.offeredPrice === 'number' && selectedOffer.offeredPrice > 0;
+    const clientPrice = firstPositivePrice(
+      selectedOffer.clientSuggestedPrice,
+      rideSnapshot?.clientSuggestedPrice,
+      rideSnapshot?.negotiation?.clientSuggestedPrice,
+    );
     const hasEstimatedPrice =
       typeof (rideSnapshot?.estimatedPrice ?? rideSnapshot?.estimatedFare) === 'number';
 
-    if (hasDriverPrice && negotiationStatus === 'driver_offered') {
+    if (hasDriverPrice) {
       return t('client.homeOffers.primaryAction.confirmDriverPrice');
     }
 
-    if (
-      hasClientPrice &&
-      (!hasDriverPrice ||
-        negotiationStatus === 'client_suggested' ||
-        negotiationStatus === 'client_accepted')
-    ) {
+    if (clientPrice != null) {
       return t('client.homeOffers.primaryAction.confirmClientPrice');
     }
 
-    if (hasEstimatedPrice && !hasDriverPrice && !hasClientPrice) {
+    if (hasEstimatedPrice) {
       return t('client.homeOffers.primaryAction.confirmEstimate');
     }
 
     return t('client.homeOffers.primaryAction.select');
   }, [
     selectedOffer,
-    rideSnapshot?.negotiationStatus,
-    rideSnapshot?.driverOfferedPrice,
     rideSnapshot?.clientSuggestedPrice,
+    rideSnapshot?.negotiation,
     rideSnapshot?.estimatedPrice,
     rideSnapshot?.estimatedFare,
     t,
@@ -597,6 +595,19 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       rideSnapshot?.driverOfferedPrice,
       rideSnapshot?.negotiation?.driverOfferedPrice,
     );
+    // 'accepted' del doc de oferta = cliente confirmó (backend solo proyecta
+    // 'accepted' tras asignación). Contraoferta al precio exacto del cliente
+    // = el conductor aceptó su oferta — pendiente de confirmación.
+    const clientOfferPrice = firstPositivePrice(
+      item.clientSuggestedPrice,
+      rideSnapshot?.clientSuggestedPrice,
+      rideSnapshot?.negotiation?.clientSuggestedPrice,
+    );
+    const driverAcceptedMyPrice =
+      item.status !== 'accepted' &&
+      driverPrice != null &&
+      clientOfferPrice != null &&
+      driverPrice === clientOfferPrice;
     const info = driversInfo?.[item.driverId] || {};
     const raw = driversRaw?.[item.driverId] || {};
     const vehicleType = extractVehicleTypeFromInfo(info) || extractVehicleTypeFromInfo(raw);
@@ -609,7 +620,13 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     const driverPriceLabel = driverPrice
       ? `C$${driverPrice.toFixed(2)}`
       : t('client.homeOffers.list.driverPricePending');
-    const negotiationLabel = negotiationStatusLabel(rideSnapshot?.negotiationStatus);
+    const negotiationLabel = item.status === 'accepted'
+      ? null
+      : driverAcceptedMyPrice
+        ? negotiationStatusLabel('driver_accepted')
+        : driverPrice != null
+          ? negotiationStatusLabel('driver_offered')
+          : negotiationStatusLabel(rideSnapshot?.negotiationStatus);
 
     return (
       <HomeScreenOffersOfferCard
@@ -617,7 +634,6 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
         selected={selected}
         isDark={isDark}
         colors={colors}
-        etaValueText={etaValueText}
         arrivalLabel={arrivalLabel}
         plate={plate}
         clientPriceLabel={clientPriceLabel}
@@ -752,6 +768,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
         }
         ridesCount={selectedDriverReviewsData.ridesCount}
         yearsWithApp={selectedDriverReviewsData.yearsWithApp}
+        available={selectedDriverReviewsData.available}
         compliments={selectedDriverReviewsData.compliments}
         reviews={selectedDriverReviewsData.reviews}
       />
@@ -807,7 +824,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
-    borderWidth: 1,
+    borderWidth: 0.2,
   },
   statusDot: {
     width: 7,
@@ -911,7 +928,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     borderRadius: 16,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderStyle: 'dashed',
     paddingHorizontal: 11,
     paddingVertical: 10,
@@ -925,82 +942,73 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
 
   offerCard: {
-    borderRadius: 18,
+    borderRadius: 20,
     padding: 12,
     marginBottom: 8,
     borderWidth: 1,
   },
-  offerCardSelected: {
-    borderWidth: 1.5,
-    shadowColor: '#b38737',
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
-  },
   offerTopRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 10,
   },
   offerAvatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 13,
+    width: 52,
+    height: 52,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
-    marginTop: 1,
   },
   offerAvatarPhoto: { width: '100%', height: '100%' },
-  offerAvatarInitials: { fontSize: 16, fontWeight: '800' },
-  offerInfo: { flex: 1, paddingTop: 1 },
-  offerName: { fontSize: 16, fontWeight: '800', letterSpacing: -0.2 },
+  offerAvatarInitials: { fontSize: 18, fontWeight: '800' },
+  offerInfo: { flex: 1, gap: 2 },
+  offerName: { fontSize: 17, fontWeight: '700' },
+  offerMetaText: { fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  offerTripMeta: { fontSize: 12, fontWeight: '500', fontVariant: ['tabular-nums'] },
   offerChipsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 5,
-    marginTop: 7,
+    gap: 4,
+    marginTop: 3,
   },
   offerChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    borderRadius: 7,
+    gap: 3,
+    borderRadius: 8,
     paddingHorizontal: 7,
-    paddingVertical: 4,
+    paddingVertical: 3,
   },
-  offerChipText: { fontSize: 11, fontWeight: '700', letterSpacing: -0.1 },
+  offerChipText: { fontSize: 11, fontWeight: '600' },
   offerPriceColumn: { alignItems: 'flex-end', paddingTop: 2, paddingLeft: 4 },
   offerPriceValue: {
-    fontSize: 17,
+    fontSize: 19,
     fontWeight: '800',
-    letterSpacing: -0.2,
     fontVariant: ['tabular-nums'],
   },
   offerPriceCaption: { fontSize: 10, fontWeight: '600', marginTop: 2 },
   offerPricePending: { fontSize: 12, fontWeight: '700' },
   pricePanel: {
-    marginTop: 11,
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 11,
-    paddingTop: 8,
-    paddingBottom: 9,
+    marginTop: 12,
+    borderRadius: 14,
+    borderWidth: 0.1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   pricePanelTitle: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.6,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
     textTransform: 'uppercase',
-    marginBottom: 3,
+    marginBottom: 4,
   },
   priceItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     columnGap: 8,
-    paddingVertical: 5,
+    paddingVertical: 4,
   },
   priceItemDivider: { height: 1 },
   priceItemLabel: { flex: 1, fontSize: 13, fontWeight: '600' },
@@ -1009,49 +1017,53 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontWeight: '800',
     fontVariant: ['tabular-nums'],
   },
+  priceItemValueHero: {
+    fontSize: 18,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
   cardActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginTop: 10,
+    gap: 10,
+    marginTop: 12,
   },
   iconActionBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+    width: 52,
+    height: 50,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  iconActionBtnChat: {
-    backgroundColor: colors.secondary,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.18,
-    shadowRadius: 5,
-    elevation: 3,
   },
   negotiatePill: {
     flex: 1,
-    height: 38,
-    borderRadius: 999,
-    backgroundColor: '#5B2AB0',
-    flexDirection: 'row',
-    gap: 6,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  negotiateText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13, letterSpacing: 0.2 },
-  acceptedPill: {
-    flex: 1,
-    height: 38,
-    borderRadius: 999,
+    minHeight: 50,
+    borderRadius: 14,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 6,
+    gap: 7,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  acceptedPillText: { fontSize: 12, fontWeight: '800' },
+  negotiateText: { fontSize: 15, fontWeight: '700' },
+  acceptedPill: {
+    flex: 1,
+    minHeight: 50,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  acceptedIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  acceptedPillText: { fontSize: 15, fontWeight: '700' },
 
   reviewsRow: {
     marginTop: 10,
@@ -1059,14 +1071,14 @@ const createStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     borderRadius: 14,
-    borderWidth: 1,
+    borderWidth: 0.2,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
   reviewsRowText: { flex: 1, fontSize: 13, fontWeight: '700' },
   primaryBtn: {
     marginTop: 10,
-    borderRadius: 999,
+    borderRadius: 14,
     paddingVertical: 15,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1087,7 +1099,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   cancelBtn: {
     marginTop: 8,
-    borderRadius: 999,
+    borderRadius: 14,
     borderWidth: 1.5,
     paddingVertical: 13,
     alignItems: 'center',

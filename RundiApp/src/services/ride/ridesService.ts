@@ -1,5 +1,5 @@
 import { getAuth } from 'firebase/auth';
-import { collection, doc, getDocs, query, where, type DocumentData } from 'firebase/firestore';
+import { collection, doc, getDocs, getDocsFromServer, query, where, type DocumentData } from 'firebase/firestore';
 import { getFirebaseFirestore } from '../../config/firebase';
 import analyticsService, { AnalyticsEvents } from '../analytics/analyticsService';
 import ratingService from './ratingService';
@@ -775,15 +775,15 @@ class RidesService {
     lng?: number,
     radius?: number,
     selectedVehicleType?: string,
+    serverOnly = false,
   ): Promise<any[]> {
     const db = await getFirebaseFirestore();
-    const snap = await getDocs(
-      query(
+    const ridesQuery = query(
         collection(db, FS_COL.tripsLive),
         where('serviceAreaId', '==', getCurrentServiceAreaId()),
         where('status', '==', 'requested'),
-      ),
-    );
+      );
+    const snap = await (serverOnly ? getDocsFromServer(ridesQuery) : getDocs(ridesQuery));
     let rides = snap.docs.map((d: DocumentData) => ({ id: d.id, ...(d.data() as any) }));
     const normalizedVehicleType = normalizeVehicleTypeForMatching(selectedVehicleType ?? null);
     if (normalizedVehicleType) {
@@ -809,6 +809,13 @@ class RidesService {
       driverId: data.driverId || this.currentUid(),
       offeredPrice: data.offeredPrice ?? data.driverProposedPrice,
     });
+    try {
+      // Lazy require: proximityService importa ridesService (ciclo de módulos).
+      const { hideOverlayBubble } = require('./proximityService');
+      await hideOverlayBubble('acceptedRide');
+    } catch (overlayErr) {
+      console.warn('[ridesService] No se pudo limpiar overlay tras aceptar viaje:', overlayErr);
+    }
     await analyticsService.logRideEvent(AnalyticsEvents.RIDE_ACCEPTED, ride.id, {
       driverId: data.driverId,
       vehicleId: data.vehicleId,

@@ -184,14 +184,16 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
         totalProgress = index / photos.length;
         setUploadProgress(totalProgress);
         
-        // Subir la foto a Supabase (o conservar la URL si ya estaba en Storage)
-        const downloadUrl = /^https?:\/\//.test(photo.uri)
-          ? photo.uri
-          : await supabaseStorage.uploadLicensePhoto(
+        // Subir la foto a Storage solo si es URI local; una URL u objectPath
+        // ya persistido se reusa tal cual (no re-subir).
+        const isLocalUri = photo.uri.startsWith('file:') || photo.uri.startsWith('content:');
+        const downloadUrl = isLocalUri
+          ? await supabaseStorage.uploadLicensePhoto(
               user.id,
               photo.uri,
               photo.type === 'license_front' ? 'front' : 'back'
-            );
+            )
+          : photo.uri;
         
         uploadedUrls[photo.type] = downloadUrl;
         
@@ -207,6 +209,13 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
         expiryDate: licenseExpiry,
         photoFront: uploadedUrls['license_front'],
         photoBack: uploadedUrls['license_back'],
+      });
+
+      // El dual-write de compliance copia el objectPath a drivers.license_photo_*;
+      // este PATCH lo convierte a URL autenticada (normalizePhotoUrlFields en el API).
+      await driversService.updateDriver({
+        license_photo_front: uploadedUrls['license_front'],
+        license_photo_back: uploadedUrls['license_back'],
       });
 
       setLoading(false);

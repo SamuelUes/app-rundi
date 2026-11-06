@@ -17,7 +17,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
-import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import DynamicMap from '../../components/map/DynamicMap';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
@@ -35,6 +35,7 @@ import { useClientProfile } from '../../hooks/driver/RidePreviewScreen/useClient
 import { useTranslation } from 'react-i18next';
 import proximityService from '../../services/ride/proximityService';
 import { calculateTotalDistanceKm } from '../../utils/ride/ridePreviewHelpers';
+import { getRideFeatureLabels } from '../../utils/ride/rideFeatureLabels';
 import { RidePreviewNegotiation } from '../../components/driver/RidePreview/RidePreviewNegotiation';
 import { RidePreviewClientInfo } from '../../components/driver/RidePreview/RidePreviewClientInfo';
 import { RidePreviewActions } from '../../components/driver/RidePreview/RidePreviewActions';
@@ -43,7 +44,7 @@ import { RidePreviewNearbyCard } from '../../components/driver/RidePreview/RideP
 import { ArrivalVehiclePhotoModal } from '../../components/driver/DesignatedCrew/ArrivalVehiclePhotoModal';
 import { useArrivalPhotoGate } from '../../hooks/driver/shared/useArrivalPhotoGate';
 
-const PROXIMITY_AUTO_DISMISS_MS = 6000; // auto-cierre si no hay cambios ni interacción
+const PROXIMITY_AUTO_DISMISS_MS = 5000; // auto-cierre si no hay cambios ni interacción
 const PROXIMITY_DISMISS_POLL_MS = 500;
 
 interface RidePreviewParams {
@@ -59,6 +60,7 @@ type RidePreviewNavigationProp = NativeStackNavigationProp<DriverStackParamList,
 export default function RidePreviewScreen() {
   const route = useRoute<RidePreviewRouteProp>();
   const navigation = useNavigation<RidePreviewNavigationProp>();
+  const isFocused = useIsFocused();
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
@@ -145,7 +147,7 @@ export default function RidePreviewScreen() {
   const { modalProps: arrivalPhotoModalProps, runWithArrivalPhoto } = useArrivalPhotoGate(user?.id);
 
   // Auto-cierre para aperturas automáticas por proximidad:
-  // si no hay cambios en el viaje ni interacción del conductor en 6s, se cierra
+  // si no hay cambios en el viaje ni interacción del conductor en 5s, se cierra
   // y el viaje se suprime por 1 minuto para no volver a mostrarse por aproximación.
   const lastActivityAtRef = useRef(Date.now());
   const autoDismissHandledRef = useRef(false);
@@ -164,29 +166,40 @@ export default function RidePreviewScreen() {
 
   useEffect(() => {
     lastActivityAtRef.current = Date.now();
-  }, [rideChangeFingerprint]);
+  }, [rideChangeFingerprint, isFocused]);
+
+  useEffect(() => {
+    if (!isAutoPresented) return;
+    return navigation.addListener('beforeRemove', (event) => {
+      const action = event.data.action.type;
+      if (action === 'GO_BACK' || action === 'POP') {
+        if (acceptingRide || navigationLocked || activeRideGuard) {
+          proximityService.cancelProximitySequence();
+          return;
+        }
+        void proximityService.markRideAutoDismissed(currentRide.id);
+        proximityService.scheduleNextProximityRide(currentRide.id);
+      } else {
+        proximityService.cancelProximitySequence();
+      }
+    });
+  }, [isAutoPresented, navigation, currentRide.id, acceptingRide, navigationLocked, activeRideGuard]);
 
   useEffect(() => {
     if (!isAutoPresented) return;
     const timer = setInterval(() => {
-      if (autoDismissHandledRef.current || cancellationHandledRef.current) return;
+      if (!isFocused || autoDismissHandledRef.current || cancellationHandledRef.current) return;
       if (sendingOffer || acceptingRide || isRejectingRide || customOfferVisible || photoModalUrl) {
         return;
       }
       if (Date.now() - lastActivityAtRef.current < PROXIMITY_AUTO_DISMISS_MS) return;
       autoDismissHandledRef.current = true;
-      proximityService
-        .markRideAutoDismissed(currentRide.id)
-        .catch((err) => console.warn('[RidePreview] Error marcando auto-dismiss:', err))
-        .finally(() => {
-          if (navigation.canGoBack()) {
-            navigation.goBack();
-          }
-        });
+      if (navigation.canGoBack()) navigation.goBack();
     }, PROXIMITY_DISMISS_POLL_MS);
     return () => clearInterval(timer);
   }, [
     isAutoPresented,
+    isFocused,
     currentRide.id,
     sendingOffer,
     acceptingRide,
@@ -240,6 +253,10 @@ export default function RidePreviewScreen() {
 
   const switchToNearby = useCallback(() => {
     if (!nearbyQueue || nearbyQueue.length === 0) return;
+    if (isAutoPresented) {
+      if (navigation.canGoBack()) navigation.goBack();
+      return;
+    }
     const [next, ...rest] = nearbyQueue;
     const nextRide: RidePreviewData = {
       id: String(next.id || currentRide.id),
@@ -252,6 +269,7 @@ export default function RidePreviewScreen() {
       estimatedPrice: typeof next.estimatedPrice === 'number' ? next.estimatedPrice : currentRide.estimatedPrice,
       estimatedDistance: typeof next.estimatedDistance === 'number' ? next.estimatedDistance : currentRide.estimatedDistance,
       estimatedDuration: typeof next.estimatedDuration === 'number' ? next.estimatedDuration : currentRide.estimatedDuration,
+      featureCodes: next.featureCodes ?? [],
       clientSuggestedPrice: typeof next.clientSuggestedPrice === 'number' ? next.clientSuggestedPrice : currentRide.clientSuggestedPrice,
       driverOfferedPrice: typeof next.driverOfferedPrice === 'number' ? next.driverOfferedPrice : currentRide.driverOfferedPrice,
       driverOfferStatus: currentRide.driverOfferStatus || null,
@@ -261,7 +279,7 @@ export default function RidePreviewScreen() {
     };
     setRideData(nextRide);
     setNearbyQueue(rest);
-  }, [nearbyQueue, currentRide]);
+  }, [nearbyQueue, currentRide, isAutoPresented, navigation]);
 
   const handleMeasuredContentLayout = useCallback(
     (event: any) => {
@@ -465,6 +483,7 @@ export default function RidePreviewScreen() {
           distanceKm={totalDistanceKm}
           durationMin={durationMin}
           paymentMethod={currentRide.paymentMethod}
+          featureLabels={getRideFeatureLabels(currentRide, t)}
           colors={colors}
           isDark={isDark}
           formatCurrency={formatCurrency}
@@ -672,6 +691,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
   },
+  featureBadges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 3,
+  },
+  featureBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  featureBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
   clientNoteText: {
     fontSize: 12,
     fontWeight: '500',
@@ -708,12 +742,20 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   priceCard: {
-    borderWidth: 1,
+    borderWidth: 0.3,
     borderRadius: 20,
     paddingHorizontal: 18,
     paddingVertical: 18,
     gap: 16,
-  },
+    shadowColor: '#000',
+      shadowOffset: {
+        width: 0,
+        height: 1,
+      },
+      shadowOpacity: 0.1,
+      shadowRadius: 2,
+      elevation: 4,
+    },
   priceHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -739,7 +781,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderRadius: 14,
     paddingHorizontal: 16,
     minHeight: 50,
@@ -757,7 +799,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderRadius: 14,
     paddingHorizontal: 16,
     height: 52,
@@ -774,7 +816,7 @@ const styles = StyleSheet.create({
   },
   customOfferCard: {
     borderRadius: 16,
-    borderWidth: 1,
+    borderWidth: 0.1,
     paddingHorizontal: 16,
     paddingVertical: 16,
     gap: 12,
@@ -839,7 +881,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   clientOfferBanner: {
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderRadius: 14,
     paddingVertical: 12,
     paddingHorizontal: 14,
@@ -874,14 +916,14 @@ const styles = StyleSheet.create({
   },
   acceptButton: {
     flex: 1,
-    borderRadius: 999,
+    borderRadius: 18,
     minHeight: 54,
     justifyContent: 'center',
     alignItems: 'center',
   },
   rejectButton: {
     flex: 1,
-    borderRadius: 999,
+    borderRadius: 16,
     minHeight: 54,
     justifyContent: 'center',
     alignItems: 'center',

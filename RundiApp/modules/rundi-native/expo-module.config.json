@@ -4,12 +4,14 @@
     "modules": [
       "com.gruporzc.rundi.rundinative.overlay.OverlayModule",
       "com.gruporzc.rundi.rundinative.service.ForegroundServiceModule",
+      "com.gruporzc.rundi.rundinative.service.RideProgressModule",
       "com.gruporzc.rundi.rundinative.service.WorkManagerModule",
       "com.gruporzc.rundi.rundinative.service.BatteryOptimizationModule",
       "com.gruporzc.rundi.rundinative.ocr.DocumentOcrModule"
     ]
   },
   "ios": {
-    "modules": ["RundiNativeModule", "DocumentOcrModule"]
+    "modules": ["RundiNativeModule", "DocumentOcrModule", "CallKitModule"],
+    "appDelegateSubscribers": ["VoipPushAppDelegateSubscriber"]
   }
 }

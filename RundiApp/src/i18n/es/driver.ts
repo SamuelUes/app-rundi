@@ -3,6 +3,19 @@
  * Extraído desde `src/i18n/index.ts` (`es.translation.driver`).
  */
 const driver = {
+          premium: {
+            badge: 'Vehículo prémium', grace: 'Prórroga prémium activa', expired: 'Prórroga prémium vencida',
+            graceUntil: 'Tu vehículo conserva la categoría hasta el {{date}}.',
+            expiredDescription: 'Tu vehículo ya no es apto para viajes prémium. Actualiza tu vehículo para recuperar esta ventaja.',
+            eligibleDescription: 'El vehículo {{plate}} es apto para viajes prémium.',
+          },
+          virtualDocuments: {
+            title: 'Documentos virtuales', close: 'Cerrar', error: 'No pudimos cargar tus documentos.',
+            license: 'Licencia de conducir', insurance: 'Póliza de seguro', circulation: 'Tarjeta de circulación',
+            number: 'Número', expiry: 'Vencimiento', issue: 'Emisión / inicio', type: 'Tipo',
+            categories: 'Categorías', plate: 'Placa', insurer: 'Aseguradora', coverage: 'Cobertura',
+            brand: 'Marca', model: 'Modelo', year: 'Año',
+          },
           home: {
             loading: {
               initializing: 'Preparando tu panel de conductor...',
@@ -21,6 +34,9 @@ const driver = {
               rechargeRequiredTitle: 'Fondos insuficientes',
               rechargeRequiredBody:
                 'Tu saldo actual en la billetera es C${{amount}}. Recarga fondos para seguir aceptando viajes.',
+              rechargePendingTitle: 'Recarga pendiente de confirmación',
+              rechargePendingBody:
+                'Tienes {{count}} recarga(s) por C${{amount}} pendiente de validación por operaciones. Podrás conectarte cuando se confirme.',
               availabilityUpdateFailed: 'No pudimos actualizar tu estado.',
             },
             voice: {
@@ -70,6 +86,9 @@ const driver = {
               penaltiesSubtitle: '{{count}} por C${{amount}}',
               rechargeTitle: 'Saldo insuficiente en billetera',
               rechargeSubtitle: 'Saldo actual: C${{amount}}. Recarga para seguir conduciendo.',
+              rechargePendingTitle: 'Recarga pendiente de confirmación',
+              rechargePendingSubtitle:
+                '{{count}} recarga(s) por C${{amount}} esperando validación de operaciones.',
               paymentsTitle: 'Pagos pendientes',
               paymentsSubtitleSingle: '1 pago por confirmar',
               paymentsSubtitleOther: '{{count}} pagos por confirmar',
@@ -110,6 +129,12 @@ const driver = {
             },
           },
           profile: {
+            rideFeatures: {
+              title: 'Servicios especiales',
+              seniorTitle: 'Viajes para personas mayores',
+              seniorDescription: 'Activa esta opción para recibir solicitudes para personas de la tercera edad.',
+              error: 'No pudimos actualizar esta preferencia.',
+            },
             loading: {
               message: 'Cargando perfil...',
             },
@@ -265,6 +290,9 @@ const driver = {
               subtitle: 'Burbuja flotante con solicitudes cercanas',
               description:
                 'Muestra una tarjeta sobre otras apps cuando hay un viaje cercano. Ideal si usas otras apps de navegación.',
+              subtitleIos: 'Actividades en vivo con solicitudes cercanas',
+              descriptionIos:
+                'Muestra el viaje más cercano en el Dynamic Island y en la pantalla de bloqueo, aunque la app esté en segundo plano.',
               hintAndroidGranted: 'Permiso activo.',
               hintAndroidMissing: 'Abre Configuración → Apps → Rundi → Mostrar sobre otras apps.',
               hintIos: 'Usa Actividades en vivo (Dynamic Island).',
@@ -272,7 +300,7 @@ const driver = {
               hintIosMissing: 'Abre Ajustes → Rundi → Actividades en vivo.',
               alerts: {
                 notAvailableTitle: 'No disponible',
-                notAvailableBody: 'La función flotante solo está disponible en Android.',
+                notAvailableBody: 'Esta función solo está disponible en iPhone y Android.',
                 enableTitle: 'Activa el permiso',
                 enableBody: 'Abre la pantalla “Mostrar sobre otras apps” y actívala para Rundi.',
                 enableTitleIos: 'Activa las Actividades en vivo',
@@ -350,6 +378,7 @@ const driver = {
                 insurancePhoto: 'Foto de la póliza de seguro',
                 photos: 'Fotos del vehículo',
                 vehiclePhoto: 'Foto del vehículo',
+                scanDocs: 'Escanea tus documentos',
               },
               placeholders: {
                 plate: 'ABC-123',
@@ -1429,6 +1458,8 @@ const driver = {
             offerRejectedMessage: 'El cliente eligió otro conductor. Puedes buscar más viajes.',
             offerRejectedMeTitle: 'Oferta rechazada',
             offerRejectedMeMessage: 'El cliente rechazó tu oferta. Puedes buscar más viajes.',
+            offerClosedTitle: 'Oferta cerrada',
+            offerClosedMessage: 'Este viaje ya no está disponible. Puedes buscar más viajes.',
             cancelOfferTitle: 'Cancelar oferta',
             cancelOfferMessage:
               '¿Seguro que quieres cancelar tu oferta? El viaje quedará disponible para otros conductores.',

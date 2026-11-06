@@ -53,6 +53,39 @@ declare class DocumentOcrModuleType extends NativeModule {
   recognizeText(imagePath: string): Promise<OcrResult>;
 }
 
+export type CallKitActionEvent = {
+  callId: string;
+};
+
+export type VoipTokenEvent = {
+  token: string;
+};
+
+export type CallKitModuleEvents = {
+  onCallKitAnswer: (params: CallKitActionEvent) => void;
+  onCallKitEnd: (params: CallKitActionEvent) => void;
+  onVoipToken: (params: VoipTokenEvent) => void;
+};
+
+declare class CallKitModuleType extends NativeModule<CallKitModuleEvents> {
+  reportIncomingCall(callId: string, callerName: string): Promise<boolean>;
+  answerCall(callId: string): Promise<boolean>;
+  endCall(callId: string): Promise<boolean>;
+  reportCallEnded(callId: string, reason: string): Promise<boolean>;
+  endAllCalls(): Promise<boolean>;
+  getVoipToken(): Promise<string | null>;
+}
+
+declare class RideProgressModuleType extends NativeModule {
+  showRideProgress(
+    rideId: string,
+    title: string,
+    body: string,
+    progress: number
+  ): Promise<boolean>;
+  hideRideProgress(): Promise<boolean>;
+}
+
 declare class RundiLiveActivityModuleType extends NativeModule {
   liveActivitiesEnabled(): Promise<boolean>;
   hasRideActivity(): Promise<boolean>;
@@ -61,6 +94,7 @@ declare class RundiLiveActivityModuleType extends NativeModule {
     price: number;
     distanceKm: number;
     clientName?: string | null;
+    featureCodes?: string[];
     variant?: 'app' | 'nearby_ride';
   }): Promise<boolean>;
   hideRideActivity(): Promise<boolean>;
@@ -82,8 +116,14 @@ export const WorkManagerModule = isAndroid
 export const BatteryOptimizationModule = isAndroid
   ? requireNativeModule<BatteryOptimizationModuleType>('BatteryOptimizationModule')
   : null;
+export const RideProgressModule = isAndroid
+  ? requireNativeModule<RideProgressModuleType>('RideProgressModule')
+  : null;
 export const RundiLiveActivityModule = isIOS
   ? requireNativeModule<RundiLiveActivityModuleType>('RundiNative')
+  : null;
+export const CallKitModule = isIOS
+  ? requireNativeModule<CallKitModuleType>('CallKitModule')
   : null;
 
 // iOS usa Apple Vision; Android usa ML Kit (ver DocumentOcrModule nativo)
@@ -96,6 +136,8 @@ export default {
   ForegroundServiceModule,
   WorkManagerModule,
   BatteryOptimizationModule,
+  RideProgressModule,
   RundiLiveActivityModule,
+  CallKitModule,
   DocumentOcrModule,
 };

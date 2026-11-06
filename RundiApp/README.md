@@ -377,7 +377,7 @@ Referencias oficiales: [crear una clave privada](https://developer.apple.com/hel
 3. En **APNs authentication key**, subir el `.p8` e ingresar el **Key ID** y **Team ID**; guardar.
 4. Verificar que el App ID de Apple tenga la capacidad **Push Notifications** y que el provisioning profile usado para firmar la app incluya el entitlement APNs correspondiente.
 
-Para el entorno de desarrollo de Rundi, comprobar que Firebase sea `rundi-dev` y el Bundle ID sea `com.driveangel.rundidev`. Si se cambia de entorno, usar el proyecto Firebase, Bundle ID, equipo y provisioning profile que correspondan a ese build.
+Para el entorno de desarrollo de Rundi, comprobar que Firebase sea `rundi-dev` y el Bundle ID sea `com.gruporzc.rundi`. Si se cambia de entorno, usar el proyecto Firebase, Bundle ID, equipo y provisioning profile que correspondan a ese build.
 
 **Seguridad:** el `.p8` es una clave privada. No incluirlo en Git, en el README ni en mensajes; subirlo directamente a Firebase Console y conservar una copia en un almacén seguro. No revocar una clave compartida por otras apps sin coordinar la rotación.
 

@@ -61,6 +61,13 @@ func (s *Service) LogBiometric(ctx context.Context, uid, userType, bioType, bioC
 	if userType == "" || bioType == "" {
 		return apperr.New(400, "userType y biometricType requeridos")
 	}
+	switch bioType {
+	case "fingerprint", "face_id", "biometric", "NOT_SUPPORTED":
+	default:
+		// El cliente reporta también métodos no biométricos (p.ej.
+		// 'apple_signin'); el enum solo admite tipos de biometría.
+		bioType = "biometric"
+	}
 	if attempt <= 0 {
 		attempt = 1
 	}

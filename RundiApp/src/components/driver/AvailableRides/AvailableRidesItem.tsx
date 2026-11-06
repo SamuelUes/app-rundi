@@ -6,7 +6,7 @@ import type { Ride } from '../../../utils/ride/availableRidesHelpers';
 import { haversineKm, isDesignatedRideRequest } from '../../../utils/ride/availableRidesHelpers';
 import { normalizeVehicleTypeForMatching } from '../../../services/ride/ridesService';
 import type { TFunction } from 'i18next';
-import { getRideFeatureLabels } from '../../../utils/ride/rideFeatureLabels';
+import { getRideFeatureLabels, RIDE_FEATURE_COLOR, RIDE_FEATURE_COLOR_DARK } from '../../../utils/ride/rideFeatureLabels';
 
 interface AvailableRidesItemProps {
   ride: Ride;
@@ -173,18 +173,23 @@ export function AvailableRidesItem({
     return `${parts[0].charAt(0)}${parts[parts.length - 1].charAt(0)}`.toUpperCase();
   };
 
-  const chipTone = (tone: 'gold' | 'neutral') =>
+  const chipTone = (tone: 'gold' | 'neutral' | 'feature') =>
     tone === 'gold'
       ? {
           backgroundColor: isDark ? 'rgba(212,175,55,0.22)' : '#F6ECD4',
           color: isDark ? '#FFD666' : '#5D4B00',
         }
-      : {
+      : tone === 'feature'
+        ? {
+            backgroundColor: `${RIDE_FEATURE_COLOR}20`,
+            color: isDark ? RIDE_FEATURE_COLOR_DARK : RIDE_FEATURE_COLOR,
+          }
+        : {
           backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)',
           color: isDark ? colors.textSecondary : '#4A4A4A',
         };
 
-  const renderChip = (icon: keyof typeof MaterialIcons.glyphMap, label: string, tone: 'gold' | 'neutral' = 'neutral') => {
+  const renderChip = (icon: keyof typeof MaterialIcons.glyphMap, label: string, tone: 'gold' | 'neutral' | 'feature' = 'neutral') => {
     const { backgroundColor, color } = chipTone(tone);
     return (
       <View style={[styles.metaChip, { backgroundColor }]}>
@@ -299,7 +304,7 @@ export function AvailableRidesItem({
                 label,
                 ['shared.searchRide.features.premium', 'shared.searchRide.features.senior', 'shared.searchRide.features.petFriendly']
                   .some((key) => label === t(key))
-                  ? 'gold'
+                  ? 'feature'
                   : 'neutral',
               ),
             )}

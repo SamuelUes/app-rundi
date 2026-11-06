@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -165,8 +166,7 @@ func (s *Service) ListDriverRatings(ctx context.Context, driverUID string, limit
 		limit = 30
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT id::text, ride_id::text, from_user_id, rating, comment,
-		       rated_role, created_at
+		SELECT id::text, rating, comment, rated_role, created_at
 		FROM public.ratings
 		WHERE to_user_id = $1 AND deleted_at IS NULL
 		ORDER BY created_at DESC LIMIT $2`, driverUID, limit)
@@ -176,14 +176,15 @@ func (s *Service) ListDriverRatings(ctx context.Context, driverUID string, limit
 	defer rows.Close()
 	out := []map[string]any{}
 	for rows.Next() {
-		var id, from, createdAt string
-		var rideID, comment, role *string
+		var id string
+		var comment, role *string
+		var createdAt *time.Time
 		var rating int
-		if err := rows.Scan(&id, &rideID, &from, &rating, &comment, &role, &createdAt); err != nil {
+		if err := rows.Scan(&id, &rating, &comment, &role, &createdAt); err != nil {
 			return nil, err
 		}
 		out = append(out, map[string]any{
-			"id": id, "rideId": rideID, "fromUserId": from, "rating": rating,
+			"id": id, "rating": rating,
 			"comment": comment, "ratedRole": role, "createdAt": createdAt,
 		})
 	}
@@ -219,8 +220,8 @@ func (s *Service) PublicInsights(ctx context.Context, driverUID string, limit in
 		"profilePhoto": photo,
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT r.rating, r.comment, r.created_at, COALESCE(u.name,'')
-		FROM public.ratings r LEFT JOIN public.users u ON u.id = r.from_user_id
+		SELECT r.rating, r.comment, r.created_at
+		FROM public.ratings r
 		WHERE r.to_user_id = $1 AND r.comment IS NOT NULL AND r.comment <> ''
 		  AND r.deleted_at IS NULL
 		ORDER BY r.created_at DESC LIMIT $2`, driverUID, limit)
@@ -231,12 +232,13 @@ func (s *Service) PublicInsights(ctx context.Context, driverUID string, limit in
 	comments := []map[string]any{}
 	for rows.Next() {
 		var rt int
-		var c, at, from string
-		if err := rows.Scan(&rt, &c, &at, &from); err != nil {
+		var c string
+		var at *time.Time
+		if err := rows.Scan(&rt, &c, &at); err != nil {
 			return nil, err
 		}
 		comments = append(comments, map[string]any{
-			"rating": rt, "comment": c, "createdAt": at, "fromName": from,
+			"rating": rt, "comment": c, "createdAt": at,
 		})
 	}
 	out["recentComments"] = comments

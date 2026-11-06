@@ -1,4 +1,4 @@
-package com.driveangel.rundidev
+package com.gruporzc.rundi
 
 import android.app.Application
 import android.content.res.Configuration

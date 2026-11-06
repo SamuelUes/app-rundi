@@ -9,13 +9,18 @@ import { FS_COL } from '../../constants/firestore';
 import {
   getDriverStats,
   getMyDriverProfile as getMyDriverProfileV2,
-  getMyDriverServices,
   getMyFeatureCapabilities,
   updateMyDriverProfile as updateMyDriverProfileV2,
   updateVehicle as updateVehicleV2,
 } from '../../api/drivers';
 import { writeDriverLiveLocation, writePresence } from '../../live/driverLive';
+import {
+  activateAvailability,
+  deactivateAvailability,
+  type ActivationResult,
+} from '../../api/compliance';
 import i18n from '../../i18n';
+import { getPremiumEligibleDrivers } from '../../api/platform';
 
 interface Location {
   latitude: number;
@@ -72,12 +77,6 @@ async function currentUid(): Promise<string> {
   return auth.currentUser.uid;
 }
 
-const STATUS_MAP = {
-  offline: 'offline',
-  available: 'online',
-  busy: 'on_ride',
-} as const;
-
 class DriversService {
   private isAvailabilityLimitError(error: unknown): boolean {
     const normalized = String((error as any)?.message || (error as any)?.code || '').toLowerCase();
@@ -98,29 +97,44 @@ class DriversService {
     return {
       success: true,
       vehicleId: vehicleId ?? null,
-      driverFeatureCodes: features,
-      vehicleFeatureCodes: [],
+      driverFeatureCodes: features.filter((code) => code !== 'premium'),
+      vehicleFeatureCodes: features.filter((code) => code === 'premium'),
     };
   }
 
+  /**
+   * updateStatus — disponibilidad por REST /v1/compliance/availability:
+   * 'available' abre sesión de compliance (evaluación o caché del día),
+   * 'offline' la revoca; 'busy' es solo local (un viaje en curso lo marca
+   * el backend como on_ride). GPS/heartbeat siguen yendo a drivers_live.
+   * Un rechazo NO lanza: devuelve status 'offline' + activation con motivos.
+   */
   async updateStatus(
     status: 'offline' | 'available' | 'busy',
     location?: Location,
     retries: number = 3,
-  ): Promise<{ success: boolean; status: string }> {
+  ): Promise<{ success: boolean; status: string; activation?: ActivationResult }> {
     const uid = await currentUid();
-    const liveStatus = STATUS_MAP[status];
 
     let lastError: unknown = null;
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
+        let resultStatus: string = status;
+        let activation: ActivationResult | undefined;
+        if (status === 'available') {
+          activation = await activateAvailability();
+          resultStatus = activation.allowed ? 'available' : 'offline';
+        } else if (status === 'offline') {
+          await deactivateAvailability();
+          resultStatus = 'offline';
+        }
+        // GPS + presencia (campos client-writable; nunca reactivan).
         await writeDriverLiveLocation(uid, {
-          status: liveStatus,
           latitude: location?.latitude,
           longitude: location?.longitude,
         });
-        await writePresence(uid, status === 'offline' ? 'offline' : 'online');
-        return { success: true, status };
+        await writePresence(uid, resultStatus === 'offline' ? 'offline' : 'online');
+        return { success: resultStatus === status, status: resultStatus, activation };
       } catch (error) {
         lastError = error;
         if (this.isAvailabilityLimitError(error)) {
@@ -157,9 +171,14 @@ class DriversService {
         (d: any) => !Array.isArray(d.activeServiceCodes) || d.activeServiceCodes.includes(serviceCode),
       );
     }
-    if (featureCodes.length > 0) {
+    if (featureCodes.includes('premium')) {
+      const eligible = new Set(await getPremiumEligibleDrivers(drivers.map((d) => d.id)));
+      drivers = drivers.filter((d) => eligible.has(d.id));
+    }
+    const otherFeatures = featureCodes.filter((code) => code !== 'premium');
+    if (otherFeatures.length > 0) {
       drivers = drivers.filter(
-        (d: any) => !Array.isArray(d.featureCodes) || featureCodes.every((f) => d.featureCodes.includes(f)),
+        (d: any) => !Array.isArray(d.featureCodes) || otherFeatures.every((f) => d.featureCodes.includes(f)),
       );
     }
     return { success: true, available: drivers.length > 0, count: drivers.length, drivers };
@@ -189,14 +208,12 @@ class DriversService {
     return snap.exists() ? { id: snap.id, ...snap.data() } : null;
   }
 
-  async updateDesignatedDriverMode(driverId: string, isActive: boolean): Promise<{ success: boolean }> {
-    // Modo designado = 'designated_driver' dentro de activeServiceCodes en drivers_live.
-    const services = await getMyDriverServices().catch(() => [] as any[]);
-    const codes = services.map((s: any) => s.serviceCode || s.code).filter(Boolean);
-    const next = isActive
-      ? Array.from(new Set([...codes, 'designated_driver']))
-      : codes.filter((c: string) => c !== 'designated_driver');
-    await writeDriverLiveLocation(driverId, { activeServiceCodes: next });
+  async updateDesignatedDriverMode(_driverId: string, _isActive: boolean): Promise<{ success: boolean }> {
+    // activeServiceCodes pasó a ser autoridad del backend: la sesión de
+    // disponibilidad la proyecta desde driver_services SQL (los servicios
+    // designados *_auto/*_moto se piden y aprueban vía /v1/drivers/me/services).
+    // El modo designado del toggle vive en el estado local de disponibilidad;
+    // aquí ya no hay nada que sincronizar.
     return { success: true };
   }
 

@@ -5,6 +5,15 @@
 
 import client from './client';
 
+export async function getPremiumEligibleDrivers(driverIds: string[]): Promise<string[]> {
+  const batches: string[][] = [];
+  for (let i = 0; i < driverIds.length; i += 200) batches.push(driverIds.slice(i, i + 200));
+  const results = await Promise.all(batches.map(async (ids) =>
+    (await client.post<{ driverIds: string[] }>('/platform/drivers/premium-eligibility', { driverIds: ids })).data.driverIds,
+  ));
+  return results.flat();
+}
+
 export async function trackEvent(
   eventType: string,
   data?: Record<string, unknown>,

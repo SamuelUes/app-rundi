@@ -200,14 +200,28 @@ class EarningsService {
     };
   }
 
-  /** Recargas manuales son admin-only en v2 (POST /admin/drivers/{id}/recharges). */
-  async createCashRecharge(_data: {
+  /** Solicitud pending del driver (POST /drivers/me/recharges); operaciones confirma. */
+  async createCashRecharge(data: {
     amount: number;
     paymentMethod?: 'cash' | 'transfer' | 'other';
     referenceNumber?: string;
     notes?: string;
   }): Promise<CashRecharge> {
-    throw new Error(tr('errors.rechargeNotAvailable') || 'Las recargas se gestionan por operación');
+    const { requestDriverRecharge } = await import('../../api/drivers');
+    const res = await requestDriverRecharge({
+      amount: data.amount,
+      reference: data.referenceNumber,
+      method: data.paymentMethod === 'transfer' ? 'bank_transfer' : 'manual',
+    });
+    return {
+      id: res.recharge?.id ?? '',
+      driverId: res.recharge?.driverId ?? '',
+      amount: res.recharge?.amount ?? data.amount,
+      status: (res.status === 'confirmed' ? 'completed' : res.status) as CashRecharge['status'],
+      paymentMethod: data.paymentMethod === 'transfer' ? 'transfer' : 'cash',
+      referenceNumber: res.recharge?.externalReference ?? data.referenceNumber,
+      createdAt: res.recharge?.createdAt,
+    };
   }
 
   async getDriverRecharges(): Promise<CashRecharge[]> {

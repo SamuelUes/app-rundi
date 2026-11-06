@@ -1,8 +1,8 @@
-import { doc, getDoc } from 'firebase/firestore';
+import { collection, doc, documentId, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { getFirebaseAuth, getFirebaseFirestore } from '../../config/firebase';
 import { FS_COL } from '../../constants/firestore';
-import { getRideDetail } from '../../api/rides';
-import { liveTripDocId } from '../../live/tripIds';
+import { getCurrentServiceAreaId } from '../../utils/geo/serviceArea';
+import { extractRequestedFeatureCodes } from '../../utils/ride/rideFeatureLabels';
 
 export interface RidePreview {
   id: string;
@@ -15,6 +15,7 @@ export interface RidePreview {
   estimatedPrice: number;
   estimatedDistance?: number;
   estimatedDuration?: number;
+  featureCodes?: string[];
   clientSuggestedPrice?: number;
   driverOfferedPrice?: number | null;
   paymentMethod?: 'cash' | 'card';
@@ -41,16 +42,21 @@ export async function fetchRidePreview(rideId: string): Promise<RidePreview | nu
     if (offerSnap?.exists()) offer = offerSnap.data();
   }
 
-  // trips_live solo si ya es participante (oferta aceptada o asignado)
+  // Las reglas permiten listar solicitudes filtradas por status, no leer
+  // directamente un viaje ajeno antes de que el conductor sea participante.
   let live: any = null;
-  const liveSnap = await getDoc(doc(db, FS_COL.tripsLive, await liveTripDocId(rideId))).catch(() => null);
-  if (liveSnap?.exists()) live = liveSnap.data();
+  const trips = collection(db, FS_COL.tripsLive);
+  const requested = await getDocs(query(trips, where('status', '==', 'requested'), where(documentId(), '==', rideId)));
+  if (!requested.empty) live = requested.docs[0].data();
+  if (!live && !offer) {
+    const byArea = await getDocs(query(trips,
+      where('status', '==', 'requested'),
+      where('serviceAreaId', '==', getCurrentServiceAreaId())));
+    live = byArea.docs.find((d) => d.data().rideId === rideId)?.data() ?? null;
+  }
 
-  // Detalle REST solo para participantes (403 si no lo es — best-effort)
-  const detail = await getRideDetail(rideId).catch(() => null);
-
-  const src: any = { ...offer, ...live, ...(detail ?? {}) };
-  if (!src.clientId && !offer && !live && !detail) {
+  const src: any = { ...offer, ...live };
+  if (!src.clientId && !offer && !live) {
     return null;
   }
 
@@ -76,6 +82,7 @@ export async function fetchRidePreview(rideId: string): Promise<RidePreview | nu
     estimatedPrice: Number(src.estimatedPrice ?? src.finalFare ?? 0),
     estimatedDistance: unwrap(src.estimatedDistance),
     estimatedDuration: unwrap(src.estimatedDuration),
+    featureCodes: extractRequestedFeatureCodes(src),
     clientSuggestedPrice: unwrap(src.clientSuggestedPrice),
     driverOfferedPrice: unwrap(src.offeredPrice ?? src.driverOfferedPrice) ?? null,
     paymentMethod: (src.paymentType === 'card_local' || src.paymentMethod === 'card' ? 'card' : 'cash') as 'cash' | 'card',

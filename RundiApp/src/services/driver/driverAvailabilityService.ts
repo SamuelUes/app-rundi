@@ -7,6 +7,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, AppStateStatus } from 'react-native';
 import driversService from './driversService';
+import { getFirebaseAuth } from '../../config/firebase';
+import { writeDriverLiveLocation } from '../../live/driverLive';
 
 const AVAILABILITY_KEY = '@driver_availability_state';
 const LAST_UPDATE_KEY = '@driver_last_update';
@@ -157,21 +159,25 @@ class DriverAvailabilityService {
               return;
             }
 
-            // Actualizar estado en el backend con reintentos
-            const statusResult = await driversService.updateStatus('available', effectiveCoords, 2);
-
-            if (statusResult?.status !== 'available') {
-              const normalizedState = this.normalizeAvailabilityState(state, statusResult?.status, effectiveCoords);
-              await this.saveAvailabilityState(normalizedState);
+            // Heartbeat = GPS/lastSeen solamente. La sesión de disponibilidad
+            // la controla el backend (el heartbeat nunca reactiva ni baja el
+            // estado; el listener de drivers_live es la fuente de verdad).
+            const auth = await getFirebaseAuth();
+            const uid = auth.currentUser?.uid;
+            if (!uid) {
               this.stopHeartbeat();
               return;
             }
-            
+            await writeDriverLiveLocation(uid, {
+              latitude: effectiveCoords.latitude,
+              longitude: effectiveCoords.longitude,
+            });
+
             // Actualizar timestamp
             state.lastUpdate = new Date().toISOString();
             state.coords = effectiveCoords;
             await this.saveAvailabilityState(state);
-            
+
             console.log('💓 Heartbeat enviado - Conductor disponible');
           } catch (updateError: any) {
             // No lanzar error, solo registrar
@@ -223,48 +229,32 @@ class DriverAvailabilityService {
       
       if (savedState && savedState.isAvailable) {
         console.log('🔄 Restaurando estado de disponibilidad');
-        
-        // Restaurar estado en el backend
+
+        // Reabrir la app NO reactiva: la sesión SQL decide (si expiró, el
+        // listener de drivers_live ya refleja offline). Solo refrescamos el
+        // GPS/lastSeen para que el sweep de presencia no confunda al
+        // conductor con uno desconectado.
         if (coords) {
           try {
-            const statusResult = await driversService.updateStatus('available', coords);
-
-            if (statusResult?.status !== 'available') {
-              const normalizedState = this.normalizeAvailabilityState(savedState, statusResult?.status, coords);
-              await this.saveAvailabilityState(normalizedState);
-              if (onStateRestored) {
-                onStateRestored(normalizedState);
-              }
-              this.stopHeartbeat();
-              return;
+            const auth = await getFirebaseAuth();
+            const uid = auth.currentUser?.uid;
+            if (uid) {
+              await writeDriverLiveLocation(uid, {
+                latitude: coords.latitude,
+                longitude: coords.longitude,
+              });
+              console.log('✅ GPS refrescado al volver a foreground');
             }
-
-            console.log('✅ Estado restaurado en el backend');
           } catch (error) {
-            console.error('❌ Error restaurando estado:', error);
-
-            if (this.isAvailabilityRestrictedError(error)) {
-              await this.handleAvailabilityRestriction('appState');
-
-              const restoredState: AvailabilityState = {
-                isAvailable: false,
-                isDesignatedDriverMode: false,
-                lastUpdate: new Date().toISOString(),
-                coords,
-              };
-
-              if (onStateRestored) {
-                onStateRestored(restoredState);
-              }
-            }
+            console.warn('⚠️ No se pudo refrescar GPS al volver:', error);
           }
         }
-        
+
         // Notificar al componente
         if (onStateRestored) {
           onStateRestored(savedState);
         }
-        
+
         // Reiniciar heartbeat
         this.startHeartbeat(coords);
       }

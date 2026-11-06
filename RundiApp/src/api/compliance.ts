@@ -181,3 +181,33 @@ export async function getDocumentHistory(
   );
   return data;
 }
+
+// ---------- disponibilidad (sesión de compliance) ----------
+
+export interface ActivationResult {
+  allowed: boolean;
+  status: string;
+  reasons?: ComplianceReason[];
+  sessionId?: string;
+  sessionSeq?: number;
+  reusedEvaluation: boolean;
+}
+
+/** activateAvailability — activación explícita: evalúa (o reutiliza la
+ * decisión válida del día) y abre la sesión que autoriza ofertas/viajes.
+ * Un rechazo no es error HTTP: viene en activation.reasons. */
+export async function activateAvailability() {
+  const { data } = await client.post<{ activation: ActivationResult }>(
+    '/compliance/availability',
+  );
+  return data.activation;
+}
+
+/** deactivateAvailability — cierre explícito (el conductor queda offline y
+ * deberá reactivar para volver a tomar viajes). */
+export async function deactivateAvailability() {
+  const { data } = await client.delete<{ status: string }>(
+    '/compliance/availability',
+  );
+  return data;
+}

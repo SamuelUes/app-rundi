@@ -7,6 +7,7 @@ package programmed
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -31,10 +32,24 @@ const col = fs.ColProgrammed
 type Service struct {
 	pool *pgxpool.Pool
 	fs   *firestore.Client
+	// Agendado por task en lugar de polling por minuto (opcional; el tick
+	// programado sigue de respaldo si no se instala o si el enqueue falla).
+	schedulePromotion func(ctx context.Context, rideID string, at time.Time) error
+	cancelPromotion   func(ctx context.Context, rideID string) error
 }
 
 func NewService(pool *pgxpool.Pool, fsClient *firestore.Client) *Service {
 	return &Service{pool: pool, fs: fsClient}
+}
+
+// SetPromotionScheduler instala el agendado/cancel best-effort del task de
+// promoción (Cloud Tasks → job rundi-programmed con ScheduleTime=scheduledAt).
+func (s *Service) SetPromotionScheduler(
+	schedule func(ctx context.Context, rideID string, at time.Time) error,
+	cancel func(ctx context.Context, rideID string) error,
+) {
+	s.schedulePromotion = schedule
+	s.cancelPromotion = cancel
 }
 
 // Create — cliente crea el doc (backend lo escribe: valida + fija clientId).
@@ -76,6 +91,13 @@ func (s *Service) Create(ctx context.Context, uid string, in map[string]any) (st
 	_, err := s.fs.Collection(col).Doc(id).Set(ctx, doc)
 	if err != nil {
 		return "", "", err
+	}
+	if s.schedulePromotion != nil {
+		sCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		defer cancel()
+		if serr := s.schedulePromotion(sCtx, id, time.UnixMilli(scheduledMs)); serr != nil {
+			slog.Warn("programmed promotion task failed; tick de respaldo cubre", "ride", id, "err", serr)
+		}
 	}
 	return id, sc, nil
 }
@@ -163,7 +185,17 @@ func (s *Service) Cancel(ctx context.Context, uid, rideID, reason string) error 
 		"canceledAt":   firestore.ServerTimestamp,
 		"updatedAt":    firestore.ServerTimestamp,
 	}, firestore.MergeAll)
-	return err
+	if err != nil {
+		return err
+	}
+	if s.cancelPromotion != nil {
+		sCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		defer cancel()
+		if cerr := s.cancelPromotion(sCtx, rideID); cerr != nil {
+			slog.Warn("programmed promotion cancel failed", "ride", rideID, "err", cerr)
+		}
+	}
+	return nil
 }
 
 // ListMine — programados del actor (como cliente o conductor asignado).
@@ -246,8 +278,10 @@ func (s *Service) Process(ctx context.Context, requestID string) (promoted, canc
 			continue
 		}
 		inConfirm := !now.Before(scheduled.Add(-ConfirmWindow))
-		// Cliente no confirmó dentro de la ventana → cancel.
-		if inConfirm && now.Before(scheduled.Add(PromotionGrace)) && !clientConfirmed {
+		// Cliente no confirmó dentro de la ventana → cancel (sin tope superior:
+		// el check de huérfano ya acota el extremo; un ride sin confirmar que
+		// pase la gracia no debe caer a promote).
+		if inConfirm && !clientConfirmed {
 			if s.cancelDoc(ctx, snap.Ref, "client_not_confirmed") {
 				canceled++
 			}

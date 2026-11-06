@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/rundi/functions-v2/internal/apns"
 	"github.com/rundi/functions-v2/internal/calls"
 	"github.com/rundi/functions-v2/internal/catalog"
 	"github.com/rundi/functions-v2/internal/chats"
@@ -95,7 +96,15 @@ func main() {
 		w.Write([]byte("ok"))
 	})
 
-	callsH := calls.NewHandler(calls.NewService(pool, fsClient), cfg, pool, fsClient)
+	// APNs para pushes VoIP (CallKit/PushKit en llamadas entrantes). Sin
+	// config → nil; la feature queda apagada y todo lo demás sigue igual.
+	apnsSender, apnsErr := apns.NewSenderFromEnv()
+	if apnsErr != nil {
+		slog.Warn("apns disabled", "err", apnsErr)
+	}
+
+	callsH := calls.NewHandler(
+		calls.NewService(pool, fsClient).WithVoip(apnsSender), cfg, pool, fsClient)
 
 	// Endpoint público (App Check solamente): el chequeo de email/phone
 	// únicos corre ANTES del signup, cuando aún no hay ID token.
@@ -109,6 +118,9 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.AppCheck(cfg.AppCheckEnforce, verifyAppCheck))
 		r.Use(middleware.Auth(app))
+		if taskProducer != nil {
+			r.Use(middleware.WakeConsumerOnMutation(taskProducer.WakeConsumer))
+		}
 		r.Route("/v1/rides", func(r chi.Router) {
 			ridesHandler := rides.NewHandler(rides.NewService(pool, fsClient))
 			if taskProducer != nil {
@@ -137,8 +149,13 @@ func main() {
 		// Compliance documental (driver self-service). Push/signer son
 		// best-effort: el servicio funciona sin ellos (devuelve paths).
 		compSvc := complianceService(ctx, app, pool, fsClient, cfg)
+		dailyStore := compliance.NewDailyStore(fsClient)
+		compHandler := compliance.NewHandler(compSvc, dailyStore)
+		if taskProducer != nil {
+			compHandler.SetConsumerWakeup(taskProducer.WakeConsumer)
+		}
 		r.Route("/v1/compliance", func(r chi.Router) {
-			r.Mount("/", compliance.NewHandler(compSvc).Routes())
+			r.Mount("/", compHandler.Routes())
 		})
 		r.Route("/v1/chats", func(r chi.Router) {
 			r.Mount("/", chats.NewHandler(chats.NewService(pool, fsClient)).Routes())
@@ -150,7 +167,19 @@ func main() {
 			r.Mount("/", support.NewHandler(support.NewService(pool, fsClient)).Routes())
 		})
 		r.Route("/v1/programmed-rides", func(r chi.Router) {
-			r.Mount("/", programmed.NewHandler(programmed.NewService(pool, fsClient)).Routes())
+			progSvc := programmed.NewService(pool, fsClient)
+			if taskProducer != nil {
+				progSvc.SetPromotionScheduler(
+					taskProducer.ScheduleProgrammedPromotion,
+					taskProducer.CancelProgrammedPromotion)
+			}
+			r.Mount("/", programmed.NewHandler(progSvc).Routes())
+		})
+		// Poke de pending events: el cliente avisa tras un WriteBatch con
+		// SYSTEM_pending_events (chat, call-end, foto de llegada) para que el
+		// middleware despierte al consumer sin esperar el tick. No-ops: 204.
+		r.Post("/v1/events/poke", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
 		})
 		r.Route("/v1/emergency-calls", func(r chi.Router) {
 			r.Mount("/", emergency.NewHandler(emergency.NewService(pool)).Routes())
@@ -166,7 +195,7 @@ func main() {
 		r.Route("/v1/admin", func(r chi.Router) {
 			r.Use(middleware.RequireRole("admin", "operator"))
 			r.Mount("/catalog", catalog.NewHandler(catalog.NewService(pool)).Routes())
-			r.Mount("/compliance", compliance.NewHandler(compSvc).AdminRoutes())
+			r.Mount("/compliance", compHandler.AdminRoutes())
 			drivers.NewHandler(drivers.NewService(pool, app)).AdminRoutes(r)
 			users.NewHandler(users.NewService(pool, fsClient, app)).AdminRoutes(r)
 			rides.NewHandler(rides.NewService(pool, fsClient)).AdminRoutes(r)
@@ -187,16 +216,28 @@ func main() {
 
 	// Webhook LiveKit — público; la firma JWT del propio evento es la auth
 	// (api_secret compartido). No lleva middleware Auth/App Check.
-	r.Post("/livekit/webhook", callsH.Webhook)
+	if taskProducer != nil {
+		r.With(middleware.WakeConsumerOnMutation(taskProducer.WakeConsumer)).
+			Post("/livekit/webhook", callsH.Webhook)
+	} else {
+		r.Post("/livekit/webhook", callsH.Webhook)
+	}
 
 	// Tracking público (token HMAC en query; sin auth)
 	r.Mount("/public",
 		platform.NewHandler(platform.NewService(pool, fsClient, cfg.RideShareSecret)).PublicRoutes())
 
 	// Webhook PuntoExpress (token header; sin Firebase auth)
-	r.Post("/webhooks/puntoexpress",
-		payments.NewHandler(payments.NewService(pool, fsClient), fsClient).
-			PuntoExpressWebhook(cfg.PuntoExpressWebhookToken))
+	if taskProducer != nil {
+		r.With(middleware.WakeConsumerOnMutation(taskProducer.WakeConsumer)).
+			Post("/webhooks/puntoexpress",
+				payments.NewHandler(payments.NewService(pool, fsClient), fsClient).
+					PuntoExpressWebhook(cfg.PuntoExpressWebhookToken))
+	} else {
+		r.Post("/webhooks/puntoexpress",
+			payments.NewHandler(payments.NewService(pool, fsClient), fsClient).
+				PuntoExpressWebhook(cfg.PuntoExpressWebhookToken))
+	}
 
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: r, ReadHeaderTimeout: 10 * time.Second}
 	go func() {

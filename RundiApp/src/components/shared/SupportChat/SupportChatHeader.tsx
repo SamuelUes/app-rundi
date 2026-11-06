@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { SupportChatComplaintForm } from './SupportChatComplaintForm';
 import type { TFunction } from 'i18next';
+import { isActiveSupportCall } from '../../../hooks/shared/calls/supportCallState';
 
 interface CategoryOption {
   id?: string;
@@ -112,7 +113,7 @@ export function SupportChatHeader({
         </View>
       ) : null}
 
-      {activeCall && !['ended', 'rejected', 'missed'].includes(String(activeCall.status || '')) ? (
+      {activeCall && isActiveSupportCall(activeCall.status) ? (
         <TouchableOpacity
           style={styles.callBanner}
           onPress={onCallButton}
@@ -120,9 +121,13 @@ export function SupportChatHeader({
         >
           <View style={styles.callBannerDot} />
           <View style={styles.callBannerTexts}>
-            <Text style={styles.callBannerTitle}>Llamada en curso</Text>
+            <Text style={styles.callBannerTitle}>{t(`${ns}.call.bannerTitle`)}</Text>
             <Text style={styles.callBannerSubtitle}>
-              Estado: {String(activeCall.status || 'pending').replace('_', ' ')} · Toca para abrir controles
+              {t(`${ns}.call.bannerSubtitle`, {
+                status: t(`${ns}.call.statuses.${String(activeCall.status || 'pending').toLowerCase()}`, {
+                  defaultValue: String(activeCall.status || 'pending').replace(/_/g, ' '),
+                }),
+              })}
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.primary} style={{ marginLeft: 8 }} />

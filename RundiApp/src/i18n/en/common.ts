@@ -1093,6 +1093,7 @@ const common = {
             errors: {
               notSupported: 'This device does not support biometrics.',
               notEnrolled: 'No biometric data is registered on this device.',
+              noDeviceSecurity: 'This device has no security method configured.',
               authFailed: 'Biometric authentication failed.',
               unknown: 'Unknown error.',
               appleNotAvailable: 'Sign in with Apple is not available on this device.',
@@ -1390,7 +1391,7 @@ const common = {
              fetchFailed: 'We could not load the services.',
            },
          },
-         supabaseStorage: {
+         firebaseStorage: {
            errors: {
              missingUri: 'Image URI is required.',
              uploadFailed: 'We could not upload the image.',

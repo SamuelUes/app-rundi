@@ -18,7 +18,7 @@ import (
 // (port de confirmDriver de v1). Requiere:
 //   - ride.client_id == uid, status en (requested, driver_offered)
 //   - oferta viva en REALTIME_driver_offers/{rideId}_{driverUID} con
-//     status pending/accepted, o evidencia de negociación (driver_offered_price)
+//     status pending/accepted, o contraoferta activa de ese conductor en SQL
 //   - conductor no 'busy' en REALTIME_drivers_live
 //
 // Asigna driver_id + status='accepted' + final_fare en TX + outbox ride.accepted.
@@ -45,19 +45,21 @@ func (s *Service) ConfirmDriver(ctx context.Context, rideID, clientUID, driverUI
 		}
 	}
 
-	// 3. Evidencia de negociación: driver_offered_price en la fila.
+	// La contraoferta y su precio pertenecen al conductor seleccionado, no al viaje global.
 	var negotiated *float64
 	err := s.pool.QueryRow(ctx,
-		`SELECT driver_offered_price FROM public.rides WHERE id = $1::uuid`, rideID,
+		`SELECT offered_price FROM public.ride_offers
+		 WHERE ride_id = $1::uuid AND driver_id = $2 AND kind = 'counter_offer' AND status = 'sent'
+		 ORDER BY created_at DESC, id DESC LIMIT 1`, rideID, driverUID,
 	).Scan(&negotiated)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, apperr.New(404, "ride not found")
-		}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
 	if !hasOffer && negotiated == nil {
 		return nil, apperr.New(409, "driver has no active offer for this ride")
+	}
+	if negotiated != nil {
+		offerPrice = negotiated
 	}
 
 	// 4. Idempotencia: ya asignado al mismo driver con estado estable.
@@ -83,6 +85,13 @@ func (s *Service) ConfirmDriver(ctx context.Context, rideID, clientUID, driverUI
 	}
 	defer tx.Rollback(ctx)
 
+	// Cerco de autorización: el conductor elegido debe seguir con sesión viva
+	// dentro de la misma tx que asigna el viaje (coordinado con el barrido de
+	// medianoche, que toma el mismo candado del control del conductor).
+	if err := requireDriverSession(ctx, tx, driverUID, "driver has no active availability session"); err != nil {
+		return nil, err
+	}
+
 	r, err := scanRide(tx.QueryRow(ctx, `
 		UPDATE public.rides
 		SET driver_id = $3,
@@ -95,6 +104,14 @@ func (s *Service) ConfirmDriver(ctx context.Context, rideID, clientUID, driverUI
 		  AND client_id = $2
 		  AND status IN ('requested', 'driver_offered')
 		  AND (driver_id IS NULL OR driver_id = $3)
+		  AND (NOT COALESCE(pricing_snapshot->'featureCodes' ? 'premium', FALSE)
+		       OR EXISTS (
+		         SELECT 1 FROM public.vehicles v
+		         JOIN public.drivers d ON d.id = v.driver_id
+		         WHERE d.user_id = $3 AND v.is_active = TRUE AND v.deleted_at IS NULL
+		           AND v.id = (SELECT v2.id FROM public.vehicles v2 WHERE v2.driver_id = d.id AND v2.is_active = TRUE AND v2.deleted_at IS NULL ORDER BY v2.created_at DESC, v2.id DESC LIMIT 1)
+		           AND public.vehicle_premium_eligible(v.registration_ocr_year, v.type, NOW())
+		       ))
 		RETURNING `+rideCols,
 		rideID, clientUID, driverUID, offerPrice,
 	))
@@ -158,15 +175,21 @@ func (s *Service) ConfirmDriver(ctx context.Context, rideID, clientUID, driverUI
 }
 
 // RejectRide — conductor rechaza/retira su oferta (port de rejectRide de v1).
-// El rechazo vive en el doc de oferta (operacional) y se espeja a
-// ride_offers (auditoría durable, doc §7.1).
+// Las contraofertas se cierran en SQL y se proyectan mediante el outbox.
 func (s *Service) RejectRide(ctx context.Context, rideID, driverUID, reason string) error {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
 	// Precio de referencia para el registro (cliente > estimado).
 	var clientSuggested, estimated *float64
-	err := s.pool.QueryRow(ctx, `
-		SELECT client_suggested_price, estimated_price
-		FROM public.rides WHERE id = $1::uuid`, rideID,
-	).Scan(&clientSuggested, &estimated)
+	var version int64
+	err = tx.QueryRow(ctx, `
+		UPDATE public.rides SET version = version + 1
+		WHERE id = $1::uuid
+		RETURNING client_suggested_price, estimated_price, version`, rideID,
+	).Scan(&clientSuggested, &estimated, &version)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperr.New(404, "ride not found")
@@ -180,26 +203,39 @@ func (s *Service) RejectRide(ctx context.Context, rideID, driverUID, reason stri
 	if reason == "" {
 		reason = "not_interested"
 	}
-
-	offerRef := s.fs.Collection(fs.ColDriverOffers).Doc(rideID + "_" + driverUID)
-	_, err = offerRef.Set(ctx, map[string]any{
-		"rideId":           rideID,
-		"driverId":         driverUID,
-		"status":           "rejected",
-		"reason":           reason,
-		"priceAtRejection": priceAtRejection,
-		"rejectedAt":       firestore.ServerTimestamp,
-		"updatedAt":        firestore.ServerTimestamp,
-	}, firestore.MergeAll)
-	if err != nil {
+	var hasCounterOffer bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM public.ride_offers
+			WHERE ride_id = $1::uuid AND driver_id = $2 AND kind = 'counter_offer')`,
+		rideID, driverUID).Scan(&hasCounterOffer); err != nil {
 		return err
 	}
-	// Espejo durable: cierra la oferta viva en SQL (oferta o contraoferta).
-	_, err = s.pool.Exec(ctx, `
+	if _, err = tx.Exec(ctx, `
 		UPDATE public.ride_offers
 		SET status = 'rejected', responded_at = NOW()
 		WHERE ride_id = $1::uuid AND driver_id = $2 AND status = 'sent'`,
-		rideID, driverUID)
+		rideID, driverUID); err != nil {
+		return err
+	}
+	payload := map[string]any{"rideId": rideID, "version": version}
+	evID, err := outbox.InsertReturning(ctx, tx, outbox.Event{
+		Type: "ride.offer_rejected", AggregateType: "ride", AggregateID: rideID, Payload: payload,
+	})
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.publishFastPath(ctx, "ride.offer_rejected", rideID, evID, payload)
+	if hasCounterOffer {
+		return nil
+	}
+	_, err = s.fs.Collection(fs.ColDriverOffers).Doc(rideID+"_"+driverUID).Set(ctx, map[string]any{
+		"rideId": rideID, "driverId": driverUID, "status": "rejected", "reason": reason,
+		"priceAtRejection": priceAtRejection, "rejectedAt": firestore.ServerTimestamp,
+		"updatedAt": firestore.ServerTimestamp,
+	}, firestore.MergeAll)
 	return err
 }
 

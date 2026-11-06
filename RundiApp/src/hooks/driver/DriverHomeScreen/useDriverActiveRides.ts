@@ -3,8 +3,18 @@ import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { getFirebaseAuth, getFirebaseFirestore } from '../../../config/firebase';
 import { FS_COL } from '../../../constants/firestore';
 import { haversineKm } from '../../../utils/geo/distance';
+import { extractRequestedFeatureCodes } from '../../../utils/ride/availableRidesHelpers';
+import { getCurrentServiceAreaId } from '../../../utils/geo/serviceArea';
+import { RIDES_RADIUS_KM } from '../../../constants/rideRadius';
+import { compareRideOrder } from '../../../utils/ride/rideOrder';
+import { setDriverEngaged } from '../../../live/driverEngagement';
+import {
+  setEngagementOverlay,
+  type EngagementOverlayRide,
+} from '../../../services/ride/proximityService';
 import {
   ACTIVE_RIDE_STATUSES,
+  isPendingDispatchOffer,
   parseCoordinate,
   type RawRideStop,
 } from '../../../utils/driver/driverHomeHelpers';
@@ -15,6 +25,41 @@ interface UseDriverActiveRidesOptions {
   isAvailable: boolean;
   formatCurrency: (value: number) => string;
 }
+
+// Contexto que la burbuja/Live Activity muestra mientras el conductor está
+// comprometido: precio acordado/ofertado y distancia al origen si hay GPS.
+const buildEngagementOverlayRide = (
+  ride: any | null,
+  kind: EngagementOverlayRide['kind'],
+  driverCoords: { latitude?: number; longitude?: number } | null,
+): EngagementOverlayRide | null => {
+  if (!ride) return null;
+  const price = Number.isFinite(ride?.finalFare)
+    ? Number(ride.finalFare)
+    : Number.isFinite(ride?.offeredPrice)
+      ? Number(ride.offeredPrice)
+      : Number.isFinite(ride?.clientSuggestedPrice)
+        ? Number(ride.clientSuggestedPrice)
+        : Number.isFinite(ride?.estimatedPrice)
+          ? Number(ride.estimatedPrice)
+          : 0;
+  const originLat = ride?.origin?.latitude ?? ride?.origin?.lat;
+  const originLng = ride?.origin?.longitude ?? ride?.origin?.lng;
+  const distanceKm =
+    driverCoords?.latitude != null &&
+    driverCoords?.longitude != null &&
+    typeof originLat === 'number' &&
+    typeof originLng === 'number'
+      ? haversineKm(driverCoords.latitude, driverCoords.longitude, originLat, originLng)
+      : undefined;
+  return {
+    rideId: ride.id,
+    clientName: ride?.clientName ?? null,
+    price,
+    distanceKm,
+    kind,
+  };
+};
 
 export function useDriverActiveRides({
   userId,
@@ -44,6 +89,7 @@ export function useDriverActiveRides({
   const selectSnapshotData = (): Record<string, any> => ({
     offers: activeRideSnapshotsRef.current.offers ?? {},
     trips: activeRideSnapshotsRef.current.trips ?? {},
+    requested: activeRideSnapshotsRef.current.requested ?? {},
   });
 
   useEffect(() => {
@@ -51,6 +97,8 @@ export function useDriverActiveRides({
       setAvailableRideRequests([]);
       setActiveRide(null);
       setPendingNegotiationRide(null);
+      setDriverEngaged(false);
+      void setEngagementOverlay(null);
       return;
     }
 
@@ -84,11 +132,14 @@ export function useDriverActiveRides({
             setAvailableRideRequests([]);
             setActiveRide(null);
             setPendingNegotiationRide(null);
+            setDriverEngaged(false);
+            void setEngagementOverlay(null);
             return;
           }
 
           const offers: Record<string, any> = (data as any).offers ?? {};
           const trips: Record<string, any> = (data as any).trips ?? {};
+          const requested: Record<string, any> = (data as any).requested ?? {};
           const now = Date.now();
 
           const availableRides: any[] = [];
@@ -121,27 +172,40 @@ export function useDriverActiveRides({
                 : typeof offer?.expiresAt === 'number'
                   ? offer.expiresAt
                   : null;
-            const expired = expMs !== null && expMs < now;
 
-            if (status === 'accepted' && !myPendingNegotiationRide) {
-              myPendingNegotiationRide = {
-                id: offer.rideId,
-                driverId: userId,
-                clientId: offer.clientId,
-                negotiationStatus: 'driver_accepted',
-                status: 'driver_offered',
-                ...offer,
-              };
+            // Mi contraoferta: la negociación vive en ride_offers (SQL) porque
+            // trips_live.driverId sigue NULL hasta que el cliente asigna —
+            // por eso trips nunca devuelve 'driver_offered' para mí.
+            const isCounterOffer =
+              offer?.kind === 'counter_offer' ||
+              (Number.isFinite(offer?.offeredPrice) && expMs === null);
+            if (isCounterOffer) {
+              if (status === 'pending' && !myPendingNegotiationRide) {
+                myPendingNegotiationRide = {
+                  id: offer.rideId ?? offerId,
+                  liveId: offer.firebaseRideId ?? offer.rideId ?? offerId,
+                  clientId: offer.clientId,
+                  status: 'driver_offered',
+                  offeredPrice: offer.offeredPrice,
+                  clientSuggestedPrice: offer.clientSuggestedPrice,
+                  estimatedPrice: offer.estimatedPrice,
+                  clientName: offer.clientName,
+                  origin: offer.origin,
+                  destination: offer.destination,
+                  extraDestinations: offer.extraDestinations,
+                  featureCodes: offer.featureCodes,
+                };
+              }
               return;
             }
-            if (status !== 'pending' || expired) return;
+            if (!isPendingDispatchOffer(status, expMs, now)) return;
             const c = coordsRef.current;
             if (!c || !isAvailableRef.current || c.latitude == null || c.longitude == null) return;
 
             availableRides.push({
+              ...offer,
               id: offer.rideId,
               offerId,
-              ...offer,
               distance: Number.isFinite(offer.distanceKm)
                 ? offer.distanceKm
                 : haversineKm(
@@ -153,7 +217,25 @@ export function useDriverActiveRides({
             });
           });
 
-          availableRides.sort((a, b) => a.distance - b.distance);
+          const c = coordsRef.current;
+          if (c?.latitude != null && c?.longitude != null && isAvailableRef.current) {
+            Object.entries<any>(requested).forEach(([liveId, ride]) => {
+              if (ride.driverId) return;
+              const lat = ride.origin?.latitude ?? ride.origin?.lat;
+              const lng = ride.origin?.longitude ?? ride.origin?.lng;
+              if (typeof lat !== 'number' || typeof lng !== 'number') return;
+              const distance = haversineKm(c.latitude!, c.longitude!, lat, lng);
+              if (distance > RIDES_RADIUS_KM) return;
+              const sqlId = ride.rideId ?? liveId;
+              if (availableRides.some((item) => item.id === sqlId)) return;
+              availableRides.push({ ...ride, id: liveId, distance });
+            });
+          }
+
+          availableRides.sort((a, b) => compareRideOrder(
+            { distance: a.distance, requestedAt: a.requestedAt ?? a.createdAt, id: a.id },
+            { distance: b.distance, requestedAt: b.requestedAt ?? b.createdAt, id: b.id },
+          ));
 
           const formatted = availableRides.map((ride) => {
             const price = Number.isFinite(ride.clientSuggestedPrice)
@@ -163,16 +245,16 @@ export function useDriverActiveRides({
                 : 0;
             return {
               id: ride.id,
-              latitude: ride?.origin?.latitude ?? null,
-              longitude: ride?.origin?.longitude ?? null,
+              latitude: ride?.origin?.latitude ?? ride?.origin?.lat ?? null,
+              longitude: ride?.origin?.longitude ?? ride?.origin?.lng ?? null,
               clientId: ride.clientId,
               rideType: ride.rideType,
               vehicleType: ride.vehicleType,
-              serviceCode: ride.serviceCode,
-              featureCodes: Array.isArray(ride.featureCodes) ? ride.featureCodes : [],
+              serviceCode: ride.serviceCode ?? ride.service_code ?? ride.pricingSnapshot?.serviceCode,
+              featureCodes: extractRequestedFeatureCodes(ride),
               clientName: ride.clientName || 'Cliente',
-              originAddress: ride.originAddress || 'Origen',
-              finalDestination: ride.destinationAddress || 'Destino',
+              originAddress: ride.originAddress || ride.origin?.address || 'Origen',
+              finalDestination: ride.destinationAddress || ride.destination?.address || 'Destino',
               priceLabel: formatCurrencyRef.current(price),
               priceAmount: price,
               passengers: ride.passengers ?? 1,
@@ -185,9 +267,25 @@ export function useDriverActiveRides({
 
           const finalAvailable = myPendingNegotiationRide ? [] : formatted;
 
+          if (__DEV__) {
+            console.log('[DriverHome rides]', {
+              requested: Object.keys(requested).length,
+              offers: Object.keys(offers).length,
+              nearby: availableRides.length,
+              visible: finalAvailable.length,
+              available: isAvailableRef.current,
+              hasCoords: coordsRef.current?.latitude != null && coordsRef.current?.longitude != null,
+              pendingNegotiation: Boolean(myPendingNegotiationRide),
+            });
+          }
           setAvailableRideRequests(finalAvailable);
           setActiveRide(myActiveRide);
           setPendingNegotiationRide(myPendingNegotiationRide);
+          setDriverEngaged(Boolean(myActiveRide || myPendingNegotiationRide));
+          void setEngagementOverlay(
+            buildEngagementOverlayRide(myActiveRide, 'active', coordsRef.current) ??
+            buildEngagementOverlayRide(myPendingNegotiationRide, 'negotiation', coordsRef.current),
+          );
           setRideSnapshotsVersion((prev) => prev + 1);
         };
         processSnapshotRef.current = processSnapshot;
@@ -222,7 +320,19 @@ export function useDriverActiveRides({
             console.error(`❌ [DriverHomeScreen] Error escuchando ${FS_COL.tripsLive}:`, err);
           },
         );
-        cleanupFns.push(() => unsubOffers(), () => unsubTrips());
+        const unsubRequested = onSnapshot(
+          query(collection(db, FS_COL.tripsLive),
+            where('serviceAreaId', '==', getCurrentServiceAreaId()),
+            where('status', '==', 'requested')),
+          (snapshot) => {
+            const requested: Record<string, any> = {};
+            snapshot.docs.forEach((d) => { requested[d.id] = d.data(); });
+            activeRideSnapshotsRef.current.requested = requested;
+            processSnapshot(selectSnapshotData());
+          },
+          (err) => console.error('[DriverHomeScreen] Error escuchando solicitudes:', err),
+        );
+        cleanupFns.push(() => unsubOffers(), () => unsubTrips(), () => unsubRequested());
       } catch (err) {
         console.error('❌ [DriverHomeScreen] Error configurando listeners de activeRides:', err);
       }

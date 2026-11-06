@@ -1,4 +1,4 @@
-package com.driveangel.rundidev
+package com.gruporzc.rundi
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

@@ -3,6 +3,19 @@
  * Extraído desde `src/i18n/index.ts` (`en.translation.driver`).
  */
 const driver = {
+        premium: {
+          badge: 'Premium vehicle', grace: 'Premium grace period active', expired: 'Premium grace period expired',
+          graceUntil: 'Your vehicle keeps premium eligibility until {{date}}.',
+          expiredDescription: 'Your vehicle is no longer eligible for premium rides. Update your vehicle to regain this benefit.',
+          eligibleDescription: 'Vehicle {{plate}} is eligible for premium rides.',
+        },
+        virtualDocuments: {
+          title: 'Virtual documents', close: 'Close', error: 'We could not load your documents.',
+          license: 'Driver license', insurance: 'Insurance policy', circulation: 'Vehicle registration',
+          number: 'Number', expiry: 'Expiration', issue: 'Issued / starts', type: 'Type',
+          categories: 'Categories', plate: 'Plate', insurer: 'Insurer', coverage: 'Coverage',
+          brand: 'Brand', model: 'Model', year: 'Year',
+        },
         home: {
           loading: {
             initializing: 'Preparing your driver dashboard...',
@@ -21,6 +34,9 @@ const driver = {
             rechargeRequiredTitle: 'Insufficient funds',
             rechargeRequiredBody:
               'Your current wallet balance is C${{amount}}. Recharge funds to continue accepting rides.',
+            rechargePendingTitle: 'Recharge pending confirmation',
+            rechargePendingBody:
+              'You have {{count}} recharge(s) for C${{amount}} pending operations validation. You can go online once confirmed.',
             availabilityUpdateFailed: 'We could not update your status.',
           },
           voice: {
@@ -70,6 +86,9 @@ const driver = {
             penaltiesSubtitle: '{{count}} for C${{amount}}',
             rechargeTitle: 'Insufficient wallet balance',
             rechargeSubtitle: 'Current balance: C${{amount}}. Recharge to keep driving.',
+            rechargePendingTitle: 'Recharge pending confirmation',
+            rechargePendingSubtitle:
+              '{{count}} recharge(s) for C${{amount}} awaiting operations validation.',
             paymentsTitle: 'Pending payments',
             paymentsSubtitleSingle: '1 payment to confirm',
             paymentsSubtitleOther: '{{count}} payments to confirm',
@@ -110,6 +129,12 @@ const driver = {
           },
         },
         profile: {
+          rideFeatures: {
+            title: 'Special services',
+            seniorTitle: 'Rides for older adults',
+            seniorDescription: 'Enable this option to receive ride requests for older adults.',
+            error: 'We could not update this preference.',
+          },
           loading: {
             message: 'Loading profile...',
           },
@@ -265,6 +290,9 @@ const driver = {
             subtitle: 'Floating bubble with nearby requests',
             description:
               'Shows a card above other apps when there is a nearby ride. Ideal if you use other navigation apps.',
+            subtitleIos: 'Live Activities with nearby requests',
+            descriptionIos:
+              'Shows the nearest ride in the Dynamic Island and on the Lock Screen, even while the app is in the background.',
             hintAndroidGranted: 'Permission active.',
             hintAndroidMissing: 'Open Settings → Apps → Rundi → Display over other apps.',
             hintIos: 'Uses Live Activities (Dynamic Island).',
@@ -272,7 +300,7 @@ const driver = {
             hintIosMissing: 'Open Settings → Rundi → Live Activities.',
             alerts: {
               notAvailableTitle: 'Not available',
-              notAvailableBody: 'The overlay feature is only available on Android.',
+              notAvailableBody: 'This feature is only available on iPhone and Android.',
               enableTitle: 'Enable the permission',
               enableBody: 'Open the “Display over other apps” screen and enable it for Rundi.',
               enableTitleIos: 'Enable Live Activities',
@@ -352,6 +380,7 @@ const driver = {
               insurancePhoto: 'Insurance policy photo',
               photos: 'Vehicle photos',
               vehiclePhoto: 'Vehicle photo',
+              scanDocs: 'Scan your documents',
             },
             placeholders: {
               plate: 'ABC-123',
@@ -1454,6 +1483,8 @@ const driver = {
             offerRejectedMessage: 'The client chose another driver. You can look for other rides.',
             offerRejectedMeTitle: 'Offer rejected',
             offerRejectedMeMessage: 'The client rejected your offer. You can look for other rides.',
+            offerClosedTitle: 'Offer closed',
+            offerClosedMessage: 'This ride is no longer available. You can look for other rides.',
             cancelOfferTitle: 'Cancel offer',
             cancelOfferMessage:
               'Are you sure you want to cancel your offer? The ride will be available to other drivers.',

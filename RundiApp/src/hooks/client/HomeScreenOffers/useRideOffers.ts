@@ -11,6 +11,8 @@ const EMPTY: Record<string, any> = {};
 export interface OfferItem {
   driverId: string;
   offeredPrice?: number;
+  clientSuggestedPrice?: number;
+  kind?: string;
   status?: 'pending' | 'accepted' | 'rejected';
   estimatedArrivalTime?: string;
   driver: {
@@ -230,13 +232,17 @@ export function useRideOffers(
     return {
       driverId,
       offeredPrice: offer?.offeredPrice,
+      clientSuggestedPrice: offer?.clientSuggestedPrice,
+      kind: offer?.kind,
       status: offer?.status || 'pending',
       estimatedArrivalTime: offer?.estimatedArrivalTime,
       driver: {
         name: mergeName(driverFallbackName, info, {}, offer?.driver),
         rating: mergeRating(info, {}, offer?.driver ?? offer),
         photoURL: info?.profilePhoto || info?.photoURL || info?.photoUrl || offer?.driver?.photoURL || null,
-        vehicle: info?.vehicle || info?.activeVehicle || info?.currentVehicle || offer?.driver?.vehicle || undefined,
+        vehicle: Object.prototype.hasOwnProperty.call(info, 'vehicle')
+          ? info.vehicle
+          : info?.activeVehicle || info?.currentVehicle || offer?.driver?.vehicle || undefined,
       },
     };
   }).sort((a, b) => {

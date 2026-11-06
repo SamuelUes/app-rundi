@@ -2,6 +2,8 @@ import {
   normalizeVehicleTypeForMatching,
   extractRideVehicleTypeForMatching,
 } from '../../services/ride/ridesService';
+import { extractRequestedFeatureCodes } from './rideFeatureLabels';
+export { extractRequestedFeatureCodes } from './rideFeatureLabels';
 export { haversineKm } from '../geo/distance';
 
 export type RawLocation =
@@ -128,11 +130,7 @@ export const checkRideDriverCompatibility = (
   driverFeatureCodes: readonly string[] = [],
   vehicleFeatureCodes: readonly string[] = [],
 ): { ok: boolean; reason?: string } => {
-  const featureCodes: string[] = Array.isArray(rideLike?.featureCodes)
-    ? rideLike.featureCodes.filter((code: unknown): code is string => typeof code === 'string')
-    : Array.isArray(rideLike?.feature_codes)
-      ? rideLike.feature_codes.filter((code: unknown): code is string => typeof code === 'string')
-      : [];
+  const featureCodes = extractRequestedFeatureCodes(rideLike);
   if (
     driverVehicleType === null &&
     featureCodes.some((code) => ['senior', 'premium', 'pet_friendly'].includes(code))
@@ -166,6 +164,9 @@ export const checkRideDriverCompatibility = (
   ) {
     return { ok: false, reason: 'senior_service_mismatch' };
   }
+  if (featureCodes.includes('senior') && !driverFeatureCodes.includes('senior')) {
+    return { ok: false, reason: 'driver_feature_required' };
+  }
   if (featureCodes.includes('premium')) {
     if (serviceCode !== 'normal') return { ok: false, reason: 'premium_service_mismatch' };
     if (!vehicleFeatureCodes.includes('premium')) return { ok: false, reason: 'vehicle_feature_required' };
@@ -174,7 +175,6 @@ export const checkRideDriverCompatibility = (
     if (!['normal', 'designated_driver_auto'].includes(serviceCode)) {
       return { ok: false, reason: 'pet_friendly_service_mismatch' };
     }
-    if (!driverFeatureCodes.includes('pet_friendly')) return { ok: false, reason: 'driver_feature_required' };
   }
 
   return { ok: true };

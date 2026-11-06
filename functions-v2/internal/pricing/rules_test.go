@@ -77,6 +77,14 @@ func TestApplyPricingFeatures(t *testing.T) {
 	}
 }
 
+func TestApplyPricingFeaturesEmptySelection(t *testing.T) {
+	features := []PricingFeature{{Code: "pet_friendly", PricingType: FeatureSurcharge, PricingValue: 20}}
+	fare, applied := ApplyPricingFeatures(100, features, time.Now(), []string{})
+	if fare != 100 || len(applied) != 0 {
+		t.Fatalf("empty selection applied features: fare=%v applied=%v", fare, applied)
+	}
+}
+
 func TestSurgeMultiplier(t *testing.T) {
 	r := 1.4
 	if got := ResolveSurgeMultiplier(&r, DefaultSurgeRules); got != 1.15 {

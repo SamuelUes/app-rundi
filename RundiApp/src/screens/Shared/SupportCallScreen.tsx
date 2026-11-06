@@ -6,7 +6,7 @@ import {
   TouchableOpacity,
   Alert,
 } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import { CallScaffold, CallAction } from '../../components/shared/CallScaffold';
@@ -63,45 +63,57 @@ export default function SupportCallScreen({ route }: SupportCallScreenProps) {
     };
   }, [disconnectLivekit]);
 
-  const isRinging = activeCall?.status === 'ringing_client';
+  // Dirección por callerUid/calleeUid — el backend escribe 'initiated' para
+  // TODA llamada nueva (entrante y saliente); clasificar por status solo
+  // invertía entrante↔saliente.
+  const callStatus = String(activeCall?.status || '').toLowerCase();
+  const isRingingStatus = callStatus === 'initiated' || callStatus === 'ringing_client' || callStatus === 'ringing_operator';
+  const isCallee = Boolean(resolvedUid && activeCall?.calleeUid === resolvedUid);
+  const isRinging = isCallee && isRingingStatus;
   // Llamada saliente: el cliente inició y espera a que el operador acepte.
-  const isOutgoing = activeCall?.status === 'ringing_operator' || activeCall?.status === 'initiated';
+  const isOutgoing = !isCallee && isRingingStatus;
   const isAccepted = activeCall?.status === 'accepted' || activeCall?.status === 'connected';
-  const isInCall = Boolean(isAccepted || livekitConnected);
   const isTerminal = Boolean(
     activeCall && ['ended', 'rejected', 'missed'].includes(String(activeCall.status || '').toLowerCase()),
   );
-  const isCallInitiator = Boolean(
-    activeCall?.events?.initiated?.by && resolvedUid && activeCall.events.initiated.by === resolvedUid,
-  );
+  const isInCall = !isTerminal && Boolean(isAccepted || livekitConnected);
+  const activeCallRef = useRef(activeCall);
+  activeCallRef.current = activeCall;
 
   // Cuando el operador cierra/rechaza/transfiere a terminal, o la llamada
   // desaparece, salir de la sala para que los botones vuelvan a estado idle.
   useEffect(() => {
-    if ((!activeCall || isTerminal) && livekitConnected) {
+    if ((!activeCall || isTerminal) && (livekitConnected || livekitConnecting)) {
       disconnectLivekit();
     }
-  }, [activeCall, isTerminal, livekitConnected, disconnectLivekit]);
+  }, [activeCall, isTerminal, livekitConnected, livekitConnecting, disconnectLivekit]);
 
-  // Cuando el operador acepta nuestra llamada saliente (ringing_operator →
-  // accepted), entrar a la sala sin paso extra. El webhook marca `connected`
-  // cuando ambos participantes están dentro.
+  // Al quedar la llamada aceptada — saliente (acepta el operador) o entrante
+  // (aceptamos nosotros) — entrar a la sala sin paso extra. El webhook marca
+  // `connected` cuando ambos participantes están dentro.
   const autoJoinCallIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (autoJoinCallIdRef.current && autoJoinCallIdRef.current !== activeCall?.callId) {
       autoJoinCallIdRef.current = null;
     }
-    if (!activeCall?.callId || !isAccepted || !isCallInitiator) return;
-    if (livekitConnected || livekitConnecting || livekitInfo) return;
+    if (!activeCall?.callId || !isAccepted) return;
+    if (livekitConnected || livekitConnecting) return;
     if (autoJoinCallIdRef.current === activeCall.callId) return;
     autoJoinCallIdRef.current = activeCall.callId;
-    fetchLivekitToken(activeCall.callId).then((info) => {
-      if (info) connectLivekit(info);
+    if (livekitInfo?.callId === activeCall.callId) {
+      connectLivekit(livekitInfo);
+      return;
+    }
+    const callId = activeCall.callId;
+    fetchLivekitToken(callId).then((info) => {
+      const current = activeCallRef.current;
+      if (info && current?.callId === callId && ['accepted', 'connected'].includes(String(current.status).toLowerCase())) {
+        connectLivekit(info);
+      }
     });
   }, [
     activeCall?.callId,
     isAccepted,
-    isCallInitiator,
     livekitConnected,
     livekitConnecting,
     livekitInfo,
@@ -110,32 +122,8 @@ export default function SupportCallScreen({ route }: SupportCallScreenProps) {
   ]);
 
   const handleJoinRoom = async () => {
-    if (!complaintId || callLoading) return;
-    try {
-      if (activeCall?.status === 'ringing_client') {
-        await acceptCall(activeCall.callId);
-      }
-
-      let info = livekitInfo;
-      if (!info && activeCall?.callId) {
-        info = await fetchLivekitToken(activeCall.callId);
-      }
-
-      if (!info) {
-        Alert.alert(
-          t(`${ns}.title`, 'Llamada de soporte'),
-          t(`${ns}.labels.noRoomToken`, 'Aún no hay token de sala. Solicita o acepta la llamada primero.'),
-        );
-        return;
-      }
-
-      await connectLivekit(info);
-    } catch (error: any) {
-      Alert.alert(
-        t(`shared.supportChat.errors.title`, 'Error'),
-        error?.message || t(`shared.supportChat.call.requestError`, 'No se pudo unir a la sala en este momento.'),
-      );
-    }
+    if (!complaintId || callLoading || !isRinging || !activeCall?.callId) return;
+    await acceptCall(activeCall.callId);
   };
 
   const handleCallAction = async () => {
@@ -173,7 +161,7 @@ export default function SupportCallScreen({ route }: SupportCallScreenProps) {
     return (
       <View style={styles.emptyContainer}>
         <View style={styles.emptyIconWrap}>
-          <Ionicons name="call-outline" size={30} color="#E8C985" />
+          <MaterialIcons name="support-agent" size={30} color="#E8C985" />
         </View>
         <Text style={styles.emptyTitle}>{t(`${ns}.emptyState.title`, 'Sin caso activo')}</Text>
         <Text style={styles.emptySubtitle}>{t(`${ns}.emptyState.subtitle`, 'Crea o abre un caso en el chat de soporte para gestionar llamadas.')}</Text>
@@ -185,7 +173,7 @@ export default function SupportCallScreen({ route }: SupportCallScreenProps) {
   }
 
   const callId = activeCall?.callId;
-  const needsJoin = isInCall && !livekitConnected && !livekitConnecting;
+
 
   const callAction: CallAction =
     isRinging && callId
@@ -197,16 +185,9 @@ export default function SupportCallScreen({ route }: SupportCallScreenProps) {
         }
       : isOutgoing && callId
         ? { kind: 'outgoing', loading: callLoading, onCancel: () => cancelCall(callId) }
-        : needsJoin
-          ? {
-              kind: 'join',
-              loading: callLoading || livekitConnecting,
-              onJoin: handleJoinRoom,
-              onEnd: handleCallAction,
-            }
-          : isInCall
-            ? { kind: 'incall', loading: callLoading, onEnd: handleCallAction }
-            : { kind: 'call', loading: callLoading, onPress: handleCallAction };
+        : isInCall
+          ? { kind: 'incall', loading: callLoading || livekitConnecting, onEnd: handleCallAction }
+          : { kind: 'call', loading: callLoading, onPress: handleCallAction };
 
   const statusText = isTerminal
     ? t(`${ns}.labels.ended`, 'Llamada finalizada')
@@ -217,7 +198,7 @@ export default function SupportCallScreen({ route }: SupportCallScreenProps) {
         : livekitConnecting
           ? t(`${ns}.labels.stateConnecting`, 'Conectando...')
           : isInCall
-            ? t(`${ns}.labels.tapToJoin`, 'Toca para unirte')
+            ? t(`${ns}.labels.stateConnected`, 'Conectado')
             : t(`${ns}.labels.ready`, 'Solicita una llamada para hablar con un operador');
 
   return (

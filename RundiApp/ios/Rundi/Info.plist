@@ -29,28 +29,27 @@
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.driveangel.rundidev</string>
-				<string>com.driveangel.rundidev</string>
+				<string>com.gruporzc.rundi</string>
+				<string>com.gruporzc.rundi</string>
 			</array>
 		</dict>
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.608732245640-eot8hsajjljf6bd32i82ssn8vusad9hq</string>
-				<string>com.googleusercontent.apps.608732245640-cpbof1sdc1e93vvm5aphlpoeutfa3do1</string>
+				<string>com.googleusercontent.apps.703009639395-r0nogjt9g5k06mok0d1pu6cm3hpgahjp</string>
 			</array>
 		</dict>
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>exp+rundi</string>
+				<string>exp+rundidev</string>
 			</array>
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>GMSApiKey</key>
-	<string>AIzaSyBPMDre2HDxDrjEM5QuTgXZYEhnwyFTRcQ</string>
+	<string>AIzaSyCyidndBP7QQJR8tHRg-URdZRIiyG3JFLo</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSMinimumSystemVersion</key>

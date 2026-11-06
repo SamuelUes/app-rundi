@@ -71,6 +71,16 @@ describe('ride feature selection', () => {
     ]);
   });
 
+  it('starts catalog features unselected and preserves a manual selection', () => {
+    const at = new Date('2026-10-25T09:59:00Z');
+    const features = [
+      { ...nightFeature, defaultSelected: false },
+      { ...motoDiscount, defaultSelected: false },
+    ];
+    expect(getSelectedFeatureCodes(features, {}, at)).toEqual([]);
+    expect(getSelectedFeatureCodes(features, { night: true }, at)).toEqual(['night']);
+  });
+
   it('orders selected features before manual and condition-disabled features', () => {
     expect(orderFeaturesBySelection([motoDiscount, nightFeature], ['night']).map((feature) => feature.code))
       .toEqual(['night', 'designated_driver_moto_discount']);

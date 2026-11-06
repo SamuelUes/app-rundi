@@ -153,8 +153,14 @@ export function useDriverProfile(userId: string | undefined) {
       const { app } = await initializeFirebase();
       if (!app) return;
       const db = await getFirebaseFirestore();
-      // v2: el vehículo activo se consulta desde DATA-MAIN_vehicles
-      // (driverUid==uid && isActive) — drivers_live lleva vehicleId.
+      // La proyección del backend identifica el vehículo activo sin depender
+      // de documentos DATA-MAIN que aún puedan estar procesándose.
+      const activeSnap = await getDoc(doc(db, FS_COL.driversLive, userUuid, 'vehicles', 'active'));
+      const activeVehicleId = activeSnap.data()?.vehicleId;
+      if (typeof activeVehicleId === 'string' && activeVehicleId) {
+        setSelectedVehicleId(activeVehicleId);
+        return;
+      }
       const liveSnap = await getDoc(doc(db, FS_COL.driversLive, userUuid));
       const liveVehicleId = liveSnap.data()?.vehicleId;
       if (typeof liveVehicleId === 'string' && liveVehicleId) {

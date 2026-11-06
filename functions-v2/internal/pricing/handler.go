@@ -54,7 +54,7 @@ func normalizeVehicle(v string) string {
 func (h *Handler) calculate(w http.ResponseWriter, r *http.Request) {
 	var body CalculateRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	res, err := h.svc.Calculate(r.Context(), body.DistanceMeters, body.DurationSeconds,
@@ -79,7 +79,7 @@ func (h *Handler) calculate(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) variants(w http.ResponseWriter, r *http.Request) {
 	var body CalculateRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	uid, _ := r.Context().Value(middleware.CtxUID).(string)

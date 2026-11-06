@@ -114,6 +114,8 @@ const PhoneField: React.FC<PhoneFieldProps> = ({
         placeholder={placeholder}
         placeholderTextColor={colors.textTertiary}
         keyboardType="number-pad"
+        textContentType="telephoneNumber"
+        autoComplete="tel-national"
         editable={!disabled}
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}

@@ -161,7 +161,7 @@ export function useRideRouteCalculation({
           PRICE_VARIANTS.map((variant) => ({
             ...variant,
             selectedFeatureCodes:
-              selectedFeatureCodesByService[variant.serviceCodeOverride ?? ''] ?? undefined,
+              selectedFeatureCodesByService[variant.serviceCodeOverride ?? ''] ?? [],
           })),
           {
             extraStops: stopsCount,

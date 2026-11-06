@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/rundi/functions-v2/internal/apperr"
-	"github.com/rundi/functions-v2/internal/fs"
+	"github.com/rundi/functions-v2/internal/compliance"
 	"github.com/rundi/functions-v2/internal/outbox"
 	"github.com/rundi/functions-v2/internal/projections"
 )
@@ -43,7 +43,7 @@ func (s *Service) publishFastPath(ctx context.Context, evType, aggregateID, even
 	go func() {
 		pctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		defer cancel()
-		if err := projections.Publish(pctx, s.pool, s.fs, projections.Event{
+		if _, err := projections.Publish(pctx, s.pool, s.fs, projections.Event{
 			EventID:       eventID,
 			EventType:     evType,
 			AggregateType: "ride",
@@ -55,10 +55,12 @@ func (s *Service) publishFastPath(ctx context.Context, evType, aggregateID, even
 	}()
 }
 
-// AcceptRide — aceptación atómica concurrent-safe (doc §7.1):
-// UPDATE rides SET status='accepted', driver_id, version+1
-// WHERE id AND status='requested' AND driver_id IS NULL.
-// Si 0 filas → 409. El evento Outbox se inserta EN LA MISMA TX.
+// AcceptRide — el conductor acepta el viaje/precio vigente. NO asigna:
+// queda como contraoferta vinculante 'sent' al precio acordado y el viaje
+// pasa a 'driver_offered'. Solo el cliente asigna (ConfirmDriver →
+// accepted), así trips_live/oferta 'accepted' siempre significan
+// "cliente confirmó". La asignación directa de v1 dejaba el viaje
+// 'accepted' sin confirmación del cliente.
 func (s *Service) AcceptRide(ctx context.Context, rideID, driverUID, requestID string, offeredPrice *float64) (*Ride, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
@@ -66,79 +68,65 @@ func (s *Service) AcceptRide(ctx context.Context, rideID, driverUID, requestID s
 	}
 	defer tx.Rollback(ctx)
 
-	var r Ride
-	err = tx.QueryRow(ctx, `
-		UPDATE public.rides
-		SET status = $2,
-		    driver_id = $3,
-		    driver_offered_price = COALESCE($4, driver_offered_price),
-		    accepted_at = NOW(),
-		    version = version + 1
-		WHERE id = $1
-		  AND status = 'requested'
-		  AND driver_id IS NULL
-		RETURNING id, firebase_ride_id, client_id, driver_id, status, version,
-		          estimated_price, final_fare, requested_at, accepted_at`,
-		rideID, StatusAccepted, driverUID, offeredPrice,
-	).Scan(&r.ID, &r.FirebaseRideID, &r.ClientID, &r.DriverID, &r.Status,
-		&r.Version, &r.EstimatedPrice, &r.FinalFare, &r.RequestedAt, &r.AcceptedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		// Otro conductor ganó, o el viaje ya no está 'requested'.
-		return nil, apperr.New(409, "ride no longer available")
-	}
-	if err != nil {
-		return nil, fmt.Errorf("accept update: %w", err)
-	}
-
-	// Auditoría de negociación (ride_offers): si aceptó con precio propio queda
-	// como counter_offer aceptada; la oferta despachada se cierra 'accepted'
-	// (o se crea el registro si el driver aceptó sin oferta previa).
-	if offeredPrice != nil {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO public.ride_offers
-				(ride_id, driver_id, kind, status, offered_price, responded_at)
-			VALUES ($1::uuid, $2, 'counter_offer', 'accepted', $3, NOW())`,
-			rideID, driverUID, *offeredPrice); err != nil {
-			return nil, fmt.Errorf("accept counter_offer: %w", err)
+	// Precio acordado: param explícito > sugerencia del cliente > su
+	// contraoferta previa > la estimada (el driver acepta la demanda del
+	// cliente; ConfirmDriver invierte la prioridad porque el cliente elige
+	// la oferta del driver).
+	var agreed *float64
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE($2::float8, client_suggested_price, driver_offered_price, estimated_price)
+		FROM public.rides WHERE id = $1::uuid FOR UPDATE`,
+		rideID, offeredPrice,
+	).Scan(&agreed); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperr.New(404, "ride not found")
 		}
+		return nil, fmt.Errorf("accept price lookup: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO public.ride_offers (ride_id, driver_id, kind, status, responded_at)
-		VALUES ($1::uuid, $2, 'offer', 'accepted', NOW())
-		ON CONFLICT (ride_id, driver_id) WHERE kind = 'offer'
-		DO UPDATE SET status = 'accepted', responded_at = NOW()`,
-		rideID, driverUID); err != nil {
-		return nil, fmt.Errorf("accept offer audit: %w", err)
+	if agreed == nil || *agreed <= 0 {
+		return nil, apperr.New(409, "ride has no acceptable price")
 	}
-	if err := cancelOtherOffers(ctx, tx, rideID, driverUID); err != nil {
+	if err := requireDriverSession(ctx, tx, driverUID, "only drivers may accept a ride"); err != nil {
 		return nil, err
 	}
 
-	payload := map[string]any{
-		"rideId":         r.ID,
-		"firebaseRideId": r.FirebaseRideID,
-		"clientId":       r.ClientID,
-		"driverId":       driverUID,
-		"status":         r.Status,
-		"version":        r.Version,
-		"acceptedAt":     r.AcceptedAt,
-	}
-	evID, err := outbox.InsertReturning(ctx, tx, outbox.Event{
-		Type:          "ride.accepted",
-		AggregateType: "ride",
-		AggregateID:   r.ID,
-		RequestID:     requestID,
-		Payload:       payload,
-	})
+	r, evID, payload, err := s.driverOfferTx(ctx, tx, rideID, driverUID, *agreed, requestID)
 	if err != nil {
-		return nil, fmt.Errorf("outbox: %w", err)
+		return nil, err
 	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
 	}
-	s.publishFastPath(ctx, "ride.accepted", r.ID, evID, payload)
-	return &r, nil
+	s.publishFastPath(ctx, "ride.price_offered", r.ID, evID, payload)
+	return r, nil
+}
+
+// requireDriverSession — cerco SQL de nuevas aceptaciones/asignaciones: el
+// conductor debe tener una sesión de disponibilidad viva (autorizada hoy en
+// Nicaragua, sin señales de compliance cambiadas). Resuelve drivers.id desde
+// el user_id y verifica bajo FOR SHARE dentro de la misma tx del negocio.
+// Viajes ya asignados NO pasan por aquí: pueden continuar tras medianoche.
+func requireDriverSession(ctx context.Context, tx pgx.Tx, driverUID, notDriverMsg string) error {
+	var driverID string
+	err := tx.QueryRow(ctx,
+		`SELECT id::text FROM public.drivers WHERE user_id = $1 AND deleted_at IS NULL`,
+		driverUID).Scan(&driverID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return apperr.New(403, notDriverMsg)
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := compliance.CheckDriverSession(ctx, tx, driverID); err != nil {
+		switch {
+		case errors.Is(err, compliance.ErrReactivationRequired),
+			errors.Is(err, compliance.ErrSessionNotLive),
+			errors.Is(err, compliance.ErrSessionSignalsStale):
+			return apperr.New(409, "DRIVER_REACTIVATION_REQUIRED")
+		}
+		return err
+	}
+	return nil
 }
 
 func cancelOtherOffers(ctx context.Context, tx pgx.Tx, rideID, driverID string) error {
@@ -424,6 +412,28 @@ func (s *Service) CancelRide(ctx context.Context, rideID, actorUID, actorRole, r
 	if err != nil {
 		return nil, err
 	}
+	// Si había conductor asignado su ocupación termina: la proyección decide
+	// online (sesión aún viva) u offline (vencida/revocada) según drivers_live.
+	if r.DriverID != nil && *r.DriverID != "" {
+		var driverUUID string
+		err := tx.QueryRow(ctx,
+			`SELECT id::text FROM public.drivers WHERE user_id = $1 AND deleted_at IS NULL`,
+			*r.DriverID).Scan(&driverUUID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+		if driverUUID != "" {
+			if _, err := outbox.InsertReturning(ctx, tx, outbox.Event{
+				Type: "driver.ride_finished", AggregateType: "driver", AggregateID: driverUUID,
+				RequestID: requestID,
+				Payload: map[string]any{
+					"driverUid": *r.DriverID, "driverId": driverUUID, "rideId": r.ID,
+				},
+			}); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -431,7 +441,12 @@ func (s *Service) CancelRide(ctx context.Context, rideID, actorUID, actorRole, r
 	return r, nil
 }
 
-// NegotiatePrice — conductor contraoferta mientras el viaje está en negociación.
+// NegotiatePrice — negociación por rol del caller:
+//   - cliente: actualiza client_suggested_price (contraoferta al driver).
+//   - conductor: inserta su counter_offer + status driver_offered.
+//
+// La app del cliente usa el mismo endpoint /negotiate — sin la rama de
+// cliente el INSERT en ride_offers violaba la FK driver_id → 500.
 func (s *Service) NegotiatePrice(ctx context.Context, rideID, driverUID string, price float64, requestID string) (*Ride, error) {
 	if price <= 0 {
 		return nil, apperr.New(400, "offeredPrice must be > 0")
@@ -442,6 +457,75 @@ func (s *Service) NegotiatePrice(ctx context.Context, rideID, driverUID string, 
 	}
 	defer tx.Rollback(ctx)
 
+	// Rol del caller: si uid es el cliente del viaje, ajusta su precio
+	// sugerido sin tocar status ni ride_offers (driver_id referencia
+	// drivers — la fila del cliente violaría la FK).
+	var clientID string
+	if err := tx.QueryRow(ctx,
+		`SELECT client_id FROM public.rides WHERE id = $1::uuid FOR UPDATE`, rideID,
+	).Scan(&clientID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperr.New(404, "ride not found")
+		}
+		return nil, err
+	}
+
+	if clientID == driverUID {
+		r, err := scanRide(tx.QueryRow(ctx, `
+			UPDATE public.rides
+			SET client_suggested_price = $2, version = version + 1
+			WHERE id = $1
+			  AND status IN ('requested', 'driver_offered')
+			  AND driver_id IS NULL
+			RETURNING `+rideCols, rideID, price))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperr.New(409, "ride no longer negotiable")
+		}
+		if err != nil {
+			return nil, fmt.Errorf("negotiate client price: %w", err)
+		}
+		payload := map[string]any{
+			"rideId": r.ID, "firebaseRideId": r.FirebaseRideID,
+			"clientId":             r.ClientID,
+			"clientSuggestedPrice": price, "status": r.Status, "version": r.Version,
+		}
+		evID, err := outbox.InsertReturning(ctx, tx, outbox.Event{
+			Type: "ride.price_suggested", AggregateType: "ride", AggregateID: r.ID,
+			RequestID: requestID, Payload: payload,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		s.publishFastPath(ctx, "ride.price_suggested", r.ID, evID, payload)
+		return r, nil
+	}
+
+	// Conductor: exige fila drivers — sin ella el INSERT en ride_offers
+	// viola la FK con un 500 opaco — y una sesión de disponibilidad viva.
+	if err := requireDriverSession(ctx, tx, driverUID, "only ride client or drivers may negotiate"); err != nil {
+		return nil, err
+	}
+
+	r, evID, payload, err := s.driverOfferTx(ctx, tx, rideID, driverUID, price, requestID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+	s.publishFastPath(ctx, "ride.price_offered", r.ID, evID, payload)
+	return r, nil
+}
+
+// driverOfferTx — UPDATE rides → 'driver_offered' al precio dado (gates de
+// features incluidos) + counter_offer 'sent' append + outbox
+// ride.price_offered. Comparten NegotiatePrice (precio explícito) y
+// AcceptRide (precio resuelto server-side). La asignación NO ocurre aquí:
+// solo el cliente asigna vía ConfirmDriver.
+func (s *Service) driverOfferTx(ctx context.Context, tx pgx.Tx, rideID, driverUID string, price float64, requestID string) (*Ride, string, map[string]any, error) {
 	r, err := scanRide(tx.QueryRow(ctx, `
 		UPDATE public.rides
 		SET driver_offered_price = $3, status = 'driver_offered',
@@ -449,14 +533,30 @@ func (s *Service) NegotiatePrice(ctx context.Context, rideID, driverUID string, 
 		WHERE id = $1
 		  AND status IN ('requested', 'driver_offered')
 		  AND driver_id IS NULL
+		  AND (NOT COALESCE(pricing_snapshot->'featureCodes' ? 'senior', FALSE)
+		       OR EXISTS (
+		         SELECT 1 FROM public.drivers d
+		         JOIN public.driver_feature_assignments a ON a.driver_id = d.id
+		         JOIN public.features f ON f.id = a.feature_id
+		         WHERE d.user_id = $2 AND d.deleted_at IS NULL AND f.code = 'senior'
+		           AND a.is_active = TRUE AND (a.expires_at IS NULL OR a.expires_at > NOW())
+		       ))
+		  AND (NOT COALESCE(pricing_snapshot->'featureCodes' ? 'premium', FALSE)
+		       OR EXISTS (
+		         SELECT 1 FROM public.vehicles v
+		         JOIN public.drivers d ON d.id = v.driver_id
+		         WHERE d.user_id = $2 AND v.is_active = TRUE AND v.deleted_at IS NULL
+		           AND v.id = (SELECT v2.id FROM public.vehicles v2 WHERE v2.driver_id = d.id AND v2.is_active = TRUE AND v2.deleted_at IS NULL ORDER BY v2.created_at DESC, v2.id DESC LIMIT 1)
+		           AND public.vehicle_premium_eligible(v.registration_ocr_year, v.type, NOW())
+		       ))
 		RETURNING `+rideCols,
 		rideID, driverUID, price,
 	))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, apperr.New(409, "ride no longer negotiable")
+		return nil, "", nil, apperr.New(409, "ride no longer negotiable")
 	}
 	if err != nil {
-		return nil, fmt.Errorf("negotiate: %w", err)
+		return nil, "", nil, fmt.Errorf("negotiate: %w", err)
 	}
 
 	// Historial de negociación: cada contraoferta del driver es append libre.
@@ -465,7 +565,7 @@ func (s *Service) NegotiatePrice(ctx context.Context, rideID, driverUID string, 
 			(ride_id, driver_id, kind, status, offered_price, responded_at)
 		VALUES ($1::uuid, $2, 'counter_offer', 'sent', $3, NOW())`,
 		rideID, driverUID, price); err != nil {
-		return nil, fmt.Errorf("negotiate offer audit: %w", err)
+		return nil, "", nil, fmt.Errorf("negotiate offer audit: %w", err)
 	}
 
 	payload := map[string]any{
@@ -481,21 +581,9 @@ func (s *Service) NegotiatePrice(ctx context.Context, rideID, driverUID string, 
 		Payload:       payload,
 	})
 	if err != nil {
-		return nil, err
+		return nil, "", nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	s.publishFastPath(ctx, "ride.price_offered", r.ID, evID, payload)
-	// Espejo best-effort de la contraoferta en el doc de oferta del driver
-	// (la oferta original no trae precio — es la única fuente pre-aceptación).
-	if _, err := s.fs.Collection(fs.ColDriverOffers).Doc(r.ID+"_"+driverUID).Set(ctx, map[string]any{
-		"offeredPrice": price,
-		"updatedAt":    firestore.ServerTimestamp,
-	}, firestore.MergeAll); err != nil {
-		slog.WarnContext(ctx, "negotiate.offer_mirror", "ride", r.ID, "err", err)
-	}
-	return r, nil
+	return r, evID, payload, nil
 }
 
 // CompleteRide — conductor completa: tarifa final + snapshot de comisión +
@@ -561,6 +649,23 @@ func (s *Service) CompleteRide(ctx context.Context, rideID, driverUID string, in
 		return nil, fmt.Errorf("payment insert: %w", err)
 	}
 
+	// Al terminar cualquier viaje el conductor queda no disponible y debe
+	// reactivar explícitamente: revocación durable + intención de offline en
+	// la misma tx (el consumer proyecta drivers_live fuera de ella).
+	var driverID string
+	var sessionSeq int64
+	err = tx.QueryRow(ctx,
+		`SELECT id::text FROM public.drivers WHERE user_id = $1 AND deleted_at IS NULL`,
+		driverUID).Scan(&driverID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	if driverID != "" {
+		if sessionSeq, err = compliance.RevokeDriverSession(ctx, tx, driverID); err != nil {
+			return nil, fmt.Errorf("revoke driver session: %w", err)
+		}
+	}
+
 	ridePayload := map[string]any{
 		"rideId": r.ID, "firebaseRideId": r.FirebaseRideID,
 		"clientId": r.ClientID, "driverId": r.DriverID,
@@ -568,7 +673,7 @@ func (s *Service) CompleteRide(ctx context.Context, rideID, driverUID string, in
 		"finalFare": in.FinalFare, "commissionRate": rate,
 	}
 	var rideEvID string
-	for _, ev := range []outbox.Event{
+	events := []outbox.Event{
 		{
 			Type: "ride.completed", AggregateType: "ride", AggregateID: r.ID,
 			RequestID: requestID,
@@ -585,7 +690,20 @@ func (s *Service) CompleteRide(ctx context.Context, rideID, driverUID string, in
 				"status": "pending",
 			},
 		},
-	} {
+	}
+	// Intención durable de offline: el consumer proyecta drivers_live; la seq
+	// evita que un evento atrasado apague una activación posterior.
+	if driverID != "" {
+		events = append(events, outbox.Event{
+			Type: "driver.deactivated", AggregateType: "driver", AggregateID: driverID,
+			RequestID: requestID,
+			Payload: map[string]any{
+				"driverUid": driverUID, "driverId": driverID, "rideId": r.ID,
+				"sessionSeq": sessionSeq, "reason": "ride_completed",
+			},
+		})
+	}
+	for _, ev := range events {
 		evID, err := outbox.InsertReturning(ctx, tx, ev)
 		if err != nil {
 			return nil, err

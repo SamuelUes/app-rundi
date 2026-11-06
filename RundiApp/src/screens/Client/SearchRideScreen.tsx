@@ -181,7 +181,7 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
                 featureOverridesByService[service.code ?? ''] ?? {},
                 calculationAt,
               )
-            : undefined,
+            : [],
         ]),
       ) as Record<string, string[] | undefined>,
     [servicesCatalog, featureOverridesByService, calculationAtMinute],
@@ -196,7 +196,7 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
       ? 'motorcycle'
       : 'normal';
   const selectedFeatureService = servicesCatalog.find((service) => service.code === selectedFeatureServiceCode);
-  const selectedFeatureCodes = selectedFeatureCodesByService[selectedFeatureServiceCode];
+  const selectedFeatureCodes = selectedFeatureCodesByService[selectedFeatureServiceCode] ?? [];
   const { driversAvailable, checkingDrivers, availabilityByType } = useDriversAvailability(
     coords,
     vehicleType,

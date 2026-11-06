@@ -67,6 +67,8 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     activeRideGuard,
     selectedDriverVehicleType,
     driverIsDesignatedMode,
+    driverFeatureCodes,
+    vehicleFeatureCodes,
     isDriverOnline,
     driverStatusLoaded,
     handleRefresh,
@@ -222,7 +224,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
 
   const handleAcceptRide = async (ride: Ride) => {
     try {
-      if (!checkRideDriverCompatibility(ride, selectedDriverVehicleType, driverIsDesignatedMode).ok) {
+      if (!checkRideDriverCompatibility(ride, selectedDriverVehicleType, driverIsDesignatedMode, driverFeatureCodes, vehicleFeatureCodes).ok) {
         alertService.showErrorAlert(t('driver.available.alerts.errorAcceptRide'));
         return;
       }
@@ -459,6 +461,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
       estimatedPrice: ride.estimatedPrice || 0,
       estimatedDistance: ride.estimatedDistance,
       estimatedDuration: ride.estimatedDuration,
+      featureCodes: ride.featureCodes,
       clientSuggestedPrice: ride.clientSuggestedPrice,
       driverOfferedPrice: ride.driverOfferedPrice,
       paymentMethod: ride.paymentMethod,
@@ -647,9 +650,14 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
           style={({ pressed }) => [
             styles.assignButton,
             {
+              borderWidth: 0.25,
               borderColor: colors.border,
-              backgroundColor: isDark ? '#212121' : '#FFFFFF',
+              backgroundColor: isDark ? '#212121' : '#ffffff',
               shadowColor: isDark ? '#000000' : '#B87F1E',
+              shadowOpacity: 0.1,
+              shadowRadius: 12,
+              shadowOffset: { width: 0, height: 4 },
+              elevation: 4,
             },
             pressed && { opacity: 0.92, transform: [{ scale: 0.99 }] },
           ]}
@@ -786,8 +794,8 @@ const styles = StyleSheet.create({
     height: 44,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 14,
-    borderWidth: 1,
+    borderRadius: 24,
+    borderWidth: 0.21,
   },
   headerTextWrap: {
     flex: 1,
@@ -918,7 +926,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 14,
     marginBottom: 12,
-    borderWidth: 1,
+    borderWidth: 0.61,
     shadowColor: '#000',
     shadowOpacity: 0.07,
     shadowRadius: 10,

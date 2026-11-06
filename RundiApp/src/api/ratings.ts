@@ -42,8 +42,8 @@ export async function submitRating(input: SubmitRatingInput): Promise<Rating | n
 
 export interface DriverRating {
   id: string;
-  rideId: string | null;
-  fromUserId: string;
+  rideId?: string | null;
+  fromUserId?: string;
   rating: number;
   comment: string | null;
   ratedRole: string | null;
@@ -69,7 +69,7 @@ export interface DriverInsights {
     municipality: string;
     profilePhoto: string | null;
   };
-  recentComments: { rating: number; comment: string; createdAt: string; fromName: string }[];
+  recentComments: { rating: number; comment: string; createdAt: string; fromName?: string }[];
 }
 
 /** GET /v1/ratings/driver/{id}/insights — getDriverPublicInsights v1. */

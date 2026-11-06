@@ -328,6 +328,10 @@ export default function LoginScreen({ navigation }: any) {
                     onChangeText={setEmail}
                     keyboardType="email-address"
                     autoCapitalize="none"
+                    autoCorrect={false}
+                    textContentType="username"
+                    autoComplete="email"
+                    importantForAutofill="yes"
                   />
 
                   <Text style={styles.label}>
@@ -341,6 +345,11 @@ export default function LoginScreen({ navigation }: any) {
                       value={password}
                       onChangeText={setPassword}
                       secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      textContentType="password"
+                      autoComplete="password"
+                      importantForAutofill="yes"
                     />
                     <TouchableOpacity
                       style={styles.eyeButton}

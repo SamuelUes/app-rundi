@@ -19,6 +19,7 @@ interface VehicleData {
   brand: string;
   model: string;
   year: number;
+  registration_ocr_year?: number;
   color: string;
   type: string;
   is_4x4?: boolean;
@@ -65,11 +66,15 @@ class VehiclesService {
         brand: vehicleData.brand,
         model: vehicleData.model,
         year: vehicleData.year,
+        registrationOcrYear: vehicleData.registration_ocr_year,
         color: vehicleData.color,
         type: (vehicleData.type as any) ?? 'auto',
         fuelType: vehicleData.fuel_type,
         passengers: vehicleData.passengers,
         is4x4: vehicleData.is_4x4,
+        vin: vehicleData.vin,
+        motor: vehicleData.motor,
+        chasis: vehicleData.chasis,
         registrationNumber: vehicleData.registration_number,
         registrationExpiry: vehicleData.registration_expiry,
         insuranceNumber: vehicleData.insurance_number,
@@ -106,6 +111,7 @@ class VehiclesService {
           documentPath: regFront,
           documentPathBack: regBack ?? undefined,
           cardNumber: vehicleData.registration_number,
+          issuedAt: vehicleData.emission_date,
           declaredValidUntil: vehicleData.registration_expiry,
         }).catch((err) => console.warn('⚠️ circulation_card doc:', err));
       }
@@ -118,6 +124,9 @@ class VehiclesService {
           insurerName: vehicleData.insurance_company,
           effectiveFrom: vehicleData.insurance_start_date,
           effectiveUntil: vehicleData.insurance_expiry,
+          insuredVin: vehicleData.vin,
+          insuredMotor: vehicleData.motor,
+          insuredChasis: vehicleData.chasis,
         }).catch((err) => console.warn('⚠️ insurance doc:', err));
       }
 
@@ -179,6 +188,7 @@ class VehiclesService {
       'is4x4': 'is4x4',
       'registration_number': 'registrationNumber',
       'registration_expiry': 'registrationExpiry',
+      'emission_date': 'emissionDate',
       'registration_photo_front': 'registrationPhotoFront',
       'registration_photo_back': 'registrationPhotoBack',
       'insurance_number': 'insuranceNumber',
@@ -236,24 +246,46 @@ class VehiclesService {
         throw new Error(this.tr('errors.vehicleIdRequired'));
       }
       console.log('🔄 Actualizando vehículo:', vehicleId);
-      const { insurancePhoto, registrationPhotoFront, registrationPhotoBack, ...fields } =
-        data as any;
+      // Las fotos pueden llegar camelCase o snake_case según el caller.
+      const anyData = data as any;
+      const {
+        insurancePhoto,
+        insurance_photo,
+        registrationPhotoFront,
+        registration_photo_front,
+        registrationPhotoBack,
+        registration_photo_back,
+        ...fields
+      } = anyData;
+      const insPhoto = insurancePhoto ?? insurance_photo;
+      const regFront = registrationPhotoFront ?? registration_photo_front;
+      const regBack = registrationPhotoBack ?? registration_photo_back;
       if (Object.keys(fields).length) {
         await updateVehicleV2(vehicleId, fields);
       }
-      if (insurancePhoto) {
+      if (insPhoto) {
         await submitVehicleDocument({
           vehicleId,
           documentType: 'insurance',
-          documentPath: insurancePhoto,
+          documentPath: insPhoto,
+          policyNumber: anyData.insurance_number ?? anyData.insuranceNumber,
+          insurerName: anyData.insurance_company ?? anyData.insuranceCompany,
+          effectiveFrom: anyData.insurance_start_date ?? anyData.insuranceStartDate,
+          effectiveUntil: anyData.insurance_expiry ?? anyData.insuranceExpiry,
+          insuredVin: anyData.vin,
+          insuredMotor: anyData.motor,
+          insuredChasis: anyData.chasis,
         });
       }
-      if (registrationPhotoFront || registrationPhotoBack) {
+      if (regFront || regBack) {
         await submitVehicleDocument({
           vehicleId,
           documentType: 'circulation_card',
-          documentPath: registrationPhotoFront,
-          documentPathBack: registrationPhotoBack,
+          documentPath: regFront,
+          documentPathBack: regBack,
+          cardNumber: anyData.registration_number ?? anyData.registrationNumber,
+          issuedAt: anyData.emission_date ?? anyData.emissionDate,
+          declaredValidUntil: anyData.registration_expiry ?? anyData.registrationExpiry,
         });
       }
       return { success: true, vehicle: { id: vehicleId, ...data } };
@@ -261,6 +293,69 @@ class VehiclesService {
       console.error('❌ Error actualizando vehículo:', error);
       throw new Error(error.message || this.tr('errors.updateVehicleFailed'));
     }
+  }
+
+  /**
+   * Documentos periódicos capturados en el registro (inspección, emisiones,
+   * rodante, revisado): solo fechas/datos, sin foto. Best-effort — cada
+   * fallo se loguea y no interrumpe el alta.
+   */
+  async submitPeriodicDocuments(
+    vehicleId: string,
+    data: {
+      inspectionDate?: string;
+      inspectionValidUntil?: string;
+      emissionsTestedAt?: string;
+      emissionsValidUntil?: string;
+      roadTaxPaidAt?: string;
+      roadTaxReceiptNumber?: string;
+      revisadoValidUntil?: string;
+    },
+  ) {
+    const jobs: Promise<unknown>[] = [];
+    const push = (input: Parameters<typeof submitVehicleDocument>[0]) => {
+      jobs.push(
+        submitVehicleDocument(input).catch((err) =>
+          console.warn(`⚠️ ${input.documentType} doc:`, err),
+        ),
+      );
+    };
+    if (data.inspectionDate || data.inspectionValidUntil) {
+      push({
+        vehicleId,
+        documentType: 'inspection',
+        inspectedAt: data.inspectionDate,
+        validUntil: data.inspectionValidUntil,
+      });
+    }
+    if (data.emissionsTestedAt || data.emissionsValidUntil) {
+      push({
+        vehicleId,
+        documentType: 'emissions',
+        testedAt: data.emissionsTestedAt,
+        validUntil: data.emissionsValidUntil,
+      });
+    }
+    if (data.roadTaxPaidAt || data.roadTaxReceiptNumber) {
+      const taxYear = data.roadTaxPaidAt
+        ? parseInt(data.roadTaxPaidAt.slice(0, 4), 10)
+        : undefined;
+      push({
+        vehicleId,
+        documentType: 'road_tax',
+        paidAt: data.roadTaxPaidAt,
+        receiptNumber: data.roadTaxReceiptNumber,
+        taxYear: taxYear && !Number.isNaN(taxYear) ? taxYear : undefined,
+      });
+    }
+    if (data.revisadoValidUntil) {
+      push({
+        vehicleId,
+        documentType: 'revisado',
+        validUntil: data.revisadoValidUntil,
+      });
+    }
+    await Promise.all(jobs);
   }
 }
 

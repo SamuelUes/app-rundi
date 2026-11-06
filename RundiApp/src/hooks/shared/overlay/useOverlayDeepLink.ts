@@ -4,6 +4,7 @@ import { EventEmitter } from 'expo';
 import { navigate, navigationRef } from '../../../navigation/NavigationService';
 import { FALLBACK_OVERLAY_RIDE_ID } from '../../../services/ride/proximityService';
 import { fetchRidePreview } from '../../../services/ride/ridePreviewService';
+import { ACTIVE_RIDE_STATUSES } from '../../../utils/driver/driverHomeHelpers';
 import { OverlayPermissionModule } from '../../../../modules/rundi-native/src';
 
 const OVERLAY_URL_HOST = 'overlay';
@@ -67,9 +68,16 @@ export function useOverlayDeepLink() {
           return;
         }
 
-        console.log('🚀 [useOverlayDeepLink] Navigating to RidePreview:', ride.id);
+        // Overlay de engagement: la oferta aceptada abre el viaje activo;
+        // negociación pendiente o solicitud cercana abren el preview.
+        const rideStatus = String(ride.negotiationStatus ?? '').toLowerCase();
+        if (ACTIVE_RIDE_STATUSES.includes(rideStatus)) {
+          console.log('🚀 [useOverlayDeepLink] Navigating to ActiveRide:', ride.id);
+          navigate('ActiveRide', { rideId: ride.id });
+          return;
+        }
 
-        // Navegar a RidePreviewScreen
+        console.log('🚀 [useOverlayDeepLink] Navigating to RidePreview:', ride.id);
         navigate('RidePreview', { ride, proximity: true });
       } catch (error) {
         console.error('❌ [useOverlayDeepLink] Error loading ride data:', error);

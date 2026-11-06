@@ -33,7 +33,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	role, _ := r.Context().Value(middleware.CtxRole).(string)
 	var body CreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	c, err := h.svc.Create(r.Context(), uid, role, body)
@@ -62,7 +62,7 @@ func (h *Handler) updateStatus(w http.ResponseWriter, r *http.Request) {
 		Status string `json:"status"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	if err := h.svc.UpdateStatus(r.Context(), chi.URLParam(r, "id"), uid, role, body.Status); err != nil {

@@ -6,3 +6,5 @@ expo/
 
 node_modules/
 
+ios/
+android/

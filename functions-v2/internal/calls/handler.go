@@ -39,7 +39,7 @@ func (h *Handler) initiate(w http.ResponseWriter, r *http.Request) {
 	uid, _ := r.Context().Value(middleware.CtxUID).(string)
 	var body InitiateRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	callID, err := h.svc.Initiate(r.Context(), uid, body)

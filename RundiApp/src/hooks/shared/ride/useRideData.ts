@@ -4,6 +4,7 @@ import { getFirebaseFirestore } from '../../../config/firebase';
 import { FS_COL } from '../../../constants/firestore';
 import { getRideDetail, getRideLocations } from '../../../api/rides';
 import { liveTripDocId, sqlRideIdForTrip } from '../../../live/tripIds';
+import rideProgressNotification from '../../../native/rideProgress';
 
 export interface RideDataState {
   ride: any | null;
@@ -182,6 +183,16 @@ export function useRideData(rideId: string, notFoundMessage: string): RideDataSt
     const raw = (ride?.status ?? ride?.offers?.status ?? ride?.state ?? '').toString();
     return raw.trim().toLowerCase();
   }, [ride?.status, ride?.offers?.status, ride?.state]);
+
+  // Notificación ongoing de progreso (Android; Live Activity cubre iOS)
+  useEffect(() => {
+    if (!ride) return;
+    void rideProgressNotification.updateForRide({
+      rideId,
+      status: normalizedStatus,
+      destinationAddress: ride?.destination?.address ?? null,
+    });
+  }, [rideId, ride, normalizedStatus]);
 
   const finalFare = ride?.finalFare || ride?.estimatedPrice || 0;
 

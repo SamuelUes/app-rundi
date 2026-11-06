@@ -14,6 +14,7 @@ import {
 } from '../../api/rides';
 import { listenRideOffers, listenTripLive } from '../../live/listeners';
 import { sqlRideIdForTrip } from '../../live/tripIds';
+import { hideOverlayBubble } from './proximityService';
 import i18n from '../../i18n';
 
 const MAX_NEGOTIATED_PRICE = 100000;
@@ -165,8 +166,16 @@ class PriceNegotiationService {
       const { ride } = await negotiateRidePrice(rideId, { offeredPrice: suggestedPrice });
       return ride;
     } catch (error: any) {
-      console.error('Error negociando precio:', error);
-      throw new Error(error.message || this.tr('errors.negotiateFailed'));
+      const serverMessage = typeof error?.response?.data?.error === 'string'
+        ? error.response.data.error
+        : undefined;
+      console.error('Error negociando precio:', {
+        status: error?.response?.status,
+        serverMessage,
+        requestId: error?.config?.headers?.['X-Request-ID'],
+        message: error?.message,
+      });
+      throw new Error(serverMessage || error.message || this.tr('errors.negotiateFailed'));
     }
   }
 
@@ -175,6 +184,7 @@ class PriceNegotiationService {
     try {
       const driverId = currentUid();
       const response = await acceptRide(rideId, { driverId });
+      await hideOverlayBubble('acceptedRide');
       return { success: true, ride: response.ride };
     } catch (error: any) {
       console.error('Error aceptando precio del cliente:', error);
@@ -207,6 +217,7 @@ class PriceNegotiationService {
         return ride;
       }
       const { ride } = await acceptRide(rideId, { driverId: driverId ?? currentUid() });
+      await hideOverlayBubble('acceptedRide');
       return ride;
     } catch (error: any) {
       console.error('Error aceptando contraoferta:', error);

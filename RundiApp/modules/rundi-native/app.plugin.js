@@ -14,6 +14,10 @@ function withRundiNative(config) {
     // ~192MB heap and crash with OutOfMemoryError inside policy_maps_core_dynamite.
     mainApplication.$['android:largeHeap'] = 'true';
 
+    // Predictive back gesture (Android 13+): muestra preview de la pantalla
+    // anterior / home al deslizar atrás.
+    mainApplication.$['android:enableOnBackInvokedCallback'] = 'true';
+
     // Add tools namespace if not present
     if (!manifest.manifest.$['xmlns:tools']) {
       manifest.manifest.$['xmlns:tools'] = 'http://schemas.android.com/tools';

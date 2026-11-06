@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Switch, Platform } from 'react-native';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import IonIcons from '@expo/vector-icons/Ionicons';
 import type { TFunction } from 'i18next';
 
 interface DriverProfileModeToggleProps {
@@ -24,7 +24,7 @@ export function DriverProfileModeToggle({
       <View style={styles.profileModeCard}>
         <View style={styles.profileModeHeader}>
           <View style={styles.preferenceIconWrapper}>
-            <MaterialIcons name="directions-car" size={24} color={colors.primary} />
+            <IonIcons name="car-sport-sharp" size={24} color={colors.primary} />
           </View>
           <View style={styles.preferenceInfo}>
             <Text style={styles.preferenceSubtitle}>
@@ -81,12 +81,22 @@ export function DriverProfileOverlay({
       <View style={styles.preferenceCard}>
         <View style={styles.preferenceHeader}>
           <View style={styles.preferenceIconWrapper}>
-            <MaterialIcons name="notifications" size={24} color={colors.primary} />
+            <IonIcons name="notifications" size={24} color={colors.primary} />
           </View>
           <View style={styles.preferenceInfo}>
-            <Text style={styles.preferenceTitle}>{t('driver.profile.overlay.subtitle')}</Text>
+            <Text style={styles.preferenceTitle}>
+              {t(
+                Platform.OS === 'ios'
+                  ? 'driver.profile.overlay.subtitleIos'
+                  : 'driver.profile.overlay.subtitle'
+              )}
+            </Text>
             <Text style={styles.preferenceSubtitle}>
-              {t('driver.profile.overlay.description')}
+              {t(
+                Platform.OS === 'ios'
+                  ? 'driver.profile.overlay.descriptionIos'
+                  : 'driver.profile.overlay.description'
+              )}
             </Text>
             {Platform.OS === 'android' ? (
               <Text style={styles.preferenceHint}>

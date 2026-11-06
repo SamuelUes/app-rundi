@@ -6,7 +6,8 @@
 import { useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getFirebaseAuth } from '../../../config/firebase';
-import { writeDriverLiveLocation, writePresence } from '../../../live/driverLive';
+import { writePresence } from '../../../live/driverLive';
+import { deactivateAvailability } from '../../../api/compliance';
 import { signInWithCustomToken } from 'firebase/auth';
 import backendConfig from '../../../config/backendConfig';
 import firebaseAuthService from '../../../services/auth/firebaseAuthService';
@@ -146,8 +147,10 @@ export function useAuthActions() {
           const auth = await getFirebaseAuth();
           const firebaseUser = auth.currentUser;
           if (firebaseUser) {
-            // drivers_live offline + presencia offline (reemplaza driverLocations/driversInfo)
-            await writeDriverLiveLocation(firebaseUser.uid, { status: 'offline' });
+            // Sesión de disponibilidad revocada por REST + presencia offline
+            // (reemplaza driversLocations/driversInfo; best-effort: si el API
+            // no responde el sweep backend igual cierra la sesión).
+            await deactivateAvailability().catch(() => {});
             await writePresence(firebaseUser.uid, 'offline');
           }
         } catch (fbError) {

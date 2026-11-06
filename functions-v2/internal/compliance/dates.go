@@ -5,19 +5,29 @@ package compliance
 import (
 	"strings"
 	"time"
+	_ "time/tzdata"
 )
 
 var managuaLoc = func() *time.Location {
 	l, err := time.LoadLocation("America/Managua")
 	if err != nil {
-		return time.UTC
+		panic("compliance: America/Managua time zone unavailable: " + err.Error())
 	}
 	return l
 }()
 
-// TodayNicaragua — día calendario actual en Nicaragua 'YYYY-MM-DD'.
+// NicaraguaDayWindow returns the local calendar day and exclusive next midnight.
+func NicaraguaDayWindow(now time.Time) (string, time.Time) {
+	local := now.In(managuaLoc)
+	year, month, day := local.Date()
+	end := time.Date(year, month, day+1, 0, 0, 0, 0, managuaLoc)
+	return local.Format("2006-01-02"), end.UTC()
+}
+
+// TodayNicaragua returns the current local calendar day as YYYY-MM-DD.
 func TodayNicaragua() string {
-	return time.Now().In(managuaLoc).Format("2006-01-02")
+	day, _ := NicaraguaDayWindow(time.Now())
+	return day
 }
 
 // toDateOnly — normaliza a 'YYYY-MM-DD'; "" si inválido.

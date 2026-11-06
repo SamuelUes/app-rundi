@@ -9,6 +9,7 @@ package notifications
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -191,6 +192,7 @@ func (c *Center) Notify(ctx context.Context, uid, rideID string, t Type, opts No
 		return err
 	}
 	if len(tokens) == 0 {
+		log.Printf("notifications: no FCM tokens for user %s (type %s)", uid, t)
 		return nil
 	}
 	invalid, err := c.fcm.SendToTokens(ctx, tokens, title, body, data, fcm.SendOpts{

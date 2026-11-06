@@ -30,7 +30,7 @@ func NewService(pool *pgxpool.Pool, app *firebase.App) *Service {
 	return &Service{pool: pool, app: app}
 }
 
-func versionNow() float64 { return float64(time.Now().UnixMilli()) }
+func versionNow() float64 { return float64(time.Now().UnixMicro()) / 1000 }
 
 // ---------- perfil de conductor ----------
 
@@ -201,6 +201,12 @@ func (s *Service) GetMe(ctx context.Context, uid string) (map[string]any, error)
 	}
 	if photo != nil {
 		out["profilePhoto"] = *photo
+	}
+	if lFront != nil {
+		out["licensePhotoFront"] = *lFront
+	}
+	if lBack != nil {
+		out["licensePhotoBack"] = *lBack
 	}
 	if dept != nil {
 		out["department"] = *dept
@@ -408,28 +414,32 @@ func (s *Service) SetAccountStatus(ctx context.Context, adminUID, driverID, stat
 // ---------- vehículos ----------
 
 type VehicleInput struct {
-	Plate              string   `json:"plate"`
-	Brand              *string  `json:"brand,omitempty"`
-	Model              *string  `json:"model,omitempty"`
-	Year               *int     `json:"year,omitempty"`
-	Color              *string  `json:"color,omitempty"`
-	Type               *string  `json:"type,omitempty"` // auto|moto|suv|pickup
-	Motor              *string  `json:"motor,omitempty"`
-	Chasis             *string  `json:"chasis,omitempty"`
-	Vin                *string  `json:"vin,omitempty"`
-	Cylinders          *int     `json:"cylinders,omitempty"`
-	Passengers         *int     `json:"passengers,omitempty"`
-	FuelType           *string  `json:"fuelType,omitempty"`
-	Tonnage            *float64 `json:"tonnage,omitempty"`
-	VehicleClass       *string  `json:"vehicleClass,omitempty"`
-	ServiceType        *string  `json:"serviceType,omitempty"`
-	RegistrationNumber *string  `json:"registrationNumber,omitempty"`
-	RegistrationExpiry *string  `json:"registrationExpiry,omitempty"` // YYYY-MM-DD
-	InsuranceNumber    *string  `json:"insuranceNumber,omitempty"`
-	InsuranceCompany   *string  `json:"insuranceCompany,omitempty"`
-	InsuranceExpiry    *string  `json:"insuranceExpiry,omitempty"`
-	Is4x4              *bool    `json:"is4x4,omitempty"`
-	VehiclePhoto       *string  `json:"vehiclePhoto,omitempty"` // objectPath
+	Plate               string   `json:"plate"`
+	Brand               *string  `json:"brand,omitempty"`
+	Model               *string  `json:"model,omitempty"`
+	Year                *int     `json:"year,omitempty"`
+	RegistrationOcrYear *int     `json:"registrationOcrYear,omitempty"`
+	Color               *string  `json:"color,omitempty"`
+	Type                *string  `json:"type,omitempty"` // auto|moto|suv|pickup
+	Motor               *string  `json:"motor,omitempty"`
+	Chasis              *string  `json:"chasis,omitempty"`
+	Vin                 *string  `json:"vin,omitempty"`
+	Cylinders           *int     `json:"cylinders,omitempty"`
+	Passengers          *int     `json:"passengers,omitempty"`
+	FuelType            *string  `json:"fuelType,omitempty"`
+	Tonnage             *float64 `json:"tonnage,omitempty"`
+	VehicleClass        *string  `json:"vehicleClass,omitempty"`
+	ServiceType         *string  `json:"serviceType,omitempty"`
+	RegistrationNumber  *string  `json:"registrationNumber,omitempty"`
+	RegistrationExpiry  *string  `json:"registrationExpiry,omitempty"` // YYYY-MM-DD
+	EmissionDate        *string  `json:"emissionDate,omitempty"`       // YYYY-MM-DD
+	InsuranceNumber     *string  `json:"insuranceNumber,omitempty"`
+	InsuranceCompany    *string  `json:"insuranceCompany,omitempty"`
+	InsuranceStartDate  *string  `json:"insuranceStartDate,omitempty"` // YYYY-MM-DD
+	InsuranceExpiry     *string  `json:"insuranceExpiry,omitempty"`
+	Lien                *string  `json:"lien,omitempty"`
+	Is4x4               *bool    `json:"is4x4,omitempty"`
+	VehiclePhoto        *string  `json:"vehiclePhoto,omitempty"` // objectPath
 }
 
 // RegisterVehicle — INSERT vehicles; driver_id se resuelve desde el uid.
@@ -437,30 +447,67 @@ func (s *Service) RegisterVehicle(ctx context.Context, uid string, in VehicleInp
 	if in.Plate == "" {
 		return "", apperr.New(400, "plate is required")
 	}
+	if in.Year != nil && (*in.Year < 1900 || *in.Year > 2100) {
+		return "", apperr.New(400, "year must be between 1900 and 2100")
+	}
+	if in.RegistrationOcrYear != nil && (*in.RegistrationOcrYear < 1900 || *in.RegistrationOcrYear > 2100) {
+		return "", apperr.New(400, "registrationOcrYear must be between 1900 and 2100")
+	}
+	for _, d := range []struct {
+		name string
+		ptr  **string
+	}{
+		{"registrationExpiry", &in.RegistrationExpiry},
+		{"emissionDate", &in.EmissionDate},
+		{"insuranceStartDate", &in.InsuranceStartDate},
+		{"insuranceExpiry", &in.InsuranceExpiry},
+	} {
+		if *d.ptr == nil {
+			continue
+		}
+		if **d.ptr == "" {
+			*d.ptr = nil // "" equivaldría a NULL pero rompe el cast ::date
+			continue
+		}
+		if _, err := time.Parse("2006-01-02", **d.ptr); err != nil {
+			return "", apperr.New(400, d.name+" must be YYYY-MM-DD")
+		}
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return "", err
 	}
 	defer tx.Rollback(ctx)
 
+	// Serializar altas del mismo conductor: solo el primer vehículo queda activo.
+	var driverID string
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM public.drivers
+		WHERE user_id = $1 AND deleted_at IS NULL FOR UPDATE`, uid).Scan(&driverID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", apperr.New(404, "driver profile not found")
+		}
+		return "", err
+	}
 	var vehicleID string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO public.vehicles (
 			driver_id, plate, brand, model, year, color, type, motor, chasis,
 			vin, cylinders, passengers, fuel_type, tonnage, vehicle_class,
-			service_type, registration_number, registration_expiry,
-			insurance_number, insurance_company, insurance_expiry,
-			is_4x4, vehicle_photo
+			service_type, registration_number, registration_expiry, emission_date,
+			insurance_number, insurance_company, insurance_start_date, insurance_expiry,
+			lien, is_4x4, vehicle_photo, registration_ocr_year, is_active
 		)
-		SELECT d.id, $2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::date,$19,$20,$21::date,$22,$23
+		SELECT d.id, $2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::date,$19::date,$20,$21,$22::date,$23::date,$24,$25,$26,$27,
+		       NOT EXISTS (SELECT 1 FROM public.vehicles existing WHERE existing.driver_id = d.id AND existing.is_active = TRUE AND existing.deleted_at IS NULL)
 		FROM public.drivers d
 		WHERE d.user_id = $1 AND d.deleted_at IS NULL
 		RETURNING id::text`,
 		uid, in.Plate, in.Brand, in.Model, in.Year, in.Color, in.Type,
 		in.Motor, in.Chasis, in.Vin, in.Cylinders, in.Passengers,
 		in.FuelType, in.Tonnage, in.VehicleClass, in.ServiceType,
-		in.RegistrationNumber, in.RegistrationExpiry, in.InsuranceNumber,
-		in.InsuranceCompany, in.InsuranceExpiry, in.Is4x4, in.VehiclePhoto,
+		in.RegistrationNumber, in.RegistrationExpiry, in.EmissionDate,
+		in.InsuranceNumber, in.InsuranceCompany, in.InsuranceStartDate,
+		in.InsuranceExpiry, in.Lien, in.Is4x4, in.VehiclePhoto, in.RegistrationOcrYear,
 	).Scan(&vehicleID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", apperr.New(404, "driver profile not found")
@@ -474,6 +521,9 @@ func (s *Service) RegisterVehicle(ctx context.Context, uid string, in VehicleInp
 	if err := s.emitVehicleEvent(ctx, tx, uid, vehicleID, "vehicle.registered", requestID); err != nil {
 		return "", err
 	}
+	if err := s.emitDriverEvent(ctx, tx, uid, "driver.updated", requestID); err != nil {
+		return "", err
+	}
 	return vehicleID, tx.Commit(ctx)
 }
 
@@ -481,7 +531,9 @@ func (s *Service) RegisterVehicle(ctx context.Context, uid string, in VehicleInp
 func (s *Service) ListMyVehicles(ctx context.Context, uid string) ([]map[string]any, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT v.id::text, v.plate, v.brand, v.model, v.year, v.color, v.type,
-		       v.is_4x4, v.is_active, v.vehicle_photo, v.created_at
+		       v.is_4x4, v.is_active, v.vehicle_photo, v.created_at,
+		       v.registration_number, v.registration_expiry, v.registration_photo_front, v.registration_photo_back,
+		       v.insurance_number, v.insurance_company, v.insurance_expiry, v.insurance_photo
 		FROM public.vehicles v
 		JOIN public.drivers d ON d.id = v.driver_id
 		WHERE d.user_id = $1 AND v.deleted_at IS NULL
@@ -497,7 +549,11 @@ func (s *Service) ListMyVehicles(ctx context.Context, uid string) ([]map[string]
 		var year *int
 		var is4x4, active *bool
 		var createdAt time.Time
-		if err := rows.Scan(&id, &plate, &brand, &model, &year, &color, &vtype, &is4x4, &active, &photo, &createdAt); err != nil {
+		var registrationNumber, registrationFront, registrationBack, insuranceNumber, insuranceCompany, insurancePhoto *string
+		var registrationExpiry, insuranceExpiry *time.Time
+		if err := rows.Scan(&id, &plate, &brand, &model, &year, &color, &vtype, &is4x4, &active, &photo, &createdAt,
+			&registrationNumber, &registrationExpiry, &registrationFront, &registrationBack,
+			&insuranceNumber, &insuranceCompany, &insuranceExpiry, &insurancePhoto); err != nil {
 			return nil, err
 		}
 		m := map[string]any{"id": id, "plate": plate, "createdAt": createdAt}
@@ -525,6 +581,21 @@ func (s *Service) ListMyVehicles(ctx context.Context, uid string) ([]map[string]
 		if photo != nil {
 			m["vehiclePhoto"] = *photo
 		}
+		for key, value := range map[string]*string{
+			"registrationNumber": registrationNumber, "registrationPhotoFront": registrationFront,
+			"registrationPhotoBack": registrationBack, "insuranceNumber": insuranceNumber,
+			"insuranceCompany": insuranceCompany, "insurancePhoto": insurancePhoto,
+		} {
+			if value != nil {
+				m[key] = *value
+			}
+		}
+		if registrationExpiry != nil {
+			m["registrationExpiry"] = registrationExpiry.Format("2006-01-02")
+		}
+		if insuranceExpiry != nil {
+			m["insuranceExpiry"] = insuranceExpiry.Format("2006-01-02")
+		}
 		out = append(out, m)
 	}
 	return out, rows.Err()
@@ -538,8 +609,17 @@ var vehicleEditable = map[string]string{
 	"cylinders": "cylinders", "passengers": "passengers", "fuelType": "fuel_type",
 	"tonnage": "tonnage", "vehicleClass": "vehicle_class", "serviceType": "service_type",
 	"registrationNumber": "registration_number", "registrationExpiry": "registration_expiry",
+	"emissionDate":    "emission_date",
 	"insuranceNumber": "insurance_number", "insuranceCompany": "insurance_company",
-	"insuranceExpiry": "insurance_expiry", "is4x4": "is_4x4", "vehiclePhoto": "vehicle_photo",
+	"insuranceStartDate": "insurance_start_date", "insuranceExpiry": "insurance_expiry",
+	"lien": "lien", "is4x4": "is_4x4", "vehiclePhoto": "vehicle_photo",
+}
+
+// vehicleDateCols — columnas DATE editables: validar formato antes de que PG
+// devuelva un 500 opaco por "invalid input syntax".
+var vehicleDateCols = map[string]bool{
+	"registration_expiry": true, "emission_date": true,
+	"insurance_start_date": true, "insurance_expiry": true,
 }
 
 // PatchVehicle — UPDATE de campos permitidos en vehículo propio.
@@ -551,6 +631,15 @@ func (s *Service) PatchVehicle(ctx context.Context, uid, vehicleID string, field
 		col, ok := vehicleEditable[k]
 		if !ok {
 			continue
+		}
+		if vehicleDateCols[col] {
+			if str, ok := v.(string); ok {
+				if str == "" {
+					v = nil // "" en una columna DATE falla el cast → NULL
+				} else if _, err := time.Parse("2006-01-02", str); err != nil {
+					return apperr.New(400, k+" must be YYYY-MM-DD")
+				}
+			}
 		}
 		sets = append(sets, fmt.Sprintf("%s = $%d", col, i))
 		vals = append(vals, v)
@@ -663,7 +752,7 @@ func (s *Service) emitVehicleEvent(ctx context.Context, tx pgx.Tx, driverUID, ve
 	payload := map[string]any{
 		"driverUid": driverUID,
 		"plate":     plate,
-		"version":   versionNow(),
+		"version":   float64(time.Now().UnixMicro()),
 	}
 	if brand != nil {
 		payload["brand"] = *brand

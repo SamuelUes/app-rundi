@@ -58,7 +58,7 @@ const mapFeature = (f: FeatureDoc): ServiceFeatureOption => ({
   pricingValue: Number(f.pricingValue ?? 0),
   priority: Number(f.priority ?? 100),
   stackable: f.stackable !== false,
-  defaultSelected: true,
+  defaultSelected: false,
   startTime: f.startTime ?? null,
   endTime: f.endTime ?? null,
   timezone: f.timezone ?? 'America/Managua',

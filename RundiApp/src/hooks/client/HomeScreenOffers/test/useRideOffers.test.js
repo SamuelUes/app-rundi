@@ -75,6 +75,23 @@ test('only listens to offerers and does not restart ride listeners on profile ch
   expect(driverListener('d3').unsubscribe).toHaveBeenCalledTimes(1);
 });
 
+test('uses the live public vehicle and clears a stale vehicle on deactivation', async () => {
+  const hook = renderHook(() => useRideOffers('ride', 'client', 'area', 'Driver'));
+  await waitFor(() => expect(offerListener()).toBeDefined());
+  act(() => offerListener().next(snapshot([
+    { driverId: 'd1', status: 'pending', driver: { vehicle: { plate: 'OLD' } } },
+  ])));
+  act(() => driverListener('d1').next(profile({
+    averageRating: 4.8, vehicle: { plate: 'NEW', type: 'sedan' },
+  })));
+  expect(hook.result.current.offers[0].driver).toEqual(expect.objectContaining({
+    rating: 4.8, vehicle: { plate: 'NEW', type: 'sedan' },
+  }));
+  act(() => driverListener('d1').next(profile({ averageRating: 4.8, vehicle: null })));
+  expect(hook.result.current.offers[0].driver.vehicle).toBeNull();
+  hook.unmount();
+});
+
 test('ignores a cached trip belonging to a different client', async () => {
   const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
   const hook = renderHook(() => useRideOffers('ride', 'client', 'area', 'Driver'));

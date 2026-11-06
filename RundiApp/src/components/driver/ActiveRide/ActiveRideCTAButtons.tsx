@@ -1,6 +1,7 @@
 import React from 'react';
 import { Text, TouchableOpacity, Animated } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import * as Haptics from 'expo-haptics';
 import { LoadingIcon } from '../../ui/LoadingIcon';
 import type { TFunction } from 'i18next';
 
@@ -38,7 +39,10 @@ export function ActiveRideCTAButtons({
       {show && (
         <TouchableOpacity
           style={[styles.primaryButton, updating && styles.buttonDisabled]}
-          onPress={onCTAPress}
+          onPress={() => {
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            onCTAPress();
+          }}
           disabled={updating}
           activeOpacity={0.85}
           accessibilityRole="button"
@@ -59,7 +63,10 @@ export function ActiveRideCTAButtons({
           (updating || isCancellingRide) && styles.buttonDisabled,
           { transform: [{ scale: cancelButtonScale }] },
         ]}
-        onPress={onCancelRide}
+        onPress={() => {
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          onCancelRide();
+        }}
         disabled={updating || isCancellingRide}
         activeOpacity={0.7}
         accessibilityRole="button"

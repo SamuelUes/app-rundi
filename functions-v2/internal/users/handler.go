@@ -44,7 +44,7 @@ func (h *Handler) AdminRoutes(r chi.Router) {
 func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
 	var body BootstrapRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	uid, _ := r.Context().Value(middleware.CtxUID).(string)
@@ -60,7 +60,7 @@ func (h *Handler) bootstrap(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) patchMe(w http.ResponseWriter, r *http.Request) {
 	var body map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	uid, _ := r.Context().Value(middleware.CtxUID).(string)
@@ -117,7 +117,7 @@ func (h *Handler) syncRole(w http.ResponseWriter, r *http.Request) {
 		Role string `json:"role"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	rid, _ := r.Context().Value(middleware.CtxRequestID).(string)

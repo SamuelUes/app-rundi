@@ -120,7 +120,7 @@ func (s *Service) DriverEarnings(ctx context.Context, uid string, days int) (*Ea
 		JOIN public.rides r ON r.id = p.ride_id
 		WHERE r.driver_id = $1
 		  AND p.status = 'confirmed'
-		  AND r.completed_at >= NOW() - ($2 || ' days')::interval`,
+		  AND r.completed_at >= NOW() - $2 * INTERVAL '1 day'`,
 		uid, days).Scan(&out.Total, &out.TotalRides, &out.Commission)
 	if err != nil {
 		return nil, err
@@ -134,7 +134,7 @@ func (s *Service) DriverEarnings(ctx context.Context, uid string, days int) (*Ea
 		JOIN public.rides r ON r.id = p.ride_id
 		WHERE r.driver_id = $1
 		  AND p.status = 'confirmed'
-		  AND r.completed_at >= NOW() - ($2 || ' days')::interval
+		  AND r.completed_at >= NOW() - $2 * INTERVAL '1 day'
 		GROUP BY r.completed_at::date
 		ORDER BY r.completed_at::date DESC`, uid, days)
 	if err != nil {
@@ -374,12 +374,20 @@ func (s *Service) NotifyProximity(ctx context.Context, rideID, driverUID string)
 				SELECT f.code FROM public.features f WHERE f.id IN (
 					SELECT a.feature_id FROM public.driver_feature_assignments a
 					JOIN public.drivers d ON d.id = a.driver_id
-					WHERE d.user_id = $1 AND a.is_active = TRUE
+					WHERE d.user_id = $1 AND a.is_active = TRUE AND f.code <> 'premium'
 					UNION
 					SELECT a.feature_id FROM public.vehicle_feature_assignments a
 					JOIN public.vehicles v ON v.id = a.vehicle_id
 					JOIN public.drivers d ON d.id = v.driver_id
-					WHERE d.user_id = $1 AND a.is_active = TRUE
+					WHERE d.user_id = $1 AND a.is_active = TRUE AND v.is_active = TRUE
+					  AND v.deleted_at IS NULL AND f.code <> 'premium'
+					  AND v.id = (SELECT v2.id FROM public.vehicles v2 WHERE v2.driver_id = d.id AND v2.is_active = TRUE AND v2.deleted_at IS NULL ORDER BY v2.created_at DESC, v2.id DESC LIMIT 1)
+					UNION
+					SELECT f.id FROM public.vehicles v
+					JOIN public.drivers d ON d.id = v.driver_id
+					WHERE d.user_id = $1 AND v.is_active = TRUE AND v.deleted_at IS NULL
+					  AND v.id = (SELECT v2.id FROM public.vehicles v2 WHERE v2.driver_id = d.id AND v2.is_active = TRUE AND v2.deleted_at IS NULL ORDER BY v2.created_at DESC, v2.id DESC LIMIT 1)
+					  AND f.code = 'premium' AND public.vehicle_premium_eligible(v.registration_ocr_year, v.type, NOW())
 				)`, driverUID)
 			if err != nil {
 				return err

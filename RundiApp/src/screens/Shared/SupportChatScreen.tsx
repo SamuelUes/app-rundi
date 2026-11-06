@@ -102,7 +102,7 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
 
   const hasActiveChat = Boolean(threadId && safeUserId && chatAccess);
   const chat = useChat(chatAccess ? threadId ?? '' : '', safeUserId, safeUserName, isFocused && hasActiveChat);
-  const { activeCall } = useCalls(complaintId);
+  const { activeCall } = useCalls(complaintId, { handleNativeActions: false });
 
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList>(null);

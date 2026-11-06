@@ -12,6 +12,7 @@ interface DriverProfileDocumentsProps {
   documentButtonLabel: string;
   driverLicenseExpiry: string | null;
   onUploadDocuments: () => void;
+  onViewVirtualDocuments: () => void;
   t: TFunction;
   styles: any;
 }
@@ -24,6 +25,7 @@ export function DriverProfileDocuments({
   documentButtonLabel,
   driverLicenseExpiry,
   onUploadDocuments,
+  onViewVirtualDocuments,
   t,
   styles,
 }: DriverProfileDocumentsProps) {
@@ -57,6 +59,9 @@ export function DriverProfileDocuments({
           </TouchableOpacity>
         </View>
       )}
+      <TouchableOpacity style={styles.profileDocumentButton} onPress={onViewVirtualDocuments}>
+        <Text style={styles.uploadButtonText}>{t('driver.virtualDocuments.title')}</Text>
+      </TouchableOpacity>
     </View>
   );
 }

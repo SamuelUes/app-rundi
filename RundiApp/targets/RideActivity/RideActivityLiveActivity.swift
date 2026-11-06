@@ -15,6 +15,28 @@ private enum RideActivityUI {
         state.variant != "nearby_ride" || state.rideId == fallbackRideId
     }
 
+    static func features(_ state: RideActivityAttributes.ContentState) -> [String] {
+        guard !isFallback(state) else { return [] }
+        let codes = state.featureCodes ?? []
+        return ["senior", "pet_friendly", "premium"].filter { codes.contains($0) }
+    }
+
+    static func featureSymbol(_ code: String) -> String {
+        switch code {
+        case "senior": return "figure.walk"
+        case "pet_friendly": return "pawprint.fill"
+        default: return "star.circle.fill"
+        }
+    }
+
+    static func featureLabel(_ code: String) -> String {
+        switch code {
+        case "senior": return "Adulto mayor"
+        case "pet_friendly": return "Mascotas"
+        default: return "Prémium"
+        }
+    }
+
     static var priceFormatter: NumberFormatter {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
@@ -85,6 +107,7 @@ struct RideActivityLiveActivity: Widget {
                                 HStack(spacing: 10) {
                                     Label(RideActivityUI.distanceText(context.state.distanceKm), systemImage: "location.fill")
                                         .font(.subheadline.weight(.medium))
+                                    RideFeatureIcons(state: context.state)
                                     if !context.state.clientName.isEmpty {
                                         Text(context.state.clientName)
                                             .font(.subheadline)
@@ -102,11 +125,17 @@ struct RideActivityLiveActivity: Widget {
                     .padding(.top, 4)
                 }
             } compactLeading: {
-                Image("appIcon")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 20, height: 20)
-                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                if let feature = RideActivityUI.features(context.state).first {
+                    Image(systemName: RideActivityUI.featureSymbol(feature))
+                        .foregroundStyle(Color("rideAccent"))
+                        .accessibilityLabel(Text(RideActivityUI.featureLabel(feature)))
+                } else {
+                    Image("appIcon")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 20, height: 20)
+                        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                }
             } compactTrailing: {
                 if RideActivityUI.isFallback(context.state) {
                     Image(systemName: "car.fill")
@@ -123,12 +152,31 @@ struct RideActivityLiveActivity: Widget {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .clipShape(Circle())
+                } else if let feature = RideActivityUI.features(context.state).first {
+                    Image(systemName: RideActivityUI.featureSymbol(feature))
+                        .foregroundStyle(Color("rideAccent"))
+                        .accessibilityLabel(Text(RideActivityUI.featureLabel(feature)))
                 } else {
                     Image(systemName: "car.fill")
                         .foregroundStyle(Color("rideAccent"))
                 }
             }
         }
+    }
+}
+
+private struct RideFeatureIcons: View {
+    let state: RideActivityAttributes.ContentState
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ForEach(RideActivityUI.features(state), id: \.self) { feature in
+                Image(systemName: RideActivityUI.featureSymbol(feature))
+                    .accessibilityLabel(Text(RideActivityUI.featureLabel(feature)))
+            }
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(Color("rideAccent"))
     }
 }
 
@@ -166,6 +214,7 @@ private struct LockScreenRideView: View {
                         Text(RideActivityUI.distanceText(state.distanceKm))
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Color("rideText"))
+                        RideFeatureIcons(state: state)
                     }
                     if !state.clientName.isEmpty {
                         Text(state.clientName)

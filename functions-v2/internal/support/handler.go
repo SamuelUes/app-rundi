@@ -35,7 +35,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	role, _ := r.Context().Value(middleware.CtxRole).(string)
 	var body CreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	c, err := h.svc.CreateComplaint(r.Context(), uid, role, body)
@@ -64,7 +64,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	role, _ := r.Context().Value(middleware.CtxRole).(string)
 	var body UpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	c, err := h.svc.UpdateComplaint(r.Context(), chi.URLParam(r, "id"), uid, role, body)

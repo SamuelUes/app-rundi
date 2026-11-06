@@ -39,6 +39,11 @@ export function AccountAddPasswordCard({
         secureTextEntry
         value={password}
         onChangeText={onSetPassword}
+        autoCapitalize="none"
+        autoCorrect={false}
+        textContentType="newPassword"
+        autoComplete="new-password"
+        importantForAutofill="yes"
       />
       <TextInput
         style={styles.input}
@@ -47,6 +52,11 @@ export function AccountAddPasswordCard({
         secureTextEntry
         value={confirmPassword}
         onChangeText={onSetConfirmPassword}
+        autoCapitalize="none"
+        autoCorrect={false}
+        textContentType="newPassword"
+        autoComplete="new-password"
+        importantForAutofill="yes"
       />
       <TouchableOpacity
         style={[styles.button, submitting && styles.buttonDisabled]}

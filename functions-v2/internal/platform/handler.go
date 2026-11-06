@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/rundi/functions-v2/internal/apperr"
+	"github.com/rundi/functions-v2/internal/matching"
 	"github.com/rundi/functions-v2/internal/middleware"
 )
 
@@ -31,10 +32,34 @@ func (h *Handler) Routes() chi.Router {
 	r.Get("/sms-codes/mine", h.mineSMS)
 	r.Get("/analytics/mine", h.mineAnalytics)
 	r.Get("/region/availability", h.region)
+	r.Post("/drivers/premium-eligibility", h.premiumDrivers)
 	r.Get("/preflight", h.preflight)
 	r.Post("/preflight/accept-terms", h.acceptTerms)
 	r.Post("/rides/{rideId}/share", h.share)
 	return r
+}
+
+func (h *Handler) premiumDrivers(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		DriverIDs []string `json:"driverIds"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32768)).Decode(&body); err != nil || len(body.DriverIDs) > 200 {
+		apperr.Write(w, apperr.New(400, "invalid driverIds"))
+		return
+	}
+	eligible, err := matching.PremiumEligibleDrivers(r.Context(), h.svc.pool, body.DriverIDs)
+	if err != nil {
+		apperr.Write(w, err)
+		return
+	}
+	ids := make([]string, 0, len(eligible))
+	for _, id := range body.DriverIDs {
+		if eligible[id] {
+			ids = append(ids, id)
+			delete(eligible, id)
+		}
+	}
+	apperr.JSON(w, http.StatusOK, map[string]any{"driverIds": ids})
 }
 
 // PublicRoutes — /public (sin auth; el token HMAC es la autorización).
@@ -57,7 +82,7 @@ func (h *Handler) trackEvent(w http.ResponseWriter, r *http.Request) {
 		AppVersion string         `json:"appVersion,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	err := h.svc.TrackEvent(r.Context(), uid(r), body.EventType, body.Data,
@@ -80,7 +105,7 @@ func (h *Handler) logBiometric(w http.ResponseWriter, r *http.Request) {
 		RideID   string `json:"rideId,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	err := h.svc.LogBiometric(r.Context(), uid(r), body.UserType, body.Type,
@@ -101,7 +126,7 @@ func (h *Handler) logSMS(w http.ResponseWriter, r *http.Request) {
 		RideID  string `json:"rideId,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	if err := h.svc.LogSMSCode(r.Context(), uid(r), body.Phone, body.Email,

@@ -177,7 +177,7 @@ export function RidePreviewNegotiation({
                 {
                   backgroundColor: colors.SecondBorder,
                   borderColor: colors.SecondBorder,
-                  borderWidth: 1,
+                  borderWidth: 0.1,
                 },
               ]}
               onPress={() => onOpenPhotoModal(clientVehiclePhoto)}
@@ -199,7 +199,7 @@ export function RidePreviewNegotiation({
               styles.offerToggle,
               {
                 backgroundColor: isDark ? 'rgba(179,135,55,0.16)' : 'rgba(179,135,55,0.10)',
-                borderColor: isDark ? 'rgba(179,135,55,0.45)' : 'rgba(179,135,55,0.30)',
+                borderColor: isDark ? 'rgba(179,135,55,0.5)' : 'rgba(179,135,55,0.30)',
               },
             ]}
           >
@@ -229,7 +229,7 @@ export function RidePreviewNegotiation({
                             backgroundColor: isDark
                               ? 'rgba(125,230,173,0.16)'
                               : 'rgba(125,230,173,0.25)',
-                            borderWidth: 1,
+                            borderWidth: 0.1,
                             borderColor: isDark
                               ? 'rgba(125,230,173,0.32)'
                               : 'rgba(38,140,92,0.25)',
@@ -309,7 +309,7 @@ export function RidePreviewNegotiation({
                 styles.offerInputRow,
                 {
                   borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.1)',
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F7F7F7',
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(89, 89, 89, 0.08)',
                 },
               ]}
             >

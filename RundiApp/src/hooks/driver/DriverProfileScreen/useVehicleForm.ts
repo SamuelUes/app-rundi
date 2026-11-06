@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import vehiclesService from '../../../services/driver/vehiclesService';
 import type { Vehicle } from './useDriverProfile';
-import { isVehicleComplete, getIncompleteReason } from '../../../utils/driver/driverProfileHelpers';
+import { canOperateVehicle } from '../../../api/compliance';
 import { Alert } from 'react-native';
 import type { TFunction } from 'i18next';
 
@@ -10,6 +10,7 @@ export interface VehicleFormData {
   brand: string;
   model: string;
   year: number;
+  registration_ocr_year: number | null;
   color: string;
   type: string;
   is_4x4: boolean;
@@ -41,6 +42,7 @@ const createEmptyForm = (): VehicleFormData => ({
   brand: '',
   model: '',
   year: new Date().getFullYear(),
+  registration_ocr_year: null,
   color: '',
   type: 'sedan',
   is_4x4: false,
@@ -96,6 +98,7 @@ export function useVehicleForm(
         brand: vehicleFormData.brand,
         model: vehicleFormData.model,
         year: vehicleFormData.year,
+        registration_ocr_year: vehicleFormData.registration_ocr_year ?? undefined,
         color: vehicleFormData.color,
         type: vehicleFormData.type,
         is_4x4: vehicleFormData.is_4x4,
@@ -153,16 +156,9 @@ export function useVehicleForm(
           return;
         }
 
-        if (!vehicleToSwitch.is_active && !vehicleToSwitch.isActive) {
-          Alert.alert(
-            t('driver.profile.alerts.vehicles.notApprovedTitle'),
-            t('driver.profile.alerts.vehicles.notApprovedBody'),
-          );
-          return;
-        }
-
-        if (!isVehicleComplete(vehicleToSwitch)) {
-          const reason = getIncompleteReason(vehicleToSwitch, t);
+        const { evaluation } = await canOperateVehicle(vehicleId);
+        if (!evaluation.allowed) {
+          const reason = (evaluation.reasons ?? []).filter((item) => item.blocking).map((item) => item.message).join(', ');
           Alert.alert(
             t('driver.profile.alerts.vehicles.incompleteTitle'),
             t('driver.profile.alerts.vehicles.incompleteBody', { reason }),

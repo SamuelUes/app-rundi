@@ -20,17 +20,16 @@ export interface DriverLivePatch {
   heading?: number;
   speed?: number;
   accuracy?: number;
-  status?: 'online' | 'on_ride' | 'offline';
   serviceAreaId?: string;
   vehicleType?: string;
-  activeServiceCodes?: string[];
 }
 
 /**
- * GPS/estado en vivo del conductor → REALTIME_drivers_live/{uid}.
- * Solo keys permitidas por la regla: location, status, serviceAreaId,
- * vehicleType, activeServiceCodes, lastSeen, heading, speed, accuracy.
- * location solo se escribe si lat/lng vienen presentes (status-only OK).
+ * GPS/heartbeat del conductor → REALTIME_drivers_live/{uid}.
+ * Solo keys permitidas por la regla: location, serviceAreaId, vehicleType,
+ * lastSeen, heading, speed, accuracy. status/activeServiceCodes/session*
+ * son autoridad del backend (POST/DELETE /v1/compliance/availability); el
+ * heartbeat nunca escribe online ni al reabrir la app ni al terminar viaje.
  * Objetivo: 3–5s en viaje, 15–30s libre (doc §7.2).
  */
 export async function writeDriverLiveLocation(
@@ -43,10 +42,8 @@ export async function writeDriverLiveLocation(
     doc(db, FS_COL.driversLive, driverUid),
     {
       ...(hasCoords && { location: new GeoPoint(patch.latitude!, patch.longitude!) }),
-      ...(patch.status !== undefined && { status: patch.status }),
       ...(patch.serviceAreaId !== undefined && { serviceAreaId: patch.serviceAreaId }),
       ...(patch.vehicleType !== undefined && { vehicleType: patch.vehicleType }),
-      ...(patch.activeServiceCodes !== undefined && { activeServiceCodes: patch.activeServiceCodes }),
       ...(patch.heading !== undefined && { heading: patch.heading }),
       ...(patch.speed !== undefined && { speed: patch.speed }),
       ...(patch.accuracy !== undefined && { accuracy: patch.accuracy }),

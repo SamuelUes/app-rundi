@@ -1,6 +1,7 @@
 import React from 'react';
-import { View } from 'react-native';
+import { View, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { NavigationBar } from 'expo-navigation-bar';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { NavigationContainer } from '@react-navigation/native';
@@ -13,6 +14,7 @@ import { useAuthInit } from './src/hooks/shared/auth/useAuthInit';
 import { I18nextProvider } from 'react-i18next';
 import i18n from './src/i18n';
 import { usePresence } from './src/hooks/shared/presence/usePresence';
+import { useIncomingCalls } from './src/hooks/shared/calls/useIncomingCalls';
 import { useDriverProfileSync } from './src/hooks/driver/DriverProfileScreen/useDriverProfileSync';
 import useDriverProximityTracking from './src/hooks/driver/DriverHomeScreen/useDriverProximityTracking';
 import AppNavigator from './src/navigation/AppNavigator';
@@ -64,6 +66,8 @@ function AppContent() {
 
   // Activar sistema de presencia y sincronización de perfil de conductor
   usePresence();
+  // Listener global de llamadas entrantes (callee) — sin pantalla montada
+  useIncomingCalls();
   useDriverProfileSync();
   // Iniciar tracking de proximidad para conductores (permite viaje por aproximación)
   useDriverProximityTracking();
@@ -100,6 +104,9 @@ function AppContent() {
           />
         )}
         <StatusBar style={appReady && !isDark ? 'dark' : 'light'} />
+        {Platform.OS === 'android' && (
+          <NavigationBar style={isDark ? 'light' : 'dark'} />
+        )}
       </View>
     </SafeAreaProvider>
   );

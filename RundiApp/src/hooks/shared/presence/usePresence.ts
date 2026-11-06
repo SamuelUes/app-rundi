@@ -6,7 +6,7 @@ import sessionService from '../../../services/user/sessionService';
 import driverAvailabilityService from '../../../services/driver/driverAvailabilityService';
 import alertService from '../../../services/notification/alertService';
 import backgroundLocationService from '../../../services/map/backgroundLocationService';
-import { writePresence, writeDriverLiveLocation } from '../../../live/driverLive';
+import { writePresence } from '../../../live/driverLive';
 
 /**
  * Presencia del conductor (v2 — Firestore).
@@ -79,27 +79,20 @@ export function usePresence() {
       await logout();
     };
 
-    // Marca app activa: sesión + presencia online + estado vivo del driver.
+    // Marca app activa: sesión + presencia online. La disponibilidad operativa
+    // NO se toca: vive en la sesión SQL (reabrir la app no reactiva ni baja).
     const markActive = async (source: string) => {
-      const availability = await driverAvailabilityService.getAvailabilityState();
-      const keepAvailability = Boolean(availability?.isAvailable);
       await runWithSessionRecovery(() =>
         sessionService.startSession({ policy: 'deny', mode: 'driver', source }),
       );
       await writePresence(user.id, 'online');
-      if (keepAvailability) {
-        await writeDriverLiveLocation(user.id, { status: 'online' }).catch(() => {});
-      }
     };
 
-    // Marca app cerrada: presencia offline; el estado del driver solo se baja
-    // si no tiene disponibilidad activa (background tracking sigue corriendo).
+    // Marca app cerrada: presencia offline; el estado del driver queda a
+    // cargo del backend (sweeps de presencia/sesión) — cerrar la app no
+    // desactiva la disponibilidad.
     const markClosed = async (source: string) => {
-      const availability = await driverAvailabilityService.getAvailabilityState().catch(() => null);
       await writePresence(user.id, 'offline').catch(() => {});
-      if (!availability?.isAvailable) {
-        await writeDriverLiveLocation(user.id, { status: 'offline' }).catch(() => {});
-      }
     };
 
     // Función para configurar presencia

@@ -270,6 +270,26 @@ export function RegisterConfirmSummary({
             value={vehicleData.passengers}
             styles={styles}
           />
+          <DataRow
+            label={t('authScreens.registerConfirm.data.vin')}
+            value={vehicleData.vin}
+            styles={styles}
+          />
+          <DataRow
+            label={t('authScreens.registerConfirm.data.motor')}
+            value={vehicleData.motor}
+            styles={styles}
+          />
+          <DataRow
+            label={t('authScreens.registerConfirm.data.chasis')}
+            value={vehicleData.chasis}
+            styles={styles}
+          />
+          <DataRow
+            label={t('authScreens.registerConfirm.data.emissionDate')}
+            value={vehicleData.emissionDate}
+            styles={styles}
+          />
 
           <PhotoStrip
             title={t('authScreens.registerConfirm.sections.vehiclePhotos')}

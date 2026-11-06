@@ -83,12 +83,17 @@ export default function DriverDataScreen({ navigation, route }: Props) {
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
   const [year, setYear] = useState('');
+  const [registrationOcrYear, setRegistrationOcrYear] = useState<number | null>(null);
   const [color, setColor] = useState('');
   const [type, setType] = useState('sedan');
   const [passengers, setPassengers] = useState('');
 
+  const [vin, setVin] = useState('');
+  const [motor, setMotor] = useState('');
+  const [chasis, setChasis] = useState('');
+
   const [registrationNumber, setRegistrationNumber] = useState('');
-  const [registrationExpiry, setRegistrationExpiry] = useState('');
+  const [emissionDate, setEmissionDate] = useState('');
   const [insuranceNumber, setInsuranceNumber] = useState('');
   const [insuranceCompany, setInsuranceCompany] = useState('');
   const [insuranceExpiry, setInsuranceExpiry] = useState('');
@@ -108,6 +113,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
   const [insurancePhoto, setInsurancePhoto] = useState<string | null>(null);
   const [registrationPhotoFront, setRegistrationPhotoFront] = useState<string | null>(null);
   const [registrationPhotoBack, setRegistrationPhotoBack] = useState<string | null>(null);
+  const [vehiclePhoto, setVehiclePhoto] = useState<string | null>(null);
 
   // OCR on-device: estado de lectura y resumen de campos autocompletados
   const [ocrReading, setOcrReading] = useState(false);
@@ -119,6 +125,8 @@ export default function DriverDataScreen({ navigation, route }: Props) {
   // Campos que fueron llenados por OCR: al retomar la foto se actualizan,
   // pero una edición manual del usuario nunca se sobreescribe.
   const ocrFilledRef = useRef<Set<keyof ExtractedDocumentFields>>(new Set());
+  const backOcrVersion = useRef(0);
+  const pendingOcr = useRef(0);
 
   // Listas
   const departments_list = getDepartments();
@@ -142,7 +150,8 @@ export default function DriverDataScreen({ navigation, route }: Props) {
     type &&
     insurancePhoto &&
     registrationPhotoFront &&
-    registrationPhotoBack;
+    registrationPhotoBack &&
+    vehiclePhoto;
   const isComplete = isLicenseComplete && isVehicleComplete;
 
   const progressCurrent = 3;
@@ -198,17 +207,22 @@ export default function DriverDataScreen({ navigation, route }: Props) {
           setBrand(draftVehicle.brand || '');
           setModel(draftVehicle.model || '');
           setYear(draftVehicle.year ? String(draftVehicle.year) : '');
+          setRegistrationOcrYear(draftVehicle.registrationOcrYear ?? null);
           setColor(draftVehicle.color || '');
           setType(draftVehicle.type || 'sedan');
-          setPassengers(draftVehicle.passengers || '');
+          setPassengers(draftVehicle.passengers ? String(draftVehicle.passengers) : '');
+          setVin(draftVehicle.vin || '');
+          setMotor(draftVehicle.motor || '');
+          setChasis(draftVehicle.chasis || '');
           setRegistrationNumber(draftVehicle.registrationNumber || '');
-          setRegistrationExpiry(draftVehicle.registrationExpiry || '');
+          setEmissionDate(draftVehicle.emissionDate || '');
           setInsuranceNumber(draftVehicle.insuranceNumber || '');
           setInsuranceCompany(draftVehicle.insuranceCompany || '');
           setInsuranceExpiry(draftVehicle.insuranceExpiry || '');
           setInsurancePhoto(draftVehicle.insurancePhoto || null);
           setRegistrationPhotoFront(draftVehicle.registrationPhotoFront || null);
           setRegistrationPhotoBack(draftVehicle.registrationPhotoBack || null);
+          setVehiclePhoto(draftVehicle.vehiclePhoto || null);
           setInspectionDate(draftVehicle.inspectionDate || '');
           setInspectionValidUntil(draftVehicle.inspectionValidUntil || '');
           setEmissionsTestedAt(draftVehicle.emissionsTestedAt || '');
@@ -250,17 +264,22 @@ export default function DriverDataScreen({ navigation, route }: Props) {
       ...(brand ? { brand } : {}),
       ...(model ? { model } : {}),
       ...(year ? { year: parseInt(year, 10) } : {}),
+      ...(registrationOcrYear ? { registrationOcrYear } : {}),
       ...(color ? { color } : {}),
       ...(type ? { type } : {}),
-      ...(passengers ? { passengers } : {}),
+      ...(passengers ? { passengers: parseInt(passengers, 10) } : {}),
+      ...(vin ? { vin } : {}),
+      ...(motor ? { motor } : {}),
+      ...(chasis ? { chasis } : {}),
       ...(registrationNumber ? { registrationNumber } : {}),
-      ...(registrationExpiry ? { registrationExpiry } : {}),
+      ...(emissionDate ? { emissionDate } : {}),
       ...(insuranceNumber ? { insuranceNumber } : {}),
       ...(insuranceCompany ? { insuranceCompany } : {}),
       ...(insuranceExpiry ? { insuranceExpiry } : {}),
       ...(insurancePhoto ? { insurancePhoto } : {}),
       ...(registrationPhotoFront ? { registrationPhotoFront } : {}),
       ...(registrationPhotoBack ? { registrationPhotoBack } : {}),
+      ...(vehiclePhoto ? { vehiclePhoto } : {}),
       ...(inspectionDate ? { inspectionDate } : {}),
       ...(inspectionValidUntil ? { inspectionValidUntil } : {}),
       ...(emissionsTestedAt ? { emissionsTestedAt } : {}),
@@ -309,17 +328,22 @@ export default function DriverDataScreen({ navigation, route }: Props) {
     brand,
     model,
     year,
+    registrationOcrYear,
     color,
     type,
     passengers,
+    vin,
+    motor,
+    chasis,
     registrationNumber,
-    registrationExpiry,
+    emissionDate,
     insuranceNumber,
     insuranceCompany,
     insuranceExpiry,
     insurancePhoto,
     registrationPhotoFront,
     registrationPhotoBack,
+    vehiclePhoto,
     inspectionDate,
     inspectionValidUntil,
     emissionsTestedAt,
@@ -333,14 +357,20 @@ export default function DriverDataScreen({ navigation, route }: Props) {
    * que el propio OCR llenó antes (al retomar la foto se actualizan).
    * Nunca pisa un valor que el usuario escribió o corrigió a mano.
    */
-  const runDocumentOcr = async (imageUri: string, docType: DocumentOcrType) => {
+  const runDocumentOcr = async (imageUri: string, docType: DocumentOcrType, backVersion?: number) => {
     if (!isOcrAvailable()) {
       return;
     }
+    pendingOcr.current += 1;
     setOcrReading(true);
     setOcrMessage(null);
     try {
       const { fields } = await extractFieldsFromDocument(imageUri, docType);
+      if (backVersion !== undefined && backVersion === backOcrVersion.current) {
+        const detectedYear = Number(fields.year);
+        setRegistrationOcrYear(Number.isInteger(detectedYear) && detectedYear >= 1900 && detectedYear <= 2100
+          ? detectedYear : null);
+      }
       const applied: string[] = [];
       const filledByOcr = ocrFilledRef.current;
 
@@ -368,16 +398,22 @@ export default function DriverDataScreen({ navigation, route }: Props) {
         fill(color, fields.color, setColor, 'color');
         fill(type, fields.type, setType, 'type');
         fill(passengers, fields.passengers, setPassengers, 'passengers');
+        fill(vin, fields.vin, setVin, 'vin');
+        fill(motor, fields.motor, setMotor, 'motor');
+        fill(chasis, fields.chasis, setChasis, 'chasis');
         fill(registrationNumber, fields.registrationNumber, setRegistrationNumber, 'registrationNumber');
-        fill(registrationExpiry, fields.registrationExpiry, setRegistrationExpiry, 'registrationExpiry');
+        fill(emissionDate, fields.emissionDate, setEmissionDate, 'emissionDate');
       } else {
         fill(insuranceNumber, fields.insuranceNumber, setInsuranceNumber, 'insuranceNumber');
         fill(insuranceCompany, fields.insuranceCompany, setInsuranceCompany, 'insuranceCompany');
         fill(insuranceExpiry, fields.insuranceExpiry, setInsuranceExpiry, 'insuranceExpiry');
-        // La póliza repite datos del vehículo (placa, marca, tipo)
+        // La póliza repite datos del vehículo (placa, marca, tipo, ids)
         fill(plate, fields.plate, setPlate, 'plate');
         fill(brand, fields.brand, setBrand, 'brand');
         fill(type, fields.type, setType, 'type');
+        fill(vin, fields.vin, setVin, 'vin');
+        fill(motor, fields.motor, setMotor, 'motor');
+        fill(chasis, fields.chasis, setChasis, 'chasis');
       }
 
       setOcrMessage(
@@ -402,7 +438,8 @@ export default function DriverDataScreen({ navigation, route }: Props) {
         setVehicleFieldsExpanded(true);
       }
     } finally {
-      setOcrReading(false);
+      pendingOcr.current -= 1;
+      setOcrReading(pendingOcr.current > 0);
     }
   };
 
@@ -421,6 +458,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
     source: 'camera' | 'gallery',
     setPhotoFunction: React.Dispatch<React.SetStateAction<string | null>>,
     ocrDocType?: DocumentOcrType,
+    isRegistrationBack = false,
   ) => {
     try {
       const options = { allowsEditing: true, aspect: [4, 3] as [number, number], quality: 0.9 };
@@ -445,9 +483,11 @@ export default function DriverDataScreen({ navigation, route }: Props) {
 
       if (result && !result.canceled && result.assets && result.assets.length > 0) {
         const uri = result.assets[0].uri;
+        const backVersion = isRegistrationBack ? ++backOcrVersion.current : undefined;
+        if (isRegistrationBack) setRegistrationOcrYear(null);
         setPhotoFunction(uri);
         if (ocrDocType) {
-          void runDocumentOcr(uri, ocrDocType);
+          void runDocumentOcr(uri, ocrDocType, backVersion);
         }
       }
     } catch (error) {
@@ -459,6 +499,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
   const takePhoto = (
     setPhotoFunction: React.Dispatch<React.SetStateAction<string | null>>,
     ocrDocType?: DocumentOcrType,
+    isRegistrationBack = false,
   ) => {
     Alert.alert(
       t('common.components.photoUploadField.options.title'),
@@ -467,11 +508,11 @@ export default function DriverDataScreen({ navigation, route }: Props) {
         { text: t('common.components.photoUploadField.options.cancel'), style: 'cancel' },
         {
           text: t('common.components.photoUploadField.options.gallery'),
-          onPress: () => void capturePhoto('gallery', setPhotoFunction, ocrDocType),
+          onPress: () => void capturePhoto('gallery', setPhotoFunction, ocrDocType, isRegistrationBack),
         },
         {
           text: t('common.components.photoUploadField.options.camera'),
-          onPress: () => void capturePhoto('camera', setPhotoFunction, ocrDocType),
+          onPress: () => void capturePhoto('camera', setPhotoFunction, ocrDocType, isRegistrationBack),
         },
       ],
     );
@@ -539,8 +580,8 @@ export default function DriverDataScreen({ navigation, route }: Props) {
     if (licenseExpiry && !isValidDateString(licenseExpiry)) {
       invalidDates.push(t('authScreens.driverData.license.expiryPlaceholder'));
     }
-    if (registrationExpiry && !isValidDateString(registrationExpiry)) {
-      invalidDates.push(t('authScreens.driverData.vehicle.registrationExpiryPlaceholder'));
+    if (emissionDate && !isValidDateString(emissionDate)) {
+      invalidDates.push(t('authScreens.driverData.vehicle.emissionDatePlaceholder'));
     }
     if (insuranceExpiry && !isValidDateString(insuranceExpiry)) {
       invalidDates.push(t('authScreens.driverData.vehicle.insuranceExpiryPlaceholder'));
@@ -582,17 +623,22 @@ export default function DriverDataScreen({ navigation, route }: Props) {
             brand,
             model,
             year: parseInt(year, 10),
+            registrationOcrYear: registrationOcrYear ?? undefined,
             color,
             type: type as 'sedan' | 'suv' | 'van' | 'moto',
-            passengers: passengers || undefined,
+            passengers: passengers ? parseInt(passengers, 10) : undefined,
+            vin: vin || undefined,
+            motor: motor || undefined,
+            chasis: chasis || undefined,
             registrationNumber: registrationNumber || undefined,
-            registrationExpiry: registrationExpiry || undefined,
+            emissionDate: emissionDate || undefined,
             insuranceNumber: insuranceNumber || undefined,
             insuranceCompany: insuranceCompany || undefined,
             insuranceExpiry: insuranceExpiry || undefined,
             insurancePhoto: insurancePhoto || undefined,
             registrationPhotoFront: registrationPhotoFront || undefined,
             registrationPhotoBack: registrationPhotoBack || undefined,
+            vehiclePhoto: vehiclePhoto || undefined,
             inspectionDate: inspectionDate || undefined,
             inspectionValidUntil: inspectionValidUntil || undefined,
             emissionsTestedAt: emissionsTestedAt || undefined,
@@ -635,17 +681,22 @@ export default function DriverDataScreen({ navigation, route }: Props) {
           brand,
           model,
           year: parseInt(year, 10),
+          registrationOcrYear: registrationOcrYear ?? undefined,
           color,
           type: type as 'sedan' | 'suv' | 'van' | 'moto',
-          passengers: passengers || undefined,
+          passengers: passengers ? parseInt(passengers, 10) : undefined,
+          vin: vin || undefined,
+          motor: motor || undefined,
+          chasis: chasis || undefined,
           registrationNumber: registrationNumber || undefined,
-          registrationExpiry: registrationExpiry || undefined,
+          emissionDate: emissionDate || undefined,
           insuranceNumber: insuranceNumber || undefined,
           insuranceCompany: insuranceCompany || undefined,
           insuranceExpiry: insuranceExpiry || undefined,
           insurancePhoto: insurancePhoto || undefined,
           registrationPhotoFront: registrationPhotoFront || undefined,
           registrationPhotoBack: registrationPhotoBack || undefined,
+          vehiclePhoto: vehiclePhoto || undefined,
           inspectionDate: inspectionDate || undefined,
           inspectionValidUntil: inspectionValidUntil || undefined,
           emissionsTestedAt: emissionsTestedAt || undefined,
@@ -805,14 +856,18 @@ export default function DriverDataScreen({ navigation, route }: Props) {
               color={color}
               type={type}
               passengers={passengers}
+              vin={vin}
+              motor={motor}
+              chasis={chasis}
               registrationNumber={registrationNumber}
-              registrationExpiry={registrationExpiry}
+              emissionDate={emissionDate}
               insuranceNumber={insuranceNumber}
               insuranceCompany={insuranceCompany}
               insuranceExpiry={insuranceExpiry}
               insurancePhoto={insurancePhoto}
               registrationPhotoFront={registrationPhotoFront}
               registrationPhotoBack={registrationPhotoBack}
+              vehiclePhoto={vehiclePhoto}
               loading={loading}
               colors={colors}
               onSetPlate={manualEdit('plate', setPlate)}
@@ -822,8 +877,11 @@ export default function DriverDataScreen({ navigation, route }: Props) {
               onSetColor={manualEdit('color', setColor)}
               onSetType={manualEdit('type', setType)}
               onSetPassengers={manualEdit('passengers', setPassengers)}
+              onSetVin={manualEdit('vin', setVin)}
+              onSetMotor={manualEdit('motor', setMotor)}
+              onSetChasis={manualEdit('chasis', setChasis)}
               onSetRegistrationNumber={manualEdit('registrationNumber', setRegistrationNumber)}
-              onSetRegistrationExpiry={manualEdit('registrationExpiry', setRegistrationExpiry)}
+              onSetEmissionDate={manualEdit('emissionDate', setEmissionDate)}
               onSetInsuranceNumber={manualEdit('insuranceNumber', setInsuranceNumber)}
               onSetInsuranceCompany={manualEdit('insuranceCompany', setInsuranceCompany)}
               onSetInsuranceExpiry={manualEdit('insuranceExpiry', setInsuranceExpiry)}
@@ -841,7 +899,8 @@ export default function DriverDataScreen({ navigation, route }: Props) {
               onSetRevisadoValidUntil={setRevisadoValidUntil}
               onTakeInsurancePhoto={() => takePhoto(setInsurancePhoto, 'insurance')}
               onTakeRegistrationPhotoFront={() => takePhoto(setRegistrationPhotoFront, 'registration')}
-              onTakeRegistrationPhotoBack={() => takePhoto(setRegistrationPhotoBack, 'registration')}
+              onTakeRegistrationPhotoBack={() => takePhoto(setRegistrationPhotoBack, 'registration', true)}
+              onTakeVehiclePhoto={() => takePhoto(setVehiclePhoto)}
               ocrReading={ocrReading}
               ocrMessage={ocrMessage}
               fieldsExpanded={vehicleFieldsExpanded}
@@ -859,7 +918,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
                 size="large"
                 iconName="arrow-forward"
                 loading={loading}
-                disabled={!isComplete}
+                disabled={!isComplete || ocrReading}
                 style={styles.actionButton}
               />
               <AnimatedButton
@@ -1018,7 +1077,7 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   infoBox: {
     backgroundColor: 'rgba(212, 175, 55, 0.08)',
     borderColor: 'rgba(212, 175, 55, 0.3)',
-    borderWidth: 1,
+    borderWidth: 0.2,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -1122,8 +1181,8 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderRadius: 999,
-    backgroundColor: colors.card,
-    borderWidth: 1,
+    backgroundColor: '#f0f0f0',
+    borderWidth: 0.2,
     borderColor: colors.border,
   },
   retakeButtonText: {

@@ -1,9 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { useAuth } from '../../shared/auth/useAuth';
-import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { getFirebaseFirestore } from '../../../config/firebase';
 import { FS_COL } from '../../../constants/firestore';
-import { liveTripDocId } from '../../../live/tripIds';
 
 // Mismo set que ACTIVE_RIDE_STATUSES en driverHomeHelpers. 'driver_assigned' se
 // excluye a propósito: ese estado también cubre "oferta enviada esperando
@@ -47,9 +46,9 @@ export function useAcceptedRideListener(navigation: any, rideId?: string) {
 
     const tryNavigateToActiveRide = (targetRideId: string, rideData: any) => {
       if (handledRideIdsRef.current.has(targetRideId)) return;
-      handledRideIdsRef.current.add(targetRideId);
       const focused = navigation.isFocused ? navigation.isFocused() : true;
       if (!focused || !isMounted) return;
+      handledRideIdsRef.current.add(targetRideId);
       console.log('[useAcceptedRideListener] ✅ Ride aceptado, navegando a ActiveRide:', targetRideId);
       navigation.replace('ActiveRide', {
         rideId: targetRideId,
@@ -76,24 +75,15 @@ export function useAcceptedRideListener(navigation: any, rideId?: string) {
           });
         };
 
-        if (rideId) {
-          const unsub = onSnapshot(
-            doc(db, FS_COL.tripsLive, await liveTripDocId(rideId)),
-            (snap) => {
-              if (snap.exists()) handleDocs([snap]);
-            },
-            (err) => console.warn('[useAcceptedRideListener] Error escuchando ride:', err),
-          );
-          cleanup = () => unsub();
-        } else {
-          // Viajes donde soy driver (participant read permitido por reglas).
-          const unsub = onSnapshot(
-            query(collection(db, FS_COL.tripsLive), where('driverId', '==', user.id)),
-            (snap) => handleDocs(snap.docs),
-            (err) => console.warn('[useAcceptedRideListener] Error escuchando rides:', err),
-          );
-          cleanup = () => unsub();
-        }
+        if (!isMounted) return;
+        const unsub = onSnapshot(
+          query(collection(db, FS_COL.tripsLive), where('driverId', '==', user.id)),
+          (snap) => handleDocs(rideId
+            ? snap.docs.filter((d) => d.id === rideId || d.data()?.rideId === rideId)
+            : snap.docs),
+          (err) => console.warn('[useAcceptedRideListener] Error escuchando rides:', err),
+        );
+        cleanup = () => unsub();
       } catch (err) {
         console.error('[useAcceptedRideListener] Error inicializando listener:', err);
       }

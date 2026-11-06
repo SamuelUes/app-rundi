@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 import { getFirebaseFirestore } from '../../../config/firebase';
 import { FS_COL } from '../../../constants/firestore';
-import { getRideDetail } from '../../../api/rides';
+import { getCurrentServiceAreaId } from '../../../utils/geo/serviceArea';
 import { extractRideVehicleTypeForMatching } from '../../../services/ride/ridesService';
 import { RIDES_RADIUS_KM } from '../../../constants/rideRadius';
 import { useDriverRideFeatureCapabilities } from '../useDriverRideFeatureCapabilities';
@@ -14,10 +14,12 @@ import {
   normalizeOptionalText,
   resolveSelectedDriverVehicleType,
   checkRideDriverCompatibility,
+  extractRequestedFeatureCodes,
   shouldShowRejectedRide,
   haversineKm,
 } from '../../../utils/ride/availableRidesHelpers';
 import { liveTripDocId } from '../../../live/tripIds';
+import { compareRideOrder, rideRequestedAtMillis } from '../../../utils/ride/rideOrder';
 
 const toNullableNumber = (value: any): number | null => {
   const parsed = Number(value);
@@ -48,8 +50,8 @@ const buildRide = (
   );
   const extraStops = normalizeStops(rideData.extraDestinations || rideData.extra_stops || rideData.additionalStops);
 
-  const requestedAtRaw = rideData.requestedAt ?? rideData.createdAt ?? rideData.created_at ?? Date.now();
-  const requestedAt = typeof requestedAtRaw === 'number' ? requestedAtRaw : parseInt(requestedAtRaw, 10) || 0;
+  const requestedAtRaw = rideData.requestedAt ?? rideData.createdAt ?? rideData.created_at;
+  const requestedAt = rideRequestedAtMillis(requestedAtRaw) ?? 0;
 
   return {
     id: rideId,
@@ -71,13 +73,7 @@ const buildRide = (
     vehicleType: extractRideVehicleTypeForMatching(rideData) ?? undefined,
     designatedDriverVehicle: rideData.designatedDriverVehicle ?? rideData.designated_driver_vehicle ?? null,
     serviceCode: rideData.serviceCode ?? rideData.service_code ?? rideData.pricingSnapshot?.serviceCode ?? undefined,
-    featureCodes: Array.isArray(rideData.featureCodes)
-      ? rideData.featureCodes.filter((code: unknown): code is string => typeof code === 'string')
-      : Array.isArray(rideData.feature_codes)
-        ? rideData.feature_codes.filter((code: unknown): code is string => typeof code === 'string')
-        : Array.isArray(rideData.pricingSnapshot?.featureCodes)
-          ? rideData.pricingSnapshot.featureCodes.filter((code: unknown): code is string => typeof code === 'string')
-          : [],
+    featureCodes: extractRequestedFeatureCodes(rideData),
     paymentMethod: rideData.paymentMethod,
     requestedAt,
     extraDestinations: extraStops,
@@ -226,23 +222,34 @@ export function useAvailableRidesData(
     }
 
     let unsub: (() => void) | null = null;
+    let unsubVehicle: (() => void) | null = null;
     let cancelled = false;
     (async () => {
       const db = await getFirebaseFirestore();
       if (cancelled) return;
-      // v2: drivers_live lleva vehicleType + activeServiceCodes (heartbeat del
-      // driver). isDesignatedDriverMode queda en el doc DATA-MAIN_drivers.
       unsub = onSnapshot(
         doc(db, FS_COL.driversLive, userId),
         (snapshot) => {
           const info = snapshot.data() as any;
-          const resolvedType = resolveSelectedDriverVehicleType(info);
-          setSelectedDriverVehicleType(resolvedType);
-          setDriverIsDesignatedMode(Boolean(info?.isDesignatedDriverMode));
-          setSelectedDriverVehicleId(typeof info?.vehicleId === 'string' ? info.vehicleId : null);
+          setDriverIsDesignatedMode(
+            Array.isArray(info?.activeServiceCodes) && info.activeServiceCodes.includes('designated_driver'),
+          );
         },
         (error) => {
           console.warn('[AvailableRides] Error leyendo vehículo activo del conductor:', error);
+        },
+      );
+      unsubVehicle = onSnapshot(
+        query(collection(db, FS_COL.vehicles), where('driverUid', '==', userId), where('isActive', '==', true)),
+        (snapshot) => {
+          const vehicle = snapshot.docs[0];
+          setSelectedDriverVehicleType(resolveSelectedDriverVehicleType({ vehicle: vehicle?.data() }));
+          setSelectedDriverVehicleId(vehicle?.id ?? null);
+        },
+        (error) => {
+          console.warn('[AvailableRides] Error leyendo vehículo activo:', error);
+          setSelectedDriverVehicleType(null);
+          setSelectedDriverVehicleId(null);
         },
       );
     })();
@@ -250,6 +257,7 @@ export function useAvailableRidesData(
     return () => {
       cancelled = true;
       unsub?.();
+      unsubVehicle?.();
     };
   }, [userId]);
 
@@ -328,8 +336,13 @@ export function useAvailableRidesData(
 
   const selectSnapshotData = useCallback((): Record<string, any> | null => {
     const offers = ridesSnapshotsRef.current['offers'] ?? {};
+    const requested = ridesSnapshotsRef.current['requested'] ?? {};
     const mine = ridesSnapshotsRef.current['mine'] ?? {};
-    return { ...offers, ...mine };
+    const requestedSqlIds = new Set(Object.values(requested).map((ride: any) => ride?.rideId).filter(Boolean));
+    const unmatchedOffers = Object.fromEntries(
+      Object.entries(offers).filter(([id]) => !requestedSqlIds.has(id)),
+    );
+    return { ...unmatchedOffers, ...requested, ...mine };
   }, [serviceAreaId]);
 
   const applySnapshot = useCallback(
@@ -344,6 +357,10 @@ export function useAvailableRidesData(
       }
 
       const availableRides: Ride[] = [];
+      const filtered: Record<string, number> = {};
+      const countFiltered = (reason: string) => {
+        if (__DEV__) filtered[reason] = (filtered[reason] || 0) + 1;
+      };
 
       Object.entries(data).forEach(([rideId, rideData]: [string, any]) => {
         const statusRaw = typeof rideData?.status === 'string' ? rideData.status.trim().toLowerCase() : '';
@@ -356,12 +373,12 @@ export function useAvailableRidesData(
           rideData?.paymentCanceled === true ||
           rideData?.cancelled === true ||
           rideData?.canceled === true;
-        if (isCancelled) return;
+        if (isCancelled) { countFiltered('cancelled'); return; }
 
         const isRequested = statusRaw === 'requested' && !driverId;
         const isNegotiatingWithMe = Boolean(userId) && driverId === userId && ['accepted', 'driver_offered'].includes(statusRaw);
 
-        if (!(isRequested || isNegotiatingWithMe)) return;
+        if (!(isRequested || isNegotiatingWithMe)) { countFiltered('status_or_driver'); return; }
 
         if (isRequested) {
           const compatibility = checkRideDriverCompatibility(
@@ -371,7 +388,7 @@ export function useAvailableRidesData(
             driverFeatureCodes,
             vehicleFeatureCodes,
           );
-          if (!compatibility.ok) return;
+          if (!compatibility.ok) { countFiltered(compatibility.reason || 'incompatible'); return; }
 
           const visibleAfterRejection = shouldShowRejectedRide(
             rideData?.rejections,
@@ -379,7 +396,7 @@ export function useAvailableRidesData(
             toNullableNumber(rideData?.clientSuggestedPrice),
             toNullableNumber(rideData?.estimatedPrice),
           );
-          if (!visibleAfterRejection) return;
+          if (!visibleAfterRejection) { countFiltered('rejected'); return; }
         }
 
         const ride = buildRide(rideId, rideData, statusRaw, userId);
@@ -395,6 +412,7 @@ export function useAvailableRidesData(
         ) {
           const distanceKm = haversineKm(driverLat, driverLng, ride.origin.lat, ride.origin.lng);
           if (!Number.isFinite(distanceKm) || distanceKm > RIDES_RADIUS_KM) {
+            countFiltered('distance');
             return;
           }
           ride.distanceToOriginKm = distanceKm;
@@ -403,16 +421,22 @@ export function useAvailableRidesData(
         availableRides.push(ride);
       });
 
-      availableRides.sort((a, b) => {
-        const distA = a.distanceToOriginKm ?? Number.MAX_SAFE_INTEGER;
-        const distB = b.distanceToOriginKm ?? Number.MAX_SAFE_INTEGER;
-        if (distA !== distB) {
-          return distA - distB;
-        }
-        return (b.requestedAt || 0) - (a.requestedAt || 0);
-      });
+      availableRides.sort((a, b) => compareRideOrder(
+        { distance: a.distanceToOriginKm, requestedAt: a.requestedAt || null, id: a.id },
+        { distance: b.distanceToOriginKm, requestedAt: b.requestedAt || null, id: b.id },
+      ));
 
       setRides(availableRides);
+      if (__DEV__) {
+        console.log('[AvailableRides filter]', {
+          candidates: rideKeys.length,
+          visible: availableRides.length,
+          filtered,
+          hasCoords: coords?.latitude != null && coords?.longitude != null,
+          vehicleType: selectedDriverVehicleType,
+          designatedMode: driverIsDesignatedMode,
+        });
+      }
       setSelectedRideId((current) => (current && availableRides.some((ride) => ride.id === current) ? current : null));
       setLoading(false);
       setRefreshing(false);
@@ -442,9 +466,7 @@ export function useAvailableRidesData(
     applySnapshot(selectSnapshotData());
   }, [applySnapshot, selectSnapshotData, selectedDriverVehicleType, driverIsDesignatedMode]);
 
-  // Listener: ofertas de dispatch (REALTIME_driver_offers donde driverId==yo)
-  // + mis trips_live en negociación. En v2 el driver NO puede escanear
-  // trips_live ajenos — el matching del consumer crea los docs de oferta.
+  // Solicitudes por área y viajes asignados, más las ofertas propias.
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
@@ -463,19 +485,18 @@ export function useAvailableRidesData(
       unsubs.push(
         onSnapshot(
           query(collection(db, FS_COL.driverOffers), where('driverId', '==', userId)),
-          async (snap) => {
+          (snap) => {
             const offers: Record<string, any> = {};
-            const detailFetches: Array<Promise<void>> = [];
             snap.docs.forEach((d) => {
               const offer = d.data();
               const rideId = String(offer?.rideId ?? '');
               if (!rideId) return;
-              // El doc de oferta trae {rideId, clientId, status, distanceKm,
-              // expiresAt}; los detalles del viaje van por REST best-effort
-              // (403 si el backend no expone detalle a oferentes).
+              if (!offer.origin || !offer.destination) return;
               offers[rideId] = {
                 ...offers[rideId],
+                ...offer,
                 rideId,
+                driverId: null,
                 clientId: offer?.clientId,
                 status: offer?.status === 'pending' ? 'requested' : offer?.status,
                 distanceToOriginKm: offer?.distanceKm,
@@ -483,18 +504,7 @@ export function useAvailableRidesData(
                 __offeredPrice: offer?.offeredPrice,
                 offers: { [userId]: { offeredPrice: offer?.offeredPrice, status: offer?.status } },
               };
-              detailFetches.push(
-                getRideDetail(rideId)
-                  .then((res: any) => {
-                    const detail = res?.ride ?? res;
-                    if (detail && typeof detail === 'object') {
-                      offers[rideId] = { ...offers[rideId], ...detail, rideId };
-                    }
-                  })
-                  .catch(() => {}),
-              );
             });
-            await Promise.all(detailFetches);
             ridesSnapshotsRef.current['offers'] = offers;
             reapply();
           },
@@ -507,6 +517,24 @@ export function useAvailableRidesData(
           },
         ),
       );
+
+      unsubs.push(onSnapshot(
+        query(collection(db, FS_COL.tripsLive),
+          where('serviceAreaId', '==', serviceAreaId || getCurrentServiceAreaId()),
+          where('status', '==', 'requested')),
+        (snap) => {
+          const requested: Record<string, any> = {};
+          snap.docs.forEach((d) => { requested[d.id] = { ...d.data(), liveId: d.id }; });
+          if (__DEV__) console.log('[AvailableRides query]', {
+            area: serviceAreaId || getCurrentServiceAreaId(),
+            proximityArea: getCurrentServiceAreaId(),
+            requested: snap.size,
+          });
+          ridesSnapshotsRef.current['requested'] = requested;
+          reapply();
+        },
+        (error) => console.error('[AvailableRides] Error escuchando solicitudes:', error),
+      ));
 
       unsubs.push(
         onSnapshot(
@@ -534,31 +562,14 @@ export function useAvailableRidesData(
     setRefreshing(true);
     try {
       const db = await getFirebaseFirestore();
-      const offersSnap = await getDocs(
-        query(collection(db, FS_COL.driverOffers), where('driverId', '==', userId)),
+      const snapshot = await getDocs(
+        query(collection(db, FS_COL.tripsLive),
+          where('serviceAreaId', '==', serviceAreaId || getCurrentServiceAreaId()),
+          where('status', '==', 'requested')),
       );
-      const offers: Record<string, any> = {};
-      await Promise.all(
-        offersSnap.docs.map(async (d) => {
-          const offer = d.data();
-          const rideId = String(offer?.rideId ?? '');
-          if (!rideId) return;
-          offers[rideId] = {
-            rideId,
-            clientId: offer?.clientId,
-            status: offer?.status === 'pending' ? 'requested' : offer?.status,
-            distanceToOriginKm: offer?.distanceKm,
-          };
-          try {
-            const res: any = await getRideDetail(rideId);
-            const detail = (res as any)?.ride ?? res;
-            if (detail && typeof detail === 'object') {
-              offers[rideId] = { ...offers[rideId], ...detail, rideId };
-            }
-          } catch {}
-        }),
-      );
-      ridesSnapshotsRef.current['offers'] = offers;
+      const requested: Record<string, any> = {};
+      snapshot.docs.forEach((d) => { requested[d.id] = { ...d.data(), liveId: d.id }; });
+      ridesSnapshotsRef.current['requested'] = requested;
       applySnapshot(selectSnapshotData());
     } catch (error) {
       console.error('❌ [AvailableRides] Error refrescando manualmente:', error);
@@ -578,6 +589,8 @@ export function useAvailableRidesData(
     activeRideGuard,
     selectedDriverVehicleType,
     driverIsDesignatedMode,
+    driverFeatureCodes,
+    vehicleFeatureCodes,
     driverStatus,
     driverStatusLoaded,
     isDriverOnline: driverStatus === 'online' || driverStatus === 'on_ride' || driverStatus === 'available' || driverStatus === 'busy',

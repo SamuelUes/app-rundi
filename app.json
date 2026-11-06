@@ -6,7 +6,7 @@
       }
     },
     "ios": {
-      "bundleIdentifier": "com.driveangel.rundidev",
+      "bundleIdentifier": "com.gruporzc.rundi",
       "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false

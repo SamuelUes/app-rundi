@@ -59,6 +59,7 @@ export function useDriversAvailability(
 
     let cancelled = false;
     const check = async () => {
+      setAvailabilityByType(null);
       setCheckingDrivers(true);
       try {
         const requestedVehicleType =

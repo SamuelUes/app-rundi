@@ -6,7 +6,7 @@ import {
   TouchableOpacity,
   Alert,
 } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import { CallScaffold, CallAction } from '../../components/shared/CallScaffold';
@@ -67,8 +67,9 @@ export default function RideCallScreen({ route }: RideCallScreenProps) {
     };
   }, [disconnectLivekit]);
 
+  // El backend no escribe events.initiated — el iniciador es callerUid.
   const isCallInitiator = Boolean(
-    activeCall?.events?.initiated?.by && resolvedUid && activeCall.events.initiated.by === resolvedUid,
+    resolvedUid && activeCall?.callerUid === resolvedUid,
   );
   const ringing = ['initiated', 'ringing_client', 'ringing_driver'].includes(
     String(activeCall?.status || '').toLowerCase(),
@@ -102,24 +103,28 @@ export default function RideCallScreen({ route }: RideCallScreenProps) {
     });
   }, [autoStart, rideId, otherUserId, activeCall, startRideCall]);
 
-  // Cuando la contraparte acepta nuestra llamada saliente, entrar a la sala sin
-  // paso extra. El webhook marca `connected` con ambos participantes dentro.
+  // Al quedar la llamada aceptada, entrar a la sala sin paso extra — sea
+  // saliente (la contraparte acepta) o entrante (aceptamos nosotros). El
+  // webhook marca `connected` con ambos participantes dentro.
   const autoJoinCallIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (autoJoinCallIdRef.current && autoJoinCallIdRef.current !== activeCall?.callId) {
       autoJoinCallIdRef.current = null;
     }
-    if (!activeCall?.callId || !isAccepted || !isCallInitiator) return;
-    if (livekitConnected || livekitConnecting || livekitInfo) return;
+    if (!activeCall?.callId || !isAccepted) return;
+    if (livekitConnected || livekitConnecting) return;
     if (autoJoinCallIdRef.current === activeCall.callId) return;
     autoJoinCallIdRef.current = activeCall.callId;
+    if (livekitInfo) {
+      connectLivekit(livekitInfo);
+      return;
+    }
     fetchLivekitToken(activeCall.callId).then((info) => {
       if (info) connectLivekit(info);
     });
   }, [
     activeCall?.callId,
     isAccepted,
-    isCallInitiator,
     livekitConnected,
     livekitConnecting,
     livekitInfo,
@@ -188,7 +193,7 @@ export default function RideCallScreen({ route }: RideCallScreenProps) {
     return (
       <View style={styles.emptyContainer}>
         <View style={styles.emptyIconWrap}>
-          <Ionicons name="call-outline" size={30} color="#E8C985" />
+          <MaterialIcons name="support-agent" size={30} color="#E8C985" />
         </View>
         <Text style={styles.emptyTitle}>{t(`${ns}.emptyState.title`, 'Sin viaje activo')}</Text>
         <Text style={styles.emptySubtitle}>{t(`${ns}.emptyState.subtitle`, 'Abre el chat del viaje para llamar a la otra parte.')}</Text>
@@ -200,7 +205,7 @@ export default function RideCallScreen({ route }: RideCallScreenProps) {
   }
 
   const callId = activeCall?.callId;
-  const needsJoin = isInCall && !livekitConnected && !livekitConnecting;
+
 
   const callAction: CallAction =
     isRinging && callId
@@ -212,16 +217,9 @@ export default function RideCallScreen({ route }: RideCallScreenProps) {
         }
       : isOutgoing && callId
         ? { kind: 'outgoing', loading: callLoading, onCancel: () => cancelCall(callId) }
-        : needsJoin
-          ? {
-              kind: 'join',
-              loading: callLoading || livekitConnecting,
-              onJoin: handleJoinRoom,
-              onEnd: handleCallAction,
-            }
-          : isInCall
-            ? { kind: 'incall', loading: callLoading, onEnd: handleCallAction }
-            : { kind: 'call', loading: callLoading, onPress: handleCallAction };
+        : isInCall
+          ? { kind: 'incall', loading: callLoading || livekitConnecting, onEnd: handleCallAction }
+          : { kind: 'call', loading: callLoading, onPress: handleCallAction };
 
   const statusText = isTerminal
     ? t(`${ns}.labels.ended`, 'Llamada finalizada')

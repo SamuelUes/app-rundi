@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,6 +8,7 @@ import { useFCM } from '../../context/FCMContext';
 import LoadingOverlay from '../../components/ui/LoadingOverlay';
 import TermsAndConditionsModal from '../../components/shared/TermsAndConditionsModal';
 import phoneAuthService from '../../services/auth/phoneAuthService';
+import BiometricService from '../../services/user/biometricService';
 import { useTranslation } from 'react-i18next';
 import { useLanguageStore } from '../../stores/languageStore';
 import { SettingsAccountSection } from '../../components/shared/Settings/SettingsAccountSection';
@@ -31,8 +32,30 @@ export default function SettingsScreen({ navigation }: any) {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
   const [showTermsModal, setShowTermsModal] = useState(false);
+  const [biometricUnlockAvailable, setBiometricUnlockAvailable] = useState(false);
+  const [biometricUnlockEnabled, setBiometricUnlockEnabled] = useState(false);
 
   const notificationsEnabled = isFCMAvailable && hasPermission && isConfigured;
+
+  useEffect(() => {
+    void BiometricService.isAvailable().then(setBiometricUnlockAvailable);
+    void BiometricService.isBiometricUnlockEnabled().then(setBiometricUnlockEnabled);
+  }, []);
+
+  const handleToggleBiometricUnlock = async (value: boolean) => {
+    const result = value
+      ? await BiometricService.authenticate(t('shared.biometricLock.promptReason'))
+      : // Apagar el candado exige el mismo chequeo que la lock screen: sin
+        // verificación no se toca la preferencia.
+        await BiometricService.authenticateWithDeviceCredential(
+          t('shared.biometricLock.disableReason'),
+        );
+    if (!result.success) {
+      return;
+    }
+    await BiometricService.setBiometricUnlockEnabled(value);
+    setBiometricUnlockEnabled(value);
+  };
 
   const handleToggleNotifications = async (value: boolean) => {
     try {
@@ -413,6 +436,11 @@ export default function SettingsScreen({ navigation }: any) {
           mapTrafficEnabled={mapTrafficEnabled}
           soundEnabled={soundEnabled}
           vibrationEnabled={vibrationEnabled}
+          biometricUnlockAvailable={biometricUnlockAvailable}
+          biometricUnlockEnabled={biometricUnlockEnabled}
+          showBiometricUnlock={
+            user?.role !== 'driver' && user?.role !== 'designated_driver'
+          }
           colors={colors}
           onThemeChange={handleThemeChange}
           onToggleNotifications={handleToggleNotifications}
@@ -421,6 +449,7 @@ export default function SettingsScreen({ navigation }: any) {
             setSoundEnabled(value);
             setVibrationEnabled(value);
           }}
+          onToggleBiometricUnlock={handleToggleBiometricUnlock}
           t={t}
           styles={styles}
         />

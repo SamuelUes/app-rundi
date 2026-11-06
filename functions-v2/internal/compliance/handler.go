@@ -6,10 +6,14 @@
 package compliance
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -18,11 +22,30 @@ import (
 )
 
 type Handler struct {
-	svc *Service
+	svc          *Service
+	store        *DailyStore
+	wakeConsumer func(context.Context) error
 }
 
-func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+func NewHandler(svc *Service, store *DailyStore) *Handler {
+	return &Handler{svc: svc, store: store}
+}
+
+// SetConsumerWakeup instala el wake-up best-effort del consumer de outbox
+// (opcional; sin él los eventos se procesan en el siguiente tick).
+func (h *Handler) SetConsumerWakeup(wake func(context.Context) error) {
+	h.wakeConsumer = wake
+}
+
+func (h *Handler) wakeOutbox(ctx context.Context) {
+	if h.wakeConsumer == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	if err := h.wakeConsumer(ctx); err != nil {
+		slog.Warn("consumer wake-up failed; scheduled sweep will retry", "err", err)
+	}
 }
 
 // Routes — /v1/compliance (conductor sobre sus propios documentos).
@@ -35,6 +58,8 @@ func (h *Handler) Routes() chi.Router {
 	r.Get("/status", h.complianceStatus)                        // getComplianceStatus
 	r.Post("/can-operate", h.canOperate)                        // canOperateVehicle
 	r.Post("/alerts/{id}/acknowledge", h.ackAlert)              // acknowledgeDocumentAlert
+	r.Post("/availability", h.activateAvailability)             // activar disponibilidad
+	r.Delete("/availability", h.deactivateAvailability)         // desactivar disponibilidad
 	return r
 }
 
@@ -58,7 +83,7 @@ func ctxRole(r *http.Request) string {
 func (h *Handler) submitLicense(w http.ResponseWriter, r *http.Request) {
 	var in LicenseInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	id, err := h.svc.SubmitDriverLicense(r.Context(), ctxUID(r), in)
@@ -72,7 +97,7 @@ func (h *Handler) submitLicense(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) submitVehicleDoc(w http.ResponseWriter, r *http.Request) {
 	var in VehicleDocInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	id, err := h.svc.SubmitVehicleDocument(r.Context(), ctxUID(r), in)
@@ -117,7 +142,7 @@ func (h *Handler) canOperate(w http.ResponseWriter, r *http.Request) {
 		ServiceCode string `json:"serviceCode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	uid := ctxUID(r)
@@ -141,6 +166,42 @@ func (h *Handler) canOperate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apperr.JSON(w, http.StatusOK, map[string]any{"evaluation": ev})
+}
+
+// activateAvailability — el conductor se pone disponible: evalúa (o reutiliza
+// la decisión válida del día) y devuelve la decisión; un rechazo también es
+// 200 con sus motivos para que la app los muestre.
+func (h *Handler) activateAvailability(w http.ResponseWriter, r *http.Request) {
+	res, err := h.svc.ActivateAvailability(r.Context(), ctxUID(r), h.store)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrDriverNotFound):
+			apperr.Write(w, apperr.New(404, "Perfil de conductor no encontrado"))
+		case errors.Is(err, ErrNoActiveVehicle):
+			apperr.Write(w, apperr.New(409, "driver has no active vehicle"))
+		default:
+			apperr.Write(w, err)
+		}
+		return
+	}
+	if res.Allowed {
+		h.wakeOutbox(r.Context())
+	}
+	apperr.JSON(w, http.StatusOK, map[string]any{"activation": res})
+}
+
+// deactivateAvailability — cierre explícito (el conductor se pone offline).
+func (h *Handler) deactivateAvailability(w http.ResponseWriter, r *http.Request) {
+	if err := h.svc.DeactivateAvailability(r.Context(), ctxUID(r)); err != nil {
+		if errors.Is(err, ErrDriverNotFound) {
+			apperr.Write(w, apperr.New(404, "Perfil de conductor no encontrado"))
+			return
+		}
+		apperr.Write(w, err)
+		return
+	}
+	h.wakeOutbox(r.Context())
+	apperr.JSON(w, http.StatusOK, map[string]string{"status": "offline"})
 }
 
 func (h *Handler) ackAlert(w http.ResponseWriter, r *http.Request) {
@@ -172,7 +233,7 @@ func (h *Handler) reviewQueue(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) review(w http.ResponseWriter, r *http.Request) {
 	var in ReviewInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	status, err := h.svc.ReviewDocument(r.Context(), ctxUID(r), in)

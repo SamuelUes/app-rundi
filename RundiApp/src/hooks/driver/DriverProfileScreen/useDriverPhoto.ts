@@ -2,7 +2,8 @@ import { useCallback, useState } from 'react';
 import { Alert } from 'react-native';
 import * as ExpoImagePicker from 'expo-image-picker';
 import driversService from '../../../services/driver/driversService';
-import supabaseStorage from '../../../services/media/storageService';
+import firebaseStorage from '../../../services/media/storageService';
+import { updateMyProfile } from '../../../api/users';
 import type { TFunction } from 'i18next';
 
 export function useDriverPhoto(
@@ -35,17 +36,18 @@ export function useDriverPhoto(
         setUploadingPhoto(true);
         try {
           if (type === 'profile') {
-            const photoUrl = await supabaseStorage.uploadProfilePhoto(
+            const photoPath = await firebaseStorage.uploadProfilePhoto(
               userId,
               result.assets[0].uri,
             );
+            const photoUrl = await firebaseStorage.resolveProfilePhotoUrl(photoPath);
+            if (!photoUrl || !/^https?:\/\//i.test(photoUrl)) {
+              throw new Error(t('driver.profile.alerts.upload.errorBody'));
+            }
 
-            const displayPhotoUrl = await supabaseStorage.resolveDocumentPhotoUrl(photoUrl);
-            setProfilePhoto(displayPhotoUrl);
-
-            await driversService.updateDriver({
-              profile_photo: photoUrl,
-            });
+            await updateMyProfile({ profilePhoto: photoUrl });
+            await driversService.updateDriver({ profile_photo: photoUrl });
+            setProfilePhoto(photoUrl);
 
             Alert.alert(
               t('driver.profile.alerts.upload.successTitle'),

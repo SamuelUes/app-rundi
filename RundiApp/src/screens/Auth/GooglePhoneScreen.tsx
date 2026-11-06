@@ -175,6 +175,8 @@ const GooglePhoneScreen: React.FC<GooglePhoneScreenProps> = ({ navigation, route
                 value={phoneInput.replace(selectedCountry.dialCode, '').trim()}
                 onChangeText={(text) => handlePhoneChange(`${selectedCountry.dialCode} ${text}`)}
                 keyboardType="phone-pad"
+                textContentType="telephoneNumber"
+                autoComplete="tel-national"
                 editable={!loading}
               />
             </View>

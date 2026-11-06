@@ -11,6 +11,9 @@ import shared from './shared';
  */
 export const en = {
   common,
+  // Services call i18n.t('services.X') without a namespace prefix; the
+  // subtree lives in common.ts. Root alias so those keys resolve.
+  services: common.services,
   authScreens,
   client,
   settings,

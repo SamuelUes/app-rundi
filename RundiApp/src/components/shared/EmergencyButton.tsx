@@ -10,6 +10,7 @@ import {
   Pressable,
 } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../ui/LoadingIcon';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
@@ -34,6 +35,7 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
   const [calling, setCalling] = useState(false);
 
   const handleEmergencyPress = useCallback(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     onOpen?.();
     setModalVisible(true);
   }, [onOpen]);
@@ -56,6 +58,7 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
   const callEmergency = async (type: 'police' | 'ambulance') => {
     const { title, number } = getEmergencyDetails(type);
 
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     setCalling(true);
     setModalVisible(false);
 

@@ -4,7 +4,7 @@ import { getFirebaseFirestore } from '../../../config/firebase';
 import { FS_COL } from '../../../constants/firestore';
 import alertService from '../../../services/notification/alertService';
 import proximityService from '../../../services/ride/proximityService';
-import { liveTripDocId } from '../../../live/tripIds';
+import { extractRequestedFeatureCodes } from '../../../utils/ride/rideFeatureLabels';
 
 export interface RideLocation {
   lat: number;
@@ -24,6 +24,7 @@ export interface RidePreviewData {
   pricingSnapshot?: { dynamicMinimumFare?: number } | null;
   estimatedDistance?: number;
   estimatedDuration?: number;
+  featureCodes?: string[];
   clientSuggestedPrice?: number;
   driverOfferedPrice?: number | null;
   driverOfferStatus?: string | null;
@@ -186,6 +187,9 @@ export function useRidePreviewData(
         clientPhone: data.clientPhone || prev.clientPhone,
         clientVehiclePhoto: data.clientVehiclePhoto ?? prev.clientVehiclePhoto ?? null,
         rideType: data.rideType || prev.rideType || null,
+        featureCodes: Array.isArray(data.featureCodes) || Array.isArray(data.feature_codes) || Array.isArray(data.pricingSnapshot?.featureCodes)
+          ? extractRequestedFeatureCodes(data)
+          : prev.featureCodes,
         clientComment: data.clientComment ?? data.comment ?? data.notes ?? prev.clientComment ?? null,
       }));
     };
@@ -196,9 +200,10 @@ export function useRidePreviewData(
 
       unsubs.push(
         onSnapshot(
-          doc(db, FS_COL.tripsLive, await liveTripDocId(ride.id)),
+          query(collection(db, FS_COL.tripsLive), where('driverId', '==', userId)),
           (snap) => {
-            if (snap.exists()) handleRideData(snap.data());
+            const trip = snap.docs.find((d) => d.id === ride.id || d.data()?.rideId === ride.id);
+            if (trip) handleRideData(trip.data());
           },
           () => {
             // Sin permiso de participante todavía — esperado antes de aceptar.
@@ -235,7 +240,7 @@ export function useRidePreviewData(
           () => {},
         ),
       );
-    })();
+    })().catch((error) => console.warn('[useRidePreviewData] Error inicializando listeners:', error));
 
     return () => {
       cancelled = true;

@@ -58,6 +58,11 @@ export function RegisterPasswordFields({
             onChangeText={onSetPassword}
             secureTextEntry={!showPassword}
             editable={!loading}
+            autoCapitalize="none"
+            autoCorrect={false}
+            textContentType="newPassword"
+            autoComplete="new-password"
+            importantForAutofill="yes"
           />
           <TouchableOpacity
             style={styles.eyeButton}
@@ -90,6 +95,11 @@ export function RegisterPasswordFields({
             onChangeText={onSetConfirmPassword}
             secureTextEntry={!showConfirmPassword}
             editable={!loading}
+            autoCapitalize="none"
+            autoCorrect={false}
+            textContentType="newPassword"
+            autoComplete="new-password"
+            importantForAutofill="yes"
           />
           <TouchableOpacity
             style={styles.eyeButton}

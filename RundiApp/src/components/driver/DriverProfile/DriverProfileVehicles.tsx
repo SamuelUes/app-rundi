@@ -31,7 +31,6 @@ export function DriverProfileVehicles({
         <>
           {vehicles.map((vehicle) => {
             const isSelectedVehicle = selectedVehicleId === vehicle.id;
-            const isApproved = Boolean(vehicle.is_active ?? vehicle.isActive);
 
             return (
               <View
@@ -56,9 +55,6 @@ export function DriverProfileVehicles({
                     {isSelectedVehicle && (
                       <Text style={styles.activeVehicleLabel}>{t('driver.profile.vehicles.selectedLabel')}</Text>
                     )}
-                    {!isApproved && (
-                      <Text style={styles.pendingVehicleLabel}>{t('driver.profile.vehicles.pendingLabel')}</Text>
-                    )}
                   </View>
                 </View>
                 <View style={[styles.vehicleButtonsContainer, { width: '100%', marginTop: 14, alignSelf: 'stretch' }]}>
@@ -76,17 +72,15 @@ export function DriverProfileVehicles({
                     <TouchableOpacity
                       style={[styles.changeButton, isSelectedVehicle && styles.changeButtonActive, { flex: 1, minHeight: 44, justifyContent: 'center', alignItems: 'center' }]}
                       onPress={() => onSwitchVehicle(vehicle.id)}
-                      disabled={isSelectedVehicle || !isApproved}
+                      disabled={isSelectedVehicle}
                     >
                       <Text
-                        style={[styles.changeButtonText, isSelectedVehicle && styles.changeButtonTextActive, (!isApproved && !isSelectedVehicle) && styles.changeButtonTextDisabled]}
+                        style={[styles.changeButtonText, isSelectedVehicle && styles.changeButtonTextActive]}
                         numberOfLines={1}
                       >
                         {isSelectedVehicle
                           ? t('driver.profile.vehicles.selected')
-                          : isApproved
-                            ? t('driver.profile.vehicles.switch')
-                            : t('driver.profile.vehicles.unavailable')}
+                          : t('driver.profile.vehicles.switch')}
                       </Text>
                     </TouchableOpacity>
                   )}

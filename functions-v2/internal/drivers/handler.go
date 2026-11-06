@@ -37,7 +37,9 @@ func (h *Handler) Routes() chi.Router {
 	r.Get("/me/designated-access", h.designatedAccessStatus)
 	r.Get("/me/stats", h.myStats)
 	r.Get("/me/features", h.myFeatures)
+	r.Put("/me/features/senior", h.setSeniorFeature)
 	r.Get("/me/recharges", h.myRecharges)
+	r.Post("/me/recharges", h.requestRecharge)
 	r.Get("/crew-candidates", h.crewCandidates)
 	r.Get("/", h.listPublic)
 	return r
@@ -53,6 +55,8 @@ func (h *Handler) AdminRoutes(r chi.Router) {
 	r.Post("/vehicles/{id}/features/{code}", h.grantVehicleFeature)
 	r.Delete("/vehicles/{id}/features/{code}", h.revokeVehicleFeature)
 	r.Post("/drivers/{id}/recharges", h.createRecharge)
+	r.Get("/recharges", h.listRecharges)
+	r.Post("/recharges/{id}/confirm", h.confirmRecharge)
 }
 
 func ctxUID(r *http.Request) string {
@@ -67,7 +71,7 @@ func ctxRID(r *http.Request) string {
 func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 	var body RegisterDriverInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	id, err := h.svc.Register(r.Context(), ctxUID(r), body, ctxRID(r))
@@ -90,7 +94,7 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) patchMe(w http.ResponseWriter, r *http.Request) {
 	var body map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	if err := h.svc.PatchMe(r.Context(), ctxUID(r), body, ctxRID(r)); err != nil {
@@ -114,7 +118,7 @@ func (h *Handler) assignMyService(w http.ResponseWriter, r *http.Request) {
 		ServiceCode string `json:"serviceCode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	if err := h.svc.AssignMyService(r.Context(), ctxUID(r), body.ServiceCode, ctxRID(r)); err != nil {
@@ -144,7 +148,7 @@ func (h *Handler) listMyVehicles(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) registerVehicle(w http.ResponseWriter, r *http.Request) {
 	var body VehicleInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	id, err := h.svc.RegisterVehicle(r.Context(), ctxUID(r), body, ctxRID(r))
@@ -158,7 +162,7 @@ func (h *Handler) registerVehicle(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) patchVehicle(w http.ResponseWriter, r *http.Request) {
 	var body map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	if err := h.svc.PatchVehicle(r.Context(), ctxUID(r), chi.URLParam(r, "id"), body, ctxRID(r)); err != nil {
@@ -176,7 +180,7 @@ func (h *Handler) setStatus(w http.ResponseWriter, r *http.Request) {
 		Reason string `json:"reason,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	if err := h.svc.SetAccountStatus(r.Context(), ctxUID(r), chi.URLParam(r, "id"), body.Status, body.Reason, ctxRID(r)); err != nil {

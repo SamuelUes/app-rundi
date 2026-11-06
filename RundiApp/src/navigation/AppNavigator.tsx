@@ -2,14 +2,17 @@ import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { BrandLoadingIndicator } from '../components/ui/BrandLoadingIndicator';
 import { useAuth } from '../hooks/shared/auth/useAuth';
+import { useAuthStore } from '../stores/authStore';
 import { useTheme } from '../hooks/shared/theme/useTheme';
 import AuthStack from './AuthStack';
 import ClientStack from './ClientStack';
 import DriverStack from './DriverStack';
+import BiometricLockScreen from '../components/auth/BiometricLockScreen';
 import { replace } from './NavigationService';
 
 export default function AppNavigator() {
   const { user, loading, userMode } = useAuth();
+  const biometricLocked = useAuthStore((s) => s.biometricLocked);
   const { colors } = useTheme();
 
   const prevUserModeRef = useRef<'client' | 'driver' | null>(null);
@@ -52,6 +55,13 @@ export default function AppNavigator() {
   }
 
   const isDriverCapable = user.role === 'driver' || user.role === 'designated_driver';
+
+  // Sesión restaurada con desbloqueo biométrico activo: gate antes de los stacks.
+  // Conductores exentos: su flujo de entrada ya exige biometría, el candado
+  // de app sería redundante.
+  if (biometricLocked && !isDriverCapable) {
+    return <BiometricLockScreen />;
+  }
 
   // Seleccionar stack según el modo activo y las capacidades del usuario
   if (userMode === 'driver' && isDriverCapable) {

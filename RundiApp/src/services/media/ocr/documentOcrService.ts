@@ -28,9 +28,13 @@ export interface ExtractedDocumentFields {
   passengers?: string;
   registrationNumber?: string;
   registrationExpiry?: string;
+  emissionDate?: string;
   insuranceNumber?: string;
   insuranceCompany?: string;
   insuranceExpiry?: string;
+  vin?: string;
+  motor?: string;
+  chasis?: string;
 }
 
 export interface DocumentOcrResult {
@@ -185,6 +189,11 @@ const CLUSTER_DATE = /([A-Za-z0-9]{1,3})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/g;
 // Variante con mes+año fusionados: "A4/022029" → 02/2029. El \b final evita
 // partir secuencias de dígitos largas (barcode "0900515645").
 const CLUSTER_DATE_FUSED = /([A-Za-z0-9]{1,3})[\/\-.](\d{2})(\d{4})\b/g;
+// Fragmento "día/mes" SIN año ("A4/02", "14/02"): el OCR rojo de la licencia
+// suele cortar el año a otra línea. El lookahead exige que no sigan dígitos,
+// así no corta cadenas de ID ("001-140206-1002S").
+const YEARLESS_DATE = /([A-Za-z0-9]{1,3})[\/\-.](\d{1,2})(?![\/\-.]?\d)/g;
+const YEAR_ONLY = /\b(?:19|20)\d{2}\b/g;
 
 /**
  * Interpreta un cluster tipo "A4"/"RA4"/"I4" como día: mapea letras a
@@ -251,6 +260,39 @@ function findDatesLenient(text: string, strict: FoundDate[]): FoundDate[] {
     const iso = toIso(year, month, day);
     if (iso) found.push({ iso, index: m.index });
   }
+
+  // "A4/02 ... 2029": fragmento día/mes + año suelto en línea cercana.
+  // Típico en la fecha roja de la licencia cuando el OCR corta el año.
+  while ((m = YEARLESS_DATE.exec(text)) !== null) {
+    const matchIndex = m.index;
+    // ≥4 chars: "1/2" (media tonelada, fracciones) no es fragmento de fecha.
+    if (m[0].length < 4) continue;
+    if ([...strict, ...found].some((d) => Math.abs(d.index - matchIndex) < 4)) continue;
+    const day = /^\d+$/.test(m[1]) ? Number(m[1]) : mapDayCluster(m[1]);
+    if (day === null || day < 1 || day > 31) continue;
+    const month = Number(m[2]);
+    if (month < 1 || month > 12) continue;
+    // El año se imprime DESPUÉS del día/mes en la tarjeta: solo se acepta
+    // un año suelto posterior (así no se pega el año de la emisión previa)
+    // y que no pertenezca a una fecha completa ya encontrada.
+    const fragEnd = matchIndex + m[0].length;
+    let year: number | null = null;
+    let best = Infinity;
+    YEAR_ONLY.lastIndex = 0;
+    let ym: RegExpExecArray | null;
+    while ((ym = YEAR_ONLY.exec(text)) !== null) {
+      const yIdx = ym.index;
+      const distance = yIdx - fragEnd;
+      if (distance < 0 || distance > 80 || distance >= best) continue;
+      if ([...strict, ...found].some((d) => Math.abs(d.index - yIdx) <= 7)) continue;
+      best = distance;
+      year = Number(ym[0]);
+    }
+    if (year === null) continue;
+    const iso = toIso(year, month, day);
+    if (iso) found.push({ iso, index: matchIndex });
+  }
+
   return found;
 }
 
@@ -300,6 +342,34 @@ function pickExpiryDate(text: string): string | undefined {
   return pool.sort().pop();
 }
 
+/**
+ * Fecha de emisión: la más cercana tras una keyword de emisión
+ * ("Emisión", "Emitida", "Expedida"). La tarjeta de circulación NI solo
+ * imprime esta fecha (no hay vencimiento) → vehicles.emission_date.
+ */
+function pickIssueDate(text: string): string | undefined {
+  const strict = findDates(text);
+  const dates = [...strict, ...findDatesLenient(text, strict)].sort(
+    (a, b) => a.index - b.index,
+  );
+  if (!dates.length) return undefined;
+
+  for (const kw of text.matchAll(new RegExp(ISSUE_KEYWORDS.source, 'gi'))) {
+    const kwIndex = kw.index ?? 0;
+    let nearest: FoundDate | undefined;
+    let nearestDistance = Infinity;
+    for (const d of dates) {
+      const distance = d.index - kwIndex;
+      if (distance > -10 && distance < 60 && distance < nearestDistance) {
+        nearestDistance = distance;
+        nearest = d;
+      }
+    }
+    if (nearest) return nearest.iso;
+  }
+  return undefined;
+}
+
 function normalize(text: string): string {
   return text
     .normalize('NFD')
@@ -320,6 +390,32 @@ function firstGroup(re: RegExp, text: string): string | undefined {
 // "NÚMERO", "#". La N sola NO vale (comería "NACION"→"ACION") y NO exige
 // límite de palabra (no debe comer "NOMBRE"→"MBRE").
 const NUM_MARK = '(?:N\\s*[°º#.]|NO\\b\\.?|N[UÚ]MERO|#)\\s*[:.-]?\\s*';
+
+// Etiquetas del documento, nunca valores: si el OCR deja "Motor:" vacío y
+// la siguiente línea es "Chasis ...", el regex avaro se tragaría la
+// etiqueta como valor.
+const FIELD_LABEL_WORDS =
+  /^(CHASIS|CHASS|MOTOR|VIN|PLACA|MARCA|MODELO|TIPO|COLOR|ANO|EMISION|VENCE|HASTA|PASAJEROS|PROPIETARIO|AUTOMOVIL|SEDAN|SERVICIO|USO|TONELAJE|CILINDROS|COMBUSTIBLE|GRAVAMEN|AUTORIZADO|MASS)$/;
+
+/** firstGroup + rechazo de valores que son etiquetas del propio documento. */
+function firstValue(re: RegExp, text: string): string | undefined {
+  const v = firstGroup(re, text);
+  return v && !FIELD_LABEL_WORDS.test(v) ? v : undefined;
+}
+
+/**
+ * Identificadores físicos del vehículo (frente de la circulación:
+ * "Motor 3ZZE562072", "Chasis 9BR53ZEC108556455", "VIN 0009"; la póliza
+ * los repite). El valor puede venir en la línea siguiente ("Motor:\n3ZZE").
+ */
+function fillIdentifiers(norm: string, fields: ExtractedDocumentFields) {
+  const motor = firstValue(/\bMOTOR\s*[:.-]?\s*([A-Z0-9][A-Z0-9\-]{2,19})/, norm);
+  if (motor) fields.motor = motor;
+  const chasis = firstValue(/\bCHAS[I1L]?S\s*[:.-]?\s*([A-Z0-9][A-Z0-9\-]{4,24})/, norm);
+  if (chasis) fields.chasis = chasis;
+  const vin = firstValue(/\bVIN\s*[:.-]?\s*([A-Z0-9]{3,20})\b/, norm);
+  if (vin) fields.vin = vin;
+}
 
 function extractLicenseFields(text: string): ExtractedDocumentFields {
   const norm = normalize(text);
@@ -420,7 +516,12 @@ function extractRegistrationFields(text: string): ExtractedDocumentFields {
     norm.match(/\b[A-Z]\d{7,9}\b/)?.[0];
   if (regNumber) fields.registrationNumber = regNumber.replace(/\s+/g, '');
 
-  // La tarjeta solo trae "Emisión"; sin keyword de vencimiento queda vacío.
+  fillIdentifiers(norm, fields);
+
+  // La tarjeta NI trae "Emisión" (no "Vencimiento") → emission_date;
+  // "VÁLIDA HASTA" solo aparece en formatos viejos → registrationExpiry.
+  const issue = pickIssueDate(text);
+  if (issue) fields.emissionDate = issue;
   const expiry = pickExpiryDate(text);
   if (expiry) fields.registrationExpiry = expiry;
 
@@ -455,6 +556,7 @@ function extractInsuranceFields(text: string): ExtractedDocumentFields {
   if (brand) fields.brand = toTitle(brand);
   const type = findVehicleType(norm);
   if (type) fields.type = type;
+  fillIdentifiers(norm, fields);
 
   // "Desde: 17/11/2024  Hasta: 16/11/2025" → el vencimiento es Hasta.
   const expiry = pickExpiryDate(text);
@@ -498,6 +600,7 @@ export async function extractFieldsFromDocument(
 export const __testing = {
   findDates,
   pickExpiryDate,
+  pickIssueDate,
   extractLicenseFields,
   extractRegistrationFields,
   extractInsuranceFields,

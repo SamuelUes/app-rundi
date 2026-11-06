@@ -305,6 +305,7 @@ const client = {
               complimentsEmpty: 'Sin cumplidos aún',
               topReviewsTitle: 'Mejores reseñas',
               empty: 'Este conductor aún no tiene reseñas.',
+              unavailable: 'Información no disponible por ahora.',
               anonymous: 'Pasajero',
               fallbackDate: 'recientemente',
               fallbackReviewOne: 'Moto muy cómoda y limpia.',

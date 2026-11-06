@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getFirebaseAuth, getFirebaseFirestore } from '../../../config/firebase';
 import { onAuthStateChanged, Unsubscribe } from 'firebase/auth';
 import {
@@ -18,6 +18,7 @@ import {
   initiateCall,
   pushCallEvent,
 } from '../../../live/calls';
+import callkit from '../../../native/callkit';
 
 interface RideCallSession {
   callId: string;
@@ -84,6 +85,8 @@ export function useRideCalls(rideId: string | null, otherUserId: string | null) 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [resolvedUid, setResolvedUid] = useState<string | null>(null);
+  const reportedCallsRef = useRef<Set<string>>(new Set());
+  const callStatusRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     let unsubscribe: Unsubscribe | null = null;
@@ -130,21 +133,50 @@ export function useRideCalls(rideId: string | null, otherUserId: string | null) 
         }));
 
       mine.sort((a, b) => {
-        const order = [
-          'ringing_client',
-          'ringing_driver',
-          'accepted',
-          'connected',
-          'missed',
-          'rejected',
-          'ended',
-        ];
-        const ia = order.indexOf(a.status || '');
-        const ib = order.indexOf(b.status || '');
-        return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+        // Una llamada viva siempre gana a una terminal: las viejas
+        // finalizadas no deben tapar a la nueva. 'initiated' es el estado
+        // ringing real que escribe el backend.
+        const aTerminal = TERMINAL_STATUSES.has(String(a.status || '').toLowerCase());
+        const bTerminal = TERMINAL_STATUSES.has(String(b.status || '').toLowerCase());
+        if (aTerminal !== bTerminal) return aTerminal ? 1 : -1;
+        if (!aTerminal) {
+          const order = ['initiated', 'ringing_client', 'ringing_driver', 'accepted', 'connected'];
+          const diff = order.indexOf(a.status || '') - order.indexOf(b.status || '');
+          if (diff !== 0) return diff;
+        }
+        // Entre terminales (o mismo bucket): gana la más reciente.
+        return (createdAtMillis(b.createdAt) ?? 0) - (createdAtMillis(a.createdAt) ?? 0);
       });
       const top = mine[0] || null;
       setActiveCall(top);
+
+      // CallKit: reportar ringing entrante y cerrar reportadas ya terminales
+      for (const call of mine) {
+        const st = String(call.status || '').toLowerCase();
+        callStatusRef.current.set(call.callId, st);
+        if (TERMINAL_STATUSES.has(st) && reportedCallsRef.current.has(call.callId)) {
+          reportedCallsRef.current.delete(call.callId);
+          void callkit.reportCallEnded(
+            call.callId,
+            st === 'missed' ? 'unanswered' : 'remote',
+          );
+        }
+      }
+      if (top) {
+        const st = String(top.status || '').toLowerCase();
+        if (
+          RINGING_STATUSES.has(st) &&
+          top.calleeUid === resolvedUid &&
+          !reportedCallsRef.current.has(top.callId)
+        ) {
+          reportedCallsRef.current.add(top.callId);
+          void callkit.reportIncomingCall(
+            top.callId,
+            (top as any).callerName || 'Rundi',
+          );
+        }
+      }
+
       if (!top || TERMINAL_STATUSES.has(String(top.status || '').toLowerCase())) {
         setLivekitInfo(null);
       }
@@ -209,9 +241,12 @@ export function useRideCalls(rideId: string | null, otherUserId: string | null) 
         await endCallV2(callId, resolvedUid || '', status === 'rejected' ? 'rejected' : 'ended');
       }
       setActiveCall((prev) => (prev ? { ...prev, status } : prev));
+      callStatusRef.current.set(callId, status);
       if (status === 'accepted') {
+        void callkit.answerCall(callId);
         await fetchLivekitToken(callId);
       } else {
+        void callkit.endCall(callId);
         setLivekitInfo(null);
       }
     } catch (err: any) {
@@ -226,6 +261,27 @@ export function useRideCalls(rideId: string | null, otherUserId: string | null) 
   const rejectCall = (callId: string) => respond(callId, 'rejected');
   const endCall = (callId: string) => respond(callId, 'ended');
   const cancelCall = (callId: string) => respond(callId, 'ended');
+
+  // Acciones desde la UI nativa de CallKit (contestar / colgar)
+  const respondRef = useRef(respond);
+  respondRef.current = respond;
+  useEffect(() => {
+    if (!resolvedUid) return;
+    const answerSub = callkit.addAnswerListener(({ callId }) => {
+      const st = callStatusRef.current.get(callId) || '';
+      if (st === 'accepted' || st === 'connected') return;
+      void respondRef.current(callId, 'accepted');
+    });
+    const endSub = callkit.addEndListener(({ callId }) => {
+      const st = callStatusRef.current.get(callId) || '';
+      if (TERMINAL_STATUSES.has(st)) return;
+      void respondRef.current(callId, RINGING_STATUSES.has(st) ? 'rejected' : 'ended');
+    });
+    return () => {
+      answerSub?.remove();
+      endSub?.remove();
+    };
+  }, [resolvedUid]);
 
   const startRideCall = async () => {
     if (!rideId) {

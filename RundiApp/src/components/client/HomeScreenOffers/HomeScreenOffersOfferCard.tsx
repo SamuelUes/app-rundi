@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, TouchableOpacity, Animated } from 'react-native';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import StorageImage from '../../shared/StorageImage';
 import type { OfferItem } from '../../../hooks/client/HomeScreenOffers/useRideOffers';
 import type { TFunction } from 'i18next';
@@ -10,7 +10,6 @@ interface HomeScreenOffersOfferCardProps {
   selected: boolean;
   isDark: boolean;
   colors: any;
-  etaValueText: string;
   arrivalLabel: string;
   plate: string;
   clientPriceLabel: string;
@@ -29,6 +28,8 @@ interface HomeScreenOffersOfferCardProps {
   t: TFunction;
 }
 
+const TYPED_VEHICLE_LABELS = new Set(['sedan', 'suv', 'van', 'moto']);
+
 const getInitials = (name?: string, fallback: string = 'C') => {
   if (!name) return fallback;
   const parts = name.trim().split(' ');
@@ -41,7 +42,6 @@ export function HomeScreenOffersOfferCard({
   selected,
   isDark,
   colors,
-  etaValueText,
   arrivalLabel,
   plate,
   clientPriceLabel,
@@ -64,42 +64,40 @@ export function HomeScreenOffersOfferCard({
     setPhotoFailed(false);
   }, [photoUri]);
 
-  const chipTone = (tone: 'gold' | 'neutral' | 'green') => {
-    if (tone === 'gold') {
-      return {
-        backgroundColor: isDark ? 'rgba(212,175,55,0.22)' : '#F6ECD4',
-        color: isDark ? '#FFDD66' : '#5D4B00',
-      };
-    }
-    if (tone === 'green') {
-      return {
-        backgroundColor: isDark ? 'rgba(76,175,80,0.16)' : 'rgba(46,125,50,0.10)',
-        color: isDark ? '#A5D6A7' : '#2E7D32',
-      };
-    }
-    return {
-      backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.045)',
-      color: isDark ? colors.textSecondary : '#4A4A4A',
-    };
-  };
-
-  const renderChip = (
-    icon: keyof typeof MaterialIcons.glyphMap,
-    label: string,
-    tone: 'gold' | 'neutral' | 'green' = 'neutral',
-  ) => {
-    const { backgroundColor, color } = chipTone(tone);
-    return (
-      <View style={[styles.offerChip, { backgroundColor }]} key={label}>
-        <MaterialIcons name={icon} size={11} color={color} />
-        <Text style={[styles.offerChipText, { color }]} numberOfLines={1}>
-          {label}
-        </Text>
-      </View>
-    );
-  };
-
   const isAccepted = item.status === 'accepted';
+
+  const vehicleLabel = vehicleType
+    ? t(
+        `shared.profile.vehicle.typeLabels.${TYPED_VEHICLE_LABELS.has(vehicleType) ? vehicleType : 'other'}`,
+        { type: vehicleType },
+      )
+    : null;
+
+  const tripMetaParts: string[] = [];
+  if (ratingLabel) {
+    tripMetaParts.push(t('client.homeOffers.list.ratingPrefix', { rating: ratingLabel }));
+  }
+  if (plate && plate !== '—') {
+    tripMetaParts.push(plate);
+  }
+  if (vehicleLabel) {
+    tripMetaParts.push(vehicleLabel);
+  }
+  const tripMeta = tripMetaParts.join(' • ');
+
+  const renderBadge = (
+    icon: keyof typeof Ionicons.glyphMap,
+    label: string,
+    backgroundColor: string,
+    color: string,
+  ) => (
+    <View style={[styles.offerChip, { backgroundColor }]} key={label}>
+      <Ionicons name={icon} size={11} color={color} />
+      <Text style={[styles.offerChipText, { color }]} numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
+  );
 
   return (
     <Pressable
@@ -109,14 +107,19 @@ export function HomeScreenOffersOfferCard({
         {
           backgroundColor: selected
             ? isDark
-              ? '#2B2416'
-              : '#FBF5E9'
+              ? 'rgba(33,33,33,0.9)'
+              : '#FFF6E6'
             : isDark
               ? '#1F1F1F'
-              : '#FFFFFF',
-          borderColor: selected ? '#b38737' : isDark ? '#303030' : '#E9E9E9',
+              : '#F5F5F5',
+          borderColor: selected
+            ? isDark
+              ? 'rgba(255,255,255,0.10)'
+              : '#E3C592'
+            : isDark
+              ? 'rgba(255,255,255,0.06)'
+              : 'rgba(0,0,0,0.06)',
         },
-        selected && styles.offerCardSelected,
         pressed && { opacity: 0.96, transform: [{ scale: 0.99 }] },
       ]}
       accessibilityRole="button"
@@ -126,7 +129,7 @@ export function HomeScreenOffersOfferCard({
         <View
           style={[
             styles.offerAvatar,
-            { backgroundColor: isDark ? 'rgba(255,255,255,0.09)' : '#F2F2F2' },
+            { backgroundColor: isDark ? 'rgba(179,135,55,0.30)' : '#F1E4C8' },
           ]}
         >
           {photoUri && !photoFailed ? (
@@ -136,7 +139,7 @@ export function HomeScreenOffersOfferCard({
               onError={() => setPhotoFailed(true)}
             />
           ) : (
-            <Text style={[styles.offerAvatarInitials, { color: colors.text }]}>
+            <Text style={[styles.offerAvatarInitials, { color: colors.primary }]}>
               {getInitials(displayName, t('client.homeOffers.list.initialFallback', 'D'))}
             </Text>
           )}
@@ -146,21 +149,40 @@ export function HomeScreenOffersOfferCard({
           <Text style={[styles.offerName, { color: colors.text }]} numberOfLines={1}>
             {displayName}
           </Text>
-          <View style={styles.offerChipsRow}>
-            {isAccepted
-              ? renderChip('check-circle', t('client.homeOffers.list.acceptedSecondary'), 'green')
-              : null}
-            {negotiationLabel ? renderChip('forum', negotiationLabel, 'gold') : null}
-            {ratingLabel ? renderChip('star', ratingLabel, 'gold') : null}
-            {renderChip('schedule', etaValueText)}
-            {renderChip(vehicleType === 'moto' ? 'two-wheeler' : 'directions-car', plate)}
-          </View>
+          <Text style={[styles.offerMetaText, { color: colors.textSecondary }]} numberOfLines={1}>
+            {arrivalLabel}
+          </Text>
+          {tripMeta.length > 0 ? (
+            <Text style={[styles.offerTripMeta, { color: colors.textSecondary }]} numberOfLines={1}>
+              {tripMeta}
+            </Text>
+          ) : null}
+          {isAccepted || negotiationLabel ? (
+            <View style={styles.offerChipsRow}>
+              {isAccepted
+                ? renderBadge(
+                    'checkmark-circle',
+                    t('client.homeOffers.list.acceptedSecondary'),
+                    isDark ? 'rgba(76,175,80,0.18)' : 'rgba(76,175,80,0.10)',
+                    isDark ? '#A5D6A7' : '#2E7D32',
+                  )
+                : null}
+              {negotiationLabel
+                ? renderBadge(
+                    'chatbubble-ellipses',
+                    negotiationLabel,
+                    isDark ? 'rgba(179,135,55,0.16)' : 'rgba(179,135,55,0.10)',
+                    colors.primary,
+                  )
+                : null}
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.offerPriceColumn}>
           {hasDriverPrice ? (
             <>
-              <Text style={[styles.offerPriceValue, { color: colors.text }]}>
+              <Text style={[styles.offerPriceValue, { color: colors.primary }]}>
                 {driverPriceLabel}
               </Text>
               <Text style={[styles.offerPriceCaption, { color: colors.textTertiary }]}>
@@ -181,14 +203,33 @@ export function HomeScreenOffersOfferCard({
             style={[
               styles.pricePanel,
               {
-                backgroundColor: isDark ? 'rgba(0,0,0,0.18)' : 'rgba(179,135,55,0.08)',
-                borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(179,135,55,0.18)',
+                backgroundColor: colors.card,
+                borderColor: isDark ? 'rgba(179,135,55,0.40)' : 'rgba(179,135,55,0.30)',
               },
             ]}
           >
-            <Text style={[styles.pricePanelTitle, { color: colors.textTertiary }]}>
+            <Text style={[styles.pricePanelTitle, { color: colors.textSecondary }]}>
               {t('client.homeOffers.list.priceLabel')}
             </Text>
+            <View style={styles.priceItemRow}>
+              <Text style={[styles.priceItemLabel, { color: colors.textSecondary }]}>
+                {t('client.homeOffers.list.driverPriceLabel')}
+              </Text>
+              <Text
+                style={[
+                  hasDriverPrice ? styles.priceItemValueHero : styles.priceItemValue,
+                  { color: hasDriverPrice ? colors.primary : colors.textSecondary },
+                ]}
+              >
+                {driverPriceLabel}
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.priceItemDivider,
+                { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5D5B8' },
+              ]}
+            />
             <View style={styles.priceItemRow}>
               <Text style={[styles.priceItemLabel, { color: colors.textSecondary }]}>
                 {t('client.homeOffers.list.clientPriceLabel')}
@@ -197,36 +238,32 @@ export function HomeScreenOffersOfferCard({
                 {clientPriceLabel}
               </Text>
             </View>
-            <View
-              style={[
-                styles.priceItemDivider,
-                { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)' },
-              ]}
-            />
-            <View style={styles.priceItemRow}>
-              <Text style={[styles.priceItemLabel, { color: colors.textSecondary }]}>
-                {t('client.homeOffers.list.driverPriceLabel')}
-              </Text>
-              <Text
-                style={[
-                  styles.priceItemValue,
-                  { color: hasDriverPrice ? colors.primary : colors.text },
-                ]}
-              >
-                {driverPriceLabel}
-              </Text>
-            </View>
           </View>
 
           <View style={styles.cardActionsRow}>
             <TouchableOpacity
               onPress={onMessageDriver}
-              style={[styles.iconActionBtn, styles.iconActionBtnChat]}
+              style={[
+                styles.iconActionBtn,
+                {
+                  backgroundColor: isDark
+                    ? 'rgba(81, 79, 189, 0.22)'
+                    : 'rgba(107, 105, 218, 0.80)',
+                },
+              ]}
               activeOpacity={0.85}
               accessibilityRole="button"
               accessibilityLabel={t('client.homeOffers.a11y.messageDriver')}
             >
-              <MaterialIcons name="chat" size={17} color="#FFFFFF" />
+              <Ionicons
+                name="chatbubble"
+                size={19}
+                color={
+                  isDark
+                    ? colors.textSecondary
+                    : 'rgba(255, 255, 255, 0.8)'
+                }
+              />
             </TouchableOpacity>
 
             {isAccepted ? (
@@ -234,8 +271,8 @@ export function HomeScreenOffersOfferCard({
                 style={[
                   styles.acceptedPill,
                   {
-                    backgroundColor: isDark ? 'rgba(76,175,80,0.18)' : 'rgba(46,125,50,0.12)',
-                    borderColor: isDark ? 'rgba(165,214,167,0.45)' : 'rgba(46,125,50,0.35)',
+                    backgroundColor: isDark ? 'rgba(76,175,80,0.18)' : 'rgba(76,175,80,0.10)',
+                    borderColor: isDark ? 'rgba(129,199,132,0.5)' : 'rgba(76,175,80,0.28)',
                     transform: [
                       {
                         scale: acceptedAnim.interpolate({
@@ -251,11 +288,22 @@ export function HomeScreenOffersOfferCard({
                   },
                 ]}
               >
-                <MaterialIcons
-                  name="check-circle"
-                  size={14}
-                  color={isDark ? '#A5D6A7' : '#2E7D32'}
-                />
+                <View
+                  style={[
+                    styles.acceptedIconWrap,
+                    {
+                      backgroundColor: isDark
+                        ? 'rgba(129,199,132,0.22)'
+                        : 'rgba(76,175,80,0.16)',
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={16}
+                    color={isDark ? '#A5D6A7' : '#2E7D32'}
+                  />
+                </View>
                 <Text
                   style={[
                     styles.acceptedPillText,
@@ -268,12 +316,18 @@ export function HomeScreenOffersOfferCard({
             ) : (
               <TouchableOpacity
                 onPress={onOpenNegotiation}
-                style={styles.negotiatePill}
+                style={[
+                  styles.negotiatePill,
+                  {
+                    backgroundColor: isDark ? 'rgba(179,135,55,0.16)' : 'rgba(209, 150, 41, 0.42)',
+                    borderColor: isDark ? 'rgba(179,135,55,0.45)' : 'rgba(179,135,55,0.30)',
+                  },
+                ]}
                 activeOpacity={0.85}
                 accessibilityRole="button"
               >
-                <MaterialIcons name="swap-horiz" size={14} color="#FFFFFF" />
-                <Text style={styles.negotiateText}>
+                <Ionicons name="swap-horizontal" size={18} color={colors.primary} />
+                <Text style={[styles.negotiateText, { color: colors.primary }]}>
                   {t('client.homeOffers.negotiation.pill')}
                 </Text>
               </TouchableOpacity>

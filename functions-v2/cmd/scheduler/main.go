@@ -12,6 +12,8 @@ import (
 
 	"cloud.google.com/go/firestore"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/rundi/functions-v2/internal/calls"
 	"github.com/rundi/functions-v2/internal/compliance"
@@ -47,54 +49,76 @@ func main() {
 	compSvc := compliance.NewService(pool, nil, nil)
 	progSvc := programmed.NewService(pool, fsClient)
 
-	// SCHEDULER_ONLY=programmed: job dedicado a la promoción de viajes
-	// programados (la gracia de promoción es de 2 min — el barrido completo
-	// cada 5 min no la garantiza). El job general sigue ejecutando el mismo
-	// Process como respaldo si el dedicado no está desplegado.
-	if os.Getenv("SCHEDULER_ONLY") == "programmed" {
+	// SCHEDULER_ONLY selecciona el grupo de barridos (job dedicado por
+	// cadencia; el job general sin la variable sigue corriéndolo TODO):
+	//   programmed  — solo promoción de programados (gracia de 2min).
+	//   realtime    — presencia, sesiones de conductor, ofertas, llamadas y
+	//                 promoción de programados (barridos sensibles a latencia).
+	//   maintenance — reconcile, compliance diario, cleanups y retención
+	//                 (trabajo por lotes; candidato a cadencia baja).
+	only := os.Getenv("SCHEDULER_ONLY")
+	if only == "programmed" {
 		p, c, perr := progSvc.Process(ctx, "scheduler-programmed")
 		if perr != nil {
 			slog.Error("programmed sweep", "err", perr)
 			os.Exit(1)
 		}
 		slog.Info("programmed sweep", "promoted", p, "canceled", c)
-		if n, cerr := progSvc.Cleanup(ctx); cerr == nil && n > 0 {
-			slog.Info("programmed cleanup", "deleted", n)
-		}
 		return
 	}
+	realtime := only == "" || only == "realtime"
+	maintenance := only == "" || only == "maintenance"
 
-	if err := expirePresence(ctx, fsClient, pool, crewSvc, cfg.PresenceTimeout); err != nil {
-		slog.Error("presence sweep", "err", err)
+	if realtime {
+		if err := expirePresence(ctx, fsClient, pool, crewSvc, cfg.PresenceTimeout); err != nil {
+			slog.Error("presence sweep", "err", err)
+		}
+		// Sesiones de disponibilidad vencidas (medianoche Nicaragua / fin de
+		// servicio): revoca y proyecta offline solo si no está en viaje.
+		if n, err := sweepExpiredDriverSessions(ctx, pool); err != nil {
+			slog.Error("driver sessions sweep", "err", err)
+		} else if n > 0 {
+			slog.Info("driver sessions sweep", "revoked", n)
+		}
+		if err := expireOffers(ctx, fsClient, pool); err != nil {
+			slog.Error("offers sweep", "err", err)
+		}
+		if err := expireStaleCalls(ctx, pool, fsClient); err != nil {
+			slog.Error("calls sweep", "err", err)
+		}
 	}
-	if err := expireOffers(ctx, fsClient, pool); err != nil {
-		slog.Error("offers sweep", "err", err)
+	if maintenance {
+		// Reconciliación: autoridad SQL → repara proyecciones atrasadas/ausentes.
+		repaired, errs := reconcile.Run(ctx, pool, fsClient, 2*time.Hour)
+		slog.Info("reconcile done", "repaired", repaired, "errors", errs)
+		// Cumplimiento diario: reevalúa conductores activos (complianceDaily v1).
+		ev, cerr := compSvc.ScheduledSweep(ctx)
+		slog.Info("compliance sweep", "evaluated", ev, "errors", cerr)
 	}
-	if err := expireStaleCalls(ctx, pool, fsClient); err != nil {
-		slog.Error("calls sweep", "err", err)
+	if realtime {
+		// Viajes programados: promoción en ventana + retención
+		// (processProgrammedRides de v1). Respaldo del job dedicado por minuto.
+		runProgrammed(ctx, progSvc, "scheduler")
 	}
-	// Reconciliación: autoridad SQL → repara proyecciones atrasadas/ausentes.
-	repaired, errs := reconcile.Run(ctx, pool, fsClient, 2*time.Hour)
-	slog.Info("reconcile done", "repaired", repaired, "errors", errs)
-	// Cumplimiento diario: reevalúa conductores activos (complianceDaily v1).
-	ev, cerr := compSvc.ScheduledSweep(ctx)
-	slog.Info("compliance sweep", "evaluated", ev, "errors", cerr)
-	// Viajes programados: promoción en ventana + retención (processProgrammedRides
-	// + cleanupProgrammedRides de v1). Respaldo del job dedicado por minuto.
-	p, c, err := progSvc.Process(ctx, "scheduler")
+	if maintenance {
+		if n, err := progSvc.Cleanup(ctx); err == nil && n > 0 {
+			slog.Info("programmed cleanup", "deleted", n)
+		}
+		// Limpieza de mensajes de chat (equivalente a cleanupChatMessages de v1).
+		if err := cleanupChatMessages(ctx, fsClient); err != nil {
+			slog.Error("chat cleanup", "err", err)
+		}
+		retentionSweep(ctx, fsClient)
+	}
+	slog.Info("scheduler done")
+}
+
+func runProgrammed(ctx context.Context, progSvc *programmed.Service, source string) {
+	p, c, err := progSvc.Process(ctx, source)
 	if err != nil {
 		slog.Error("programmed sweep", "err", err)
 	}
 	slog.Info("programmed sweep", "promoted", p, "canceled", c)
-	if n, err := progSvc.Cleanup(ctx); err == nil && n > 0 {
-		slog.Info("programmed cleanup", "deleted", n)
-	}
-	// Limpieza de mensajes de chat (equivalente a cleanupChatMessages de v1).
-	if err := cleanupChatMessages(ctx, fsClient); err != nil {
-		slog.Error("chat cleanup", "err", err)
-	}
-	retentionSweep(ctx, fsClient)
-	slog.Info("scheduler done")
 }
 
 // expirePresence marca offline drivers_live con lastSeen más viejo que el
@@ -111,32 +135,37 @@ func expirePresence(ctx context.Context, c *firestore.Client, pool *pgxpool.Pool
 	if err != nil {
 		return err
 	}
-	batch := c.BulkWriter(ctx)
-	for _, s := range snaps {
-		if _, err := batch.Update(s.Ref, []firestore.Update{
-			{Path: "status", Value: "offline"},
-			{Path: "offlineAt", Value: firestore.ServerTimestamp},
-		}); err != nil {
-			slog.Warn("presence update", "doc", s.Ref.ID, "err", err)
-		}
-	}
-	batch.End()
-	for _, s := range snaps {
+	expired := updateScannedDocuments(ctx, c, snaps, []firestore.Update{
+		{Path: "status", Value: "offline"},
+		{Path: "offlineAt", Value: firestore.ServerTimestamp},
+	})
+	for _, s := range expired {
 		uid := s.Ref.ID
+		// Cierra también la sesión SQL, cercada por la seq que el doc tenía al
+		// escanearse: una reactivación posterior no debe desactivarse aquí.
+		var expectedSeq int64
+		hasSeq := false
+		switch v := s.Data()["sessionSeq"].(type) {
+		case int64:
+			expectedSeq, hasSeq = v, true
+		case float64:
+			expectedSeq, hasSeq = int64(v), true
+		}
+		if err := revokeSessionForOffline(ctx, pool, uid, expectedSeq, hasSeq, "presence_expired"); err != nil {
+			slog.Warn("presence session revoke", "uid", uid, "err", err)
+		}
 		// rejectDriverOffersOnOffline: ofertas pendientes → rejected.
 		offers, err := c.Collection(fs.ColDriverOffers).
 			Where("driverId", "==", uid).
 			Where("status", "==", "pending").
 			Documents(ctx).GetAll()
 		if err == nil {
-			b := c.BulkWriter(ctx)
-			for _, o := range offers {
-				_, _ = b.Update(o.Ref, []firestore.Update{
-					{Path: "status", Value: "rejected"},
-					{Path: "reason", Value: "driver_offline"},
-				})
-			}
-			b.End()
+			updateScannedDocuments(ctx, c, offers, []firestore.Update{
+				{Path: "status", Value: "rejected"},
+				{Path: "reason", Value: "driver_offline"},
+			})
+		} else {
+			slog.Warn("offline offers read", "uid", uid, "err", err)
 		}
 		// Espejo durable en ride_offers (auditoría).
 		if _, err := pool.Exec(ctx, `
@@ -150,7 +179,7 @@ func expirePresence(ctx context.Context, c *firestore.Client, pool *pgxpool.Pool
 			slog.Warn("crew abandon", "uid", uid, "err", err)
 		}
 	}
-	slog.Info("presence sweep", "expired", len(snaps))
+	slog.Info("presence sweep", "expired", len(expired))
 	return nil
 }
 
@@ -169,36 +198,17 @@ func expireStaleCalls(ctx context.Context, pool *pgxpool.Pool, c *firestore.Clie
 			return err
 		}
 		for _, s := range snaps {
-			d := s.Data()
-			var deadline time.Time
-			switch v := d["acceptDeadline"].(type) {
-			case int64:
-				deadline = time.UnixMilli(v)
-			case float64:
-				deadline = time.UnixMilli(int64(v))
-			case time.Time:
-				deadline = v
-			default:
-				if t := tsOrNil(d["createdAt"]); t != nil {
-					deadline = t.Add(60 * time.Second)
-				} else {
-					continue
-				}
-			}
-			if deadline.After(now) {
+			if !callExpired(s.Data(), now) {
 				continue
 			}
-			if _, err := s.Ref.Set(ctx, map[string]any{
-				"status":    "missed",
-				"endedAt":   firestore.ServerTimestamp,
-				"updatedAt": firestore.ServerTimestamp,
-			}, firestore.MergeAll); err != nil {
+			missed, err := markCallMissedIfExpired(ctx, c, s.Ref, now)
+			if err != nil {
 				slog.Warn("call missed", "callId", s.Ref.ID, "err", err)
 				continue
 			}
-			_, _ = s.Ref.Collection("events").NewDoc().Set(ctx, map[string]any{
-				"type": "missed", "at": firestore.ServerTimestamp, "source": "call_lifecycle",
-			})
+			if !missed {
+				continue
+			}
 			// Archiva directo (el webhook también puede archivar; ON CONFLICT).
 			if err := calls.ArchiveCallSession(ctx, pool, c, s.Ref.ID); err != nil {
 				slog.Warn("call archive", "callId", s.Ref.ID, "err", err)
@@ -242,22 +252,16 @@ func expireOffers(ctx context.Context, c *firestore.Client, pool *pgxpool.Pool) 
 	if err != nil {
 		return err
 	}
-	batch := c.BulkWriter(ctx)
-	for _, s := range snaps {
-		if _, err := batch.Update(s.Ref, []firestore.Update{
-			{Path: "status", Value: "expired"},
-		}); err != nil {
-			slog.Warn("offer update", "doc", s.Ref.ID, "err", err)
-		}
-	}
-	batch.End()
+	expired := updateScannedDocuments(ctx, c, snaps, []firestore.Update{
+		{Path: "status", Value: "expired"},
+	})
 	if _, err := pool.Exec(ctx, `
 		UPDATE public.ride_offers
 		SET status = 'expired', responded_at = NOW()
 		WHERE status = 'sent' AND expires_at IS NOT NULL AND expires_at < NOW()`); err != nil {
 		return err
 	}
-	slog.Info("offers sweep", "expired", len(snaps))
+	slog.Info("offers sweep", "expired", len(expired))
 	return nil
 }
 
@@ -355,13 +359,22 @@ func retentionSweep(ctx context.Context, c *firestore.Client) {
 			slog.Info("retention: presence", "deleted", len(pres))
 		}
 	}
-	// cleanupOrphanPayments v1: payments_live cuyo trip_live ya no existe.
+	// Solo pagos terminales antiguos cuya proyección de viaje no exista.
 	if pays, err := c.Collection(fs.ColPaymentsLive).Limit(1000).Documents(ctx).GetAll(); err == nil {
 		for _, p := range pays {
-			if _, err := c.Collection(fs.ColTripsLive).Doc(p.Ref.ID).Get(ctx); err != nil {
-				_, _ = p.Ref.Delete(ctx)
+			if !orphanPaymentEligible(p.Data(), p.UpdateTime, cut7) {
+				continue
+			}
+			removed, err := removeOrphanPayment(ctx, c, p.Ref, cut7)
+			if err != nil {
+				slog.Warn("retention: orphan payment", "id", p.Ref.ID, "err", err)
+			} else if removed {
 				slog.Info("retention: orphan payment_live", "id", p.Ref.ID)
 			}
 		}
 	}
+}
+
+func isMissingTrip(err error) bool {
+	return status.Code(err) == codes.NotFound
 }

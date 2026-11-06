@@ -126,7 +126,7 @@ async function compressForUpload(uri: string): Promise<string> {
 }
 
 const tr = (path: string, options?: Record<string, any>) =>
-  i18n.t(`services.supabaseStorage.${path}`, options) as string;
+  i18n.t(`services.firebaseStorage.${path}`, options) as string;
 
 /**
  * Lee un archivo local como Blob.
@@ -262,7 +262,9 @@ export const uploadInsurancePhoto = async (
  * Subir foto del vehículo del conductor
  * @param userId - ID del usuario
  * @param uri - URI local de la imagen
- * @returns objectPath de la imagen
+ * @returns URL autenticada (getDownloadURL con token) — vehicles.vehicle_photo
+ *   persiste URL, no objectPath, porque el backend la proyecta literal a
+ *   DATA-MAIN_vehicles.vehiclePhoto.
  */
 export const uploadDriverVehiclePhoto = async (
   userId: string,
@@ -270,7 +272,12 @@ export const uploadDriverVehiclePhoto = async (
 ): Promise<string> => {
   const timestamp = Date.now();
   const path = `vehicle-documents/vehicles/${userId}/vehicle_${timestamp}.jpg`;
-  return uploadImage(uri, 'drivers', path);
+  const objectPath = await uploadImage(uri, 'drivers', path);
+  const url = await resolveDocumentPhotoUrl(objectPath);
+  if (!url) {
+    throw new Error(tr('errors.uploadFailed'));
+  }
+  return url;
 };
 
 /**

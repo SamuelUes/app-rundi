@@ -17,7 +17,9 @@ import rechargeFundsService, {
 } from '../../services/payment/rechargeFundsService';
 import BiometricService from '../../services/user/biometricService';
 import { logBiometric } from '../../api/platform';
-import { initializeFirebase } from '../../config/firebase';
+import { initializeFirebase, getFirebaseAuth, getFirebaseFirestore } from '../../config/firebase';
+import { collection, doc, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { FS_COL } from '../../constants/firestore';
 import { useTranslation } from 'react-i18next';
 import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
 import RechargeInvoiceModal from '../../components/shared/RechargeInvoiceModal';
@@ -45,6 +47,55 @@ const asText = (value: unknown, fallback: string = '-') => {
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   return fallback;
+};
+
+const movementToHistoryItem = (id: string, d: any, uid: string): DriverRechargeHistoryItem => {
+  const created = d?.createdAt;
+  return {
+    id,
+    driverId: uid,
+    rideId: null,
+    rechargeType: asText(d?.type, 'recharge'),
+    source: asText(d?.source),
+    amount: Number(d?.amount) || 0,
+    balanceBefore: 0,
+    balanceAfter: 0,
+    externalReference: d?.externalReference ?? null,
+    externalTransactionId: null,
+    status: asText(d?.status, 'confirmed'),
+    metadata: null,
+    createdAt:
+      typeof created?.toDate === 'function'
+        ? created.toDate().toISOString()
+        : created instanceof Date
+          ? created.toISOString()
+          : asText(created, '') || null,
+  };
+};
+
+const mergeLiveMovements = (
+  prev: DriverRechargeFundsSummary,
+  live: DriverRechargeHistoryItem[],
+): DriverRechargeFundsSummary => {
+  const byId = new Map(prev.history.map((h) => [h.id, h]));
+  live.forEach((h) => byId.set(h.id, h));
+  const toTime = (v: unknown) => {
+    const t = Date.parse(String(v ?? ''));
+    return Number.isNaN(t) ? 0 : t;
+  };
+  const history = [...byId.values()].sort((a, b) => toTime(b.createdAt) - toTime(a.createdAt));
+  const recharged = history.filter((h) => h.amount > 0);
+  const deducted = history.filter((h) => h.amount < 0);
+  return {
+    ...prev,
+    history,
+    totals: {
+      totalRecharged: recharged.reduce((a, h) => a + h.amount, 0),
+      totalDeducted: Math.abs(deducted.reduce((a, h) => a + h.amount, 0)),
+      rechargeCount: recharged.length,
+      deductionCount: deducted.length,
+    },
+  };
 };
 
 export default function RechargeFundsScreen({ navigation }: any) {
@@ -106,6 +157,46 @@ export default function RechargeFundsScreen({ navigation }: any) {
       }
     };
     load();
+  }, []);
+
+  // Saldo + movimientos en vivo — REALTIME_driver_wallet/{uid} proyectado por
+  // el consumer: la confirmación de operaciones llega sin recargar la pantalla.
+  useEffect(() => {
+    let cancelled = false;
+    let unsubDoc: (() => void) | undefined;
+    let unsubMovs: (() => void) | undefined;
+    void (async () => {
+      try {
+        const auth = await getFirebaseAuth();
+        const uid = auth.currentUser?.uid;
+        if (!uid || cancelled) return;
+        const db = await getFirebaseFirestore();
+        if (cancelled) return;
+        const walletRef = doc(db, FS_COL.driverWallet, uid);
+        unsubDoc = onSnapshot(walletRef, (snap) => {
+          if (!snap.exists()) return;
+          const balance = Number(snap.data().balance) || 0;
+          setSummary((prev) => ({ ...prev, availableBalance: balance, blocked: balance <= 0 }));
+        });
+        const movsQ = query(
+          collection(walletRef, 'movements'),
+          orderBy('createdAt', 'desc'),
+          limit(30),
+        );
+        unsubMovs = onSnapshot(movsQ, (qs) => {
+          const live = qs.docs.map((ds) => movementToHistoryItem(ds.id, ds.data(), uid));
+          if (live.length === 0) return;
+          setSummary((prev) => mergeLiveMovements(prev, live));
+        });
+      } catch (e) {
+        console.warn('⚠️ [RechargeFunds] wallet listener:', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      unsubDoc?.();
+      unsubMovs?.();
+    };
   }, []);
 
   const handlePay = async () => {
@@ -370,7 +461,7 @@ const createStyles = (colors: any, accentColor: string) =>
       borderRadius: 18,
       backgroundColor: 'rgba(183, 119, 52, 0.08)',
       alignItems: 'center',
-      borderWidth: 1,
+      borderWidth: 0,
       borderColor: 'rgba(183, 119, 52, 0.28)',
     },
     summaryHighlightAmount: {
@@ -516,7 +607,7 @@ const createStyles = (colors: any, accentColor: string) =>
     inputLabel: { fontSize: 13, color: colors.textSecondary, marginBottom: 10 },
     input: {
       backgroundColor: colors.surface,
-      borderWidth: 1,
+      borderWidth: 0,
       borderColor: colors.border,
       borderRadius: 12,
       paddingHorizontal: 14,
@@ -530,7 +621,7 @@ const createStyles = (colors: any, accentColor: string) =>
       backgroundColor: '#2E7D32',
       paddingVertical: 16,
       alignItems: 'center',
-      borderRadius: 999,
+      borderRadius: 16,
       shadowColor: '#2E7D32',
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.2,
@@ -579,7 +670,7 @@ const createStyles = (colors: any, accentColor: string) =>
     },
     historyItem: {
       borderRadius: 12,
-      borderWidth: 1,
+      borderWidth: 0,
       borderColor: colors.border,
       backgroundColor: colors.surface,
       paddingHorizontal: 12,
@@ -616,7 +707,7 @@ const createStyles = (colors: any, accentColor: string) =>
     paginationBtn: {
       minWidth: 76,
       borderRadius: 10,
-      borderWidth: 1,
+      borderWidth: 0,
       borderColor: colors.border,
       backgroundColor: colors.surface,
       paddingHorizontal: 10,

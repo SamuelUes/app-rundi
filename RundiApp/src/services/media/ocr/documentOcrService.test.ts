@@ -125,6 +125,27 @@ describe('documentOcrService parsers', () => {
       );
       expect(fields.licenseExpiry).toBe('2029-02-14');
     });
+
+    it('rescata día/mes con el año en línea separada (rojo mutilado)', () => {
+      // OCR real licencia NI: la "Expiración" roja pierde el año a otra
+      // línea ("A4/02 ... 2029").
+      const fields = extractLicenseFields('Emisión 15/03/2024\nA4/02\n2029');
+      expect(fields.licenseExpiry).toBe('2029-02-14');
+    });
+
+    it('fragmento limpio día/mes + año separado también rescata', () => {
+      const fields = extractLicenseFields('Emisión 15/03/2024\n14/02\n2029');
+      expect(fields.licenseExpiry).toBe('2029-02-14');
+    });
+
+    it('texto demasiado degradado no inventa la expiración', () => {
+      // OCR real: "Expiración 14/02/2029" quedó como "RAfa/0 ... 2029" —
+      // sin dígito rescatable no se fabrica una fecha.
+      const fields = extractLicenseFields(
+        'Emisión\n15/03/2024 RAfa/0\nSESMDI\nО КАСТОВАЙ\n2029',
+      );
+      expect(fields.licenseExpiry).toBeUndefined();
+    });
   });
 
   describe('registration (tarjeta de circulación)', () => {
@@ -196,6 +217,17 @@ describe('documentOcrService parsers', () => {
       expect(extractRegistrationFields(registrationFront).registrationExpiry).toBeUndefined();
     });
 
+    it('frente: extrae la emisión de la circulación', () => {
+      expect(extractRegistrationFields(registrationFront).emissionDate).toBe('2017-06-02');
+    });
+
+    it('frente: extrae motor, chasis y VIN', () => {
+      const fields = extractRegistrationFields(registrationFront);
+      expect(fields.motor).toBe('3ZZE562072');
+      expect(fields.chasis).toBe('9BR53ZEC108556455');
+      expect(fields.vin).toBe('0009');
+    });
+
     it('reverso: extrae número de circulación, pasajeros y año', () => {
       const fields = extractRegistrationFields(registrationBack);
       expect(fields.registrationNumber).toBe('B2985039');
@@ -250,6 +282,18 @@ describe('documentOcrService parsers', () => {
       expect(fields.plate).toBe('M090051');
       expect(fields.brand).toBe('Toyota');
       expect(fields.type).toBe('sedan');
+    });
+
+    it('extrae motor y chasis de la póliza', () => {
+      const fields = extractInsuranceFields(insuranceReal);
+      expect(fields.motor).toBe('3ZZE562072');
+      expect(fields.chasis).toBe('9BR53ZEC108556455');
+    });
+
+    it('no se traga la etiqueta siguiente cuando el valor está vacío', () => {
+      const fields = extractInsuranceFields('Motor:\nChasis: 9BR53ZEC108556455');
+      expect(fields.motor).toBeUndefined();
+      expect(fields.chasis).toBe('9BR53ZEC108556455');
     });
   });
 

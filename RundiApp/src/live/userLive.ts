@@ -42,6 +42,26 @@ export async function removeFcmToken(uid: string, token: string): Promise<void> 
   await deleteDoc(doc(collection(db, FS_COL.users, uid, 'fcmTokens'), token));
 }
 
+/** Registra/renueva un token VoIP de PushKit (doc id = token, misma convención). */
+export async function registerVoipToken(
+  uid: string,
+  token: string,
+  meta: { bundleId: string },
+): Promise<void> {
+  const db = await getFirebaseFirestore();
+  await setDoc(
+    doc(collection(db, FS_COL.users, uid, 'voipTokens'), token),
+    { token, platform: 'ios', bundleId: meta.bundleId, createdAt: serverTimestamp() },
+    { merge: true },
+  );
+}
+
+/** Quita un token VoIP (logout o token rotado/inválido). */
+export async function removeVoipToken(uid: string, token: string): Promise<void> {
+  const db = await getFirebaseFirestore();
+  await deleteDoc(doc(collection(db, FS_COL.users, uid, 'voipTokens'), token));
+}
+
 /** Marca una notificación in-app como leída (campos permitidos por reglas). */
 export async function markNotificationRead(uid: string, notificationKey: string): Promise<void> {
   const db = await getFirebaseFirestore();

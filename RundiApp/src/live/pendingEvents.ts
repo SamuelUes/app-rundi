@@ -12,6 +12,7 @@ import { doc, serverTimestamp, writeBatch } from 'firebase/firestore';
 
 import { getFirebaseFirestore } from '../config/firebase';
 import { FS_COL } from '../constants/firestore';
+import { pokeConsumer } from '../api/events';
 
 export interface ArrivalPhotoInput {
   uid: string;     // Firebase UID del que sube (driver o follower)
@@ -43,5 +44,5 @@ export async function submitArrivalPhoto(input: ArrivalPhotoInput): Promise<void
     source: 'client',
     createdAt: serverTimestamp(),
   });
-  return batch.commit();
+  return batch.commit().then(() => pokeConsumer());
 }

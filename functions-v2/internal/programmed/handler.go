@@ -35,7 +35,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	uid, _ := r.Context().Value(middleware.CtxUID).(string)
 	var body map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	id, shareCode, err := h.svc.Create(r.Context(), uid, body)

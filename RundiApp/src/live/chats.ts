@@ -21,6 +21,7 @@ import {
 
 import { getFirebaseFirestore } from '../config/firebase';
 import { FS_COL } from '../constants/firestore';
+import { pokeConsumer } from '../api/events';
 
 export interface ChatMessage {
   id: string;
@@ -52,6 +53,7 @@ export async function sendChatMessage(chatId: string, from: string, text: string
     createdAt: serverTimestamp(),
   });
   await batch.commit();
+  pokeConsumer();
   return msgRef.id;
 }
 

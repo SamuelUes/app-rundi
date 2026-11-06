@@ -8,6 +8,7 @@ import {
   setDoc,
 } from 'firebase/firestore';
 import { getFirebaseFirestore } from '../../config/firebase';
+import { FS_COL } from '../../constants/firestore';
 import type { RecurringRide, RecurringRideInput, RecurringRidePoint } from '../../types/recurringRide';
 
 export const MAX_RECURRING_RIDES = 10;
@@ -54,17 +55,6 @@ export function sanitizeRecurringRide(raw: any, fallbackId: string): RecurringRi
   };
 }
 
-/** Compat: sanitiza el campo array legacy users/{uid}.recurringRides */
-export function sanitizeRecurringRides(data: any): RecurringRide[] {
-  if (!Array.isArray(data)) return [];
-  const rides: RecurringRide[] = [];
-  data.forEach((raw, index) => {
-    const ride = sanitizeRecurringRide(raw, `rr_${index}`);
-    if (ride) rides.push(ride);
-  });
-  return rides;
-}
-
 function stripUndefined<T>(value: T): T {
   if (Array.isArray(value)) return value.map(stripUndefined) as T;
   if (value && typeof value === 'object') {
@@ -82,7 +72,7 @@ export function generateRecurringRideId(): string {
 }
 
 const ridesCol = async (uid: string) =>
-  collection(await getFirebaseFirestore(), 'users', uid, COLLECTION);
+  collection(await getFirebaseFirestore(), FS_COL.users, uid, COLLECTION);
 
 const sortRides = (rides: RecurringRide[]) =>
   rides.sort((a, b) => a.createdAt - b.createdAt);
@@ -98,30 +88,10 @@ async function readRides(uid: string): Promise<RecurringRide[]> {
   return sortRides(rides);
 }
 
-/** Migra una sola vez el array legacy users/{uid}.recurringRides a la subcoleccion. */
-async function migrateLegacyRidesIfNeeded(uid: string): Promise<void> {
-  const firestore = await getFirebaseFirestore();
-  const userSnap = await getDoc(doc(firestore, 'users', uid));
-  const legacy = sanitizeRecurringRides(userSnap.data()?.recurringRides);
-  if (legacy.length === 0) return;
-
-  const col = await ridesCol(uid);
-  await Promise.all(
-    legacy.map((ride) =>
-      setDoc(doc(col, ride.id), stripUndefined(ride), { merge: true }),
-    ),
-  );
-}
-
 export async function listRecurringRides(uid: string): Promise<RecurringRide[]> {
   if (!uid) return [];
   try {
-    let rides = await readRides(uid);
-    if (rides.length === 0) {
-      await migrateLegacyRidesIfNeeded(uid).catch(() => undefined);
-      rides = await readRides(uid);
-    }
-    return rides;
+    return await readRides(uid);
   } catch (error) {
     console.warn('[recurringRides] list failed', error);
     return [];
@@ -137,7 +107,6 @@ export function subscribeRecurringRides(
 
   (async () => {
     try {
-      await migrateLegacyRidesIfNeeded(uid).catch(() => undefined);
       const col = await ridesCol(uid);
       if (cancelled) return;
       unsubscribe = onSnapshot(

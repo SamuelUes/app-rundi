@@ -25,6 +25,7 @@ export const FS_COL = {
   driverOffers: 'REALTIME_driver_offers',
   driverPublic: 'REALTIME_driver_public_profiles',
   paymentsLive: 'REALTIME_payments_live',
+  driverWallet: 'REALTIME_driver_wallet',
   calls: 'REALTIME_calls',
   chats: 'REALTIME_chats',
   programmed: 'REALTIME_programmed_rides',

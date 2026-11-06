@@ -1,6 +1,7 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -9,6 +10,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -29,9 +32,12 @@ interface Props {
   route: EmailVerificationRouteProp;
 }
 
+const ON_PRIMARY = '#241B0B';
+
 export default function EmailVerificationScreen({ navigation, route }: Props) {
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+  const accentStrong = isDark ? '#e8c47f' : '#c38d28';
   const { t } = useTranslation();
 
   const {
@@ -51,6 +57,7 @@ export default function EmailVerificationScreen({ navigation, route }: Props) {
   const [timeLeft, setTimeLeft] = useState(0);
   const autoSendTriggeredRef = useRef(false);
   const autoVerifiedHandledRef = useRef(false);
+  const pulse = useRef(new Animated.Value(0.35)).current;
 
   const getFirebaseErrorDetails = (error: any) => {
     const code = error?.code ? String(error.code) : 'unknown';
@@ -64,6 +71,17 @@ export default function EmailVerificationScreen({ navigation, route }: Props) {
       return () => clearTimeout(timer);
     }
   }, [timeLeft]);
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.35, duration: 900, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
 
   const sendVerificationCode = async (showSuccessAlert = true) => {
     setResendLoading(true);
@@ -183,12 +201,14 @@ export default function EmailVerificationScreen({ navigation, route }: Props) {
     }
   };
 
-  const checkEmailVerificationStatus = async (showNotVerifiedAlert = false) => {
+  const checkEmailVerificationStatus = async (manual = false) => {
     if (autoVerifiedHandledRef.current) {
       return;
     }
 
-    setCheckingVerification(true);
+    if (manual) {
+      setCheckingVerification(true);
+    }
     try {
       if (authProvider === 'email/password') {
         await firebaseAuthService.ensureEmailVerificationSession(email, password || '');
@@ -209,7 +229,7 @@ export default function EmailVerificationScreen({ navigation, route }: Props) {
       }
 
       if (!verified) {
-        if (showNotVerifiedAlert) {
+        if (manual) {
           Alert.alert(
             t('authScreens.emailVerification.alerts.errorTitle'),
             t('authScreens.emailVerification.alerts.notVerifiedYet')
@@ -227,14 +247,16 @@ export default function EmailVerificationScreen({ navigation, route }: Props) {
         message: firebaseMessage,
         error,
       });
-      if (showNotVerifiedAlert) {
+      if (manual) {
         Alert.alert(
           t('authScreens.emailVerification.alerts.errorTitle'),
           `${error?.message || t('authScreens.emailVerification.alerts.verificationErrorMessage')}\n(${firebaseCode})`
         );
       }
     } finally {
-      setCheckingVerification(false);
+      if (manual) {
+        setCheckingVerification(false);
+      }
     }
   };
 
@@ -284,137 +306,340 @@ export default function EmailVerificationScreen({ navigation, route }: Props) {
     );
   };
 
+  const stepTexts = [
+    t('authScreens.emailVerification.steps.open'),
+    t('authScreens.emailVerification.steps.back'),
+    t('authScreens.emailVerification.steps.auto'),
+  ];
+
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
-    >
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
       >
-        <View style={styles.card}>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>{t('authScreens.emailVerification.title')}</Text>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.content}>
+            <View style={styles.iconWrap}>
+              <View style={styles.iconBubble}>
+                <Ionicons name="mail-unread-outline" size={38} color={colors.primary} />
+              </View>
+              <View style={styles.iconBadge}>
+                <Ionicons name="time-outline" size={14} color={accentStrong} />
+              </View>
+            </View>
+
+            <Text style={styles.title}>{t('authScreens.emailVerification.title')}</Text>
+            <Text style={styles.subtitle}>{t('authScreens.emailVerification.subtitle')}</Text>
+
+            <View style={styles.emailPill}>
+              <Ionicons name="mail-outline" size={15} color={accentStrong} />
+              <Text style={styles.emailText} numberOfLines={1} ellipsizeMode="middle">
+                {email}
+              </Text>
+            </View>
+
+            <View style={styles.stepsCard}>
+              {stepTexts.map((step, index) => (
+                <React.Fragment key={index}>
+                  {index > 0 && <View style={styles.stepDivider} />}
+                  <View style={styles.stepRow}>
+                    <View style={styles.stepDot}>
+                      <Text style={styles.stepNum}>{index + 1}</Text>
+                    </View>
+                    <Text style={styles.stepText}>{step}</Text>
+                  </View>
+                </React.Fragment>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.primaryButton, checkingVerification && styles.buttonDisabled]}
+              onPress={() => checkEmailVerificationStatus(true)}
+              disabled={checkingVerification}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: checkingVerification }}
+            >
+              {checkingVerification ? (
+                <LoadingIcon size={22} color={ON_PRIMARY} />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-done-outline" size={19} color={ON_PRIMARY} />
+                  <Text style={styles.primaryButtonText}>
+                    {t('authScreens.emailVerification.verifyByLinkButton')}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <View style={styles.resendRow}>
+              <Text style={styles.resendQuestion}>
+                {t('authScreens.emailVerification.resendQuestion')}
+              </Text>
+              {timeLeft > 0 ? (
+                <Text style={styles.resendTimer}>
+                  {t('authScreens.emailVerification.resendIn', { seconds: timeLeft })}
+                </Text>
+              ) : (
+                <TouchableOpacity
+                  style={styles.resendAction}
+                  onPress={handleResendCode}
+                  disabled={resendLoading}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: resendLoading }}
+                >
+                  {resendLoading ? (
+                    <LoadingIcon size={16} color={accentStrong} />
+                  ) : (
+                    <>
+                      <Ionicons name="refresh-outline" size={15} color={accentStrong} />
+                      <Text style={styles.resendButton}>
+                        {t('authScreens.emailVerification.resendButton')}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <View style={styles.autoRow}>
+              <Animated.View style={[styles.pulseDot, { opacity: pulse }]} />
+              <Text style={styles.autoText}>
+                {t('authScreens.emailVerification.autoDetect')}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={handleCancelRegistration}
+              accessibilityRole="button"
+            >
+              <Text style={styles.cancelButtonText}>
+                {t('authScreens.emailVerification.cancel')}
+              </Text>
+            </TouchableOpacity>
           </View>
-          <Text style={styles.title}>{t('authScreens.emailVerification.title')}</Text>
-          <Text style={styles.subtitle}>{t('authScreens.emailVerification.subtitle')}</Text>
-          <Text style={styles.emailText}>{email}</Text>
-
-          <View style={styles.infoBox}>
-            <Text style={styles.infoText}>{t('authScreens.emailVerification.linkVerificationHint')}</Text>
-          </View>
-
-          <TouchableOpacity
-            style={[styles.primaryButton, checkingVerification && styles.buttonDisabled]}
-            onPress={() => checkEmailVerificationStatus(true)}
-            disabled={checkingVerification}
-          >
-            {checkingVerification ? (
-              <LoadingIcon size={24} color="#FFFFFF" />
-            ) : (
-              <Text style={styles.primaryButtonText}>{t('authScreens.emailVerification.verifyByLinkButton')}</Text>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.cancelButton} onPress={handleCancelRegistration}>
-            <Text style={styles.cancelButtonText}>{t('authScreens.emailVerification.cancel')}</Text>
-          </TouchableOpacity>
-
-          <View style={styles.resendSection}>
-            {timeLeft > 0 ? (
-              <Text style={styles.resendTimer}>{t('authScreens.emailVerification.resendIn', { seconds: timeLeft })}</Text>
-            ) : (
-              <TouchableOpacity
-                style={styles.resendButtonContainer}
-                onPress={handleResendCode}
-                disabled={resendLoading}
-              >
-                {resendLoading ? (
-                  <LoadingIcon size={20} color={colors.primary} />
-                ) : (
-                  <Text style={styles.resendButton}>{t('authScreens.emailVerification.resendButton')}</Text>
-                )}
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
-const createStyles = (colors: any) =>
-  StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#F2F2F2' },
-    scrollContent: { flexGrow: 1, padding: 18, paddingTop: 56, paddingBottom: 28, justifyContent: 'flex-start' },
-    card: {
-      backgroundColor: '#F7F7F7',
-      borderRadius: 24,
-      borderWidth: 1,
-      borderColor: '#DDDDDD',
-      padding: 20,
-      gap: 12,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.08,
-      shadowRadius: 8,
-      elevation: 3,
+const createStyles = (colors: any, isDark: boolean) => {
+  const accentSoft = isDark ? 'rgba(179,135,55,0.26)' : 'rgba(179,135,55,0.10)';
+  const accentBorder = isDark ? 'rgba(232,196,127,0.45)' : 'rgba(179,135,55,0.45)';
+  const accentStrong = isDark ? '#e8c47f' : '#c38d28';
+
+  return StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.background,
     },
-    badge: {
-      alignSelf: 'flex-start',
-      backgroundColor: '#E8E1D3',
+    container: {
+      flex: 1,
+    },
+    scrollContent: {
+      flexGrow: 1,
+      justifyContent: 'center',
+      paddingHorizontal: 24,
+      paddingVertical: 24,
+    },
+    content: {
+      width: '100%',
+      maxWidth: 400,
+      alignSelf: 'center',
+    },
+    iconWrap: {
+      alignSelf: 'center',
+      marginBottom: 20,
+    },
+    iconBubble: {
+      width: 92,
+      height: 92,
+      borderRadius: 46,
+      backgroundColor: accentSoft,
+      borderWidth: 1,
+      borderColor: accentBorder,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    iconBadge: {
+      position: 'absolute',
+      right: -2,
+      bottom: -2,
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      backgroundColor: colors.card,
+      borderWidth: 1.5,
+      borderColor: accentBorder,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    title: {
+      fontSize: 26,
+      fontWeight: '800',
+      color: colors.text,
+      textAlign: 'center',
+      marginBottom: 10,
+    },
+    subtitle: {
+      fontSize: 15,
+      lineHeight: 22,
+      fontWeight: '500',
+      color: colors.textSecondary,
+      textAlign: 'center',
+      paddingHorizontal: 8,
+      marginBottom: 14,
+    },
+    emailPill: {
+      alignSelf: 'center',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      maxWidth: '100%',
+      paddingHorizontal: 16,
+      paddingVertical: 9,
       borderRadius: 999,
-      paddingHorizontal: 10,
+      backgroundColor: colors.surface,
+      marginBottom: 22,
+    },
+    emailText: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: accentStrong,
+      flexShrink: 1,
+    },
+    stepsCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      paddingHorizontal: 14,
       paddingVertical: 4,
-      marginBottom: 2,
+      marginBottom: 22,
     },
-    badgeText: { fontSize: 11, fontWeight: '700', color: '#6E5A2E', letterSpacing: 0.2 },
-    title: { fontSize: 34, fontWeight: '800', color: '#141414' },
-    subtitle: { fontSize: 20, color: '#686868', lineHeight: 21 },
-    emailText: { fontSize: 22, lineHeight: 28, fontWeight: '700', color: '#AC7F2C' },
-    infoBox: {
-      borderWidth: 1,
-      borderColor: '#D5D5D5',
-      backgroundColor: '#FFFFFF',
-      borderRadius: 14,
-      paddingHorizontal: 12,
-      paddingVertical: 12,
-    },
-    infoText: { color: '#3A3A3A', fontSize: 15, lineHeight: 20 },
-    primaryButton: {
-      backgroundColor: '#D1BB90',
-      borderRadius: 13,
-      paddingVertical: 14,
+    stepRow: {
+      flexDirection: 'row',
       alignItems: 'center',
-      marginTop: 2,
+      gap: 12,
+      paddingVertical: 11,
     },
-    primaryButtonText: { color: '#FFFFFF', fontSize: 23, fontWeight: '800' },
-    buttonDisabled: { opacity: 0.5 },
-    cancelButton: {
+    stepDivider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: colors.border,
+      marginLeft: 36,
+    },
+    stepDot: {
+      width: 24,
+      height: 24,
       borderRadius: 12,
-      paddingVertical: 12,
+      backgroundColor: accentSoft,
       alignItems: 'center',
-      borderWidth: 1,
-      borderColor: '#D7D7D7',
-      backgroundColor: '#FFFFFF',
+      justifyContent: 'center',
+    },
+    stepNum: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: accentStrong,
+      fontVariant: ['tabular-nums'],
+    },
+    stepText: {
+      flex: 1,
+      fontSize: 13,
+      lineHeight: 18,
+      fontWeight: '600',
+      color: colors.textSecondary,
+    },
+    primaryButton: {
+      minHeight: 56,
+      flexDirection: 'row',
+      gap: 8,
+      backgroundColor: colors.primary,
+      borderRadius: 16,
+      paddingVertical: 16,
+      paddingHorizontal: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    primaryButtonText: {
+      color: ON_PRIMARY,
+      fontSize: 16,
+      fontWeight: '800',
+      letterSpacing: 0.2,
+    },
+    buttonDisabled: {
+      opacity: 0.5,
+    },
+    resendRow: {
+      minHeight: 44,
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      justifyContent: 'center',
+      columnGap: 6,
+      rowGap: 2,
+      marginTop: 16,
+    },
+    resendQuestion: {
+      fontSize: 13,
+      fontWeight: '500',
+      color: colors.textSecondary,
+    },
+    resendTimer: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: colors.text,
+      fontVariant: ['tabular-nums'],
+    },
+    resendAction: {
+      minHeight: 44,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingHorizontal: 6,
+      justifyContent: 'center',
+    },
+    resendButton: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: accentStrong,
+    },
+    autoRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      marginTop: 12,
+    },
+    pulseDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: colors.primary,
+    },
+    autoText: {
+      fontSize: 12.5,
+      fontWeight: '600',
+      color: colors.textSecondary,
+    },
+    cancelButton: {
+      alignSelf: 'center',
+      minHeight: 44,
+      paddingHorizontal: 20,
+      paddingVertical: 10,
+      marginTop: 12,
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     cancelButtonText: {
-      color: '#474747',
-      fontSize: 14,
-      fontWeight: '700',
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.textSecondary,
     },
-    resendSection: { alignItems: 'center' },
-    resendTimer: { color: '#7D7D7D', fontSize: 15 },
-    resendButtonContainer: {
-      paddingVertical: 10,
-      paddingHorizontal: 16,
-      borderRadius: 12,
-      backgroundColor: '#EFE6D6',
-      borderWidth: 1,
-      borderColor: '#E2D3B8',
-    },
-    resendButton: { color: '#AC7F2C', fontSize: 18, fontWeight: '700' },
   });
+};

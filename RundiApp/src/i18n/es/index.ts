@@ -11,6 +11,9 @@ import shared from './shared';
  */
 export const es = {
   common,
+  // Los servicios llaman i18n.t('services.X') sin prefijo de namespace;
+  // el subárbol vive en common.ts. Alias en raíz para que resuelva.
+  services: common.services,
   authScreens,
   client,
   settings,

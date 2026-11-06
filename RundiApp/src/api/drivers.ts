@@ -21,6 +21,75 @@ export function camelize<T extends Record<string, any>>(fields: T): T {
   return out as T;
 }
 
+// Los campos numéricos pueden llegar como string desde inputs/OCR/checkpoint
+// (SecureStore) — el decoder de Go es estricto y devuelve 400 "invalid body".
+// Se normalizan a number; lo no parseable se omite (son campos opcionales).
+const VEHICLE_INT_FIELDS = new Set(['year', 'registrationOcrYear', 'cylinders', 'passengers']);
+const VEHICLE_NUM_FIELDS = new Set(['tonnage']);
+
+function normalizeVehicleBody(body: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(body ?? {})) {
+    if (v === undefined) {
+      continue;
+    }
+    if (VEHICLE_INT_FIELDS.has(k) || VEHICLE_NUM_FIELDS.has(k)) {
+      if (v === '') {
+        continue;
+      }
+      if (v === null) {
+        out[k] = null; // null explícito = limpiar el campo (PATCH)
+        continue;
+      }
+      const n = typeof v === 'number' ? v : Number(String(v).trim());
+      if (Number.isNaN(n)) {
+        continue;
+      }
+      out[k] = VEHICLE_INT_FIELDS.has(k) ? Math.trunc(n) : n;
+      continue;
+    }
+    out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * Las columnas de fotos (vehicles.vehicle_photo, drivers.profile_photo,
+ * drivers.license_photo_*) se persisten como URL autenticada (getDownloadURL
+ * con token) — el backend las proyecta literal a DATA-MAIN_*. objectPath →
+ * URL resuelta; un file:// local se omite (no es persistible). NO aplica a
+ * document_path de compliance: ese sigue objectPath porque el backend lo
+ * firma al leer.
+ */
+const PHOTO_URL_KEYS = [
+  'vehiclePhoto',
+  'vehicle_photo',
+  'profilePhoto',
+  'profile_photo',
+  'licensePhotoFront',
+  'license_photo_front',
+  'licensePhotoBack',
+  'license_photo_back',
+] as const;
+
+async function normalizePhotoUrlFields(body: Record<string, any>): Promise<void> {
+  for (const key of PHOTO_URL_KEYS) {
+    const value = body[key];
+    if (typeof value !== 'string' || !value) {
+      continue;
+    }
+    if (value.startsWith('file:')) {
+      delete body[key];
+      continue;
+    }
+    if (/^https?:\/\//i.test(value)) {
+      continue;
+    }
+    const { default: storageService } = await import('../services/media/storageService');
+    body[key] = (await storageService.resolveDocumentPhotoUrl(value)) ?? value;
+  }
+}
+
 export type DriverAccountStatus = 'pending' | 'active' | 'suspended' | 'rejected';
 
 export interface DriverProfile {
@@ -83,12 +152,17 @@ export interface RegisterVehicleRequest {
   brand?: string;
   model?: string;
   year?: number;
+  registrationOcrYear?: number;
   color?: string;
-  type?: 'auto' | 'moto' | 'suv' | 'pickup';
+  /** Dominio abierto en SQL (VARCHAR): auto|moto|suv|pickup|sedan|van|… */
+  type?: string;
   fuelType?: string;
   passengers?: number;
   is4x4?: boolean;
   vehiclePhoto?: string;
+  vin?: string;
+  motor?: string;
+  chasis?: string;
   registrationNumber?: string;
   registrationExpiry?: string;
   insuranceNumber?: string;
@@ -98,7 +172,9 @@ export interface RegisterVehicleRequest {
 
 /** POST /v1/drivers/register — crea perfil (account_status='pending'). */
 export async function registerDriver(body: RegisterDriverRequest): Promise<string> {
-  const { data } = await client.post<{ driverId: string }>('/drivers/register', body);
+  const normalized = { ...body };
+  await normalizePhotoUrlFields(normalized);
+  const { data } = await client.post<{ driverId: string }>('/drivers/register', normalized);
   return data.driverId;
 }
 
@@ -112,7 +188,9 @@ export async function getMyDriverProfile(): Promise<DriverProfile> {
 export async function updateMyDriverProfile(
   fields: Partial<RegisterDriverRequest>,
 ): Promise<void> {
-  await client.patch('/drivers/me', camelize(fields));
+  const normalized = { ...fields };
+  await normalizePhotoUrlFields(normalized);
+  await client.patch('/drivers/me', camelize(normalized));
 }
 
 /** GET /v1/drivers/me/services. */
@@ -139,9 +217,11 @@ export async function getMyVehicles(): Promise<Vehicle[]> {
 
 /** POST /v1/drivers/me/vehicles. */
 export async function registerVehicle(body: RegisterVehicleRequest): Promise<string> {
+  const normalized = normalizeVehicleBody(body);
+  await normalizePhotoUrlFields(normalized);
   const { data } = await client.post<{ vehicleId: string }>(
     '/drivers/me/vehicles',
-    camelize(body),
+    camelize(normalized),
   );
   return data.vehicleId;
 }
@@ -151,7 +231,9 @@ export async function updateVehicle(
   vehicleId: string,
   fields: Partial<RegisterVehicleRequest>,
 ): Promise<void> {
-  await client.patch(`/drivers/me/vehicles/${vehicleId}`, camelize(fields));
+  const normalized = normalizeVehicleBody(fields);
+  await normalizePhotoUrlFields(normalized);
+  await client.patch(`/drivers/me/vehicles/${vehicleId}`, camelize(normalized));
 }
 
 /** POST /v1/drivers/me/vehicles/{id}/switch — vehículo activo (switchVehicle v1). */
@@ -199,6 +281,11 @@ export async function getMyFeatureCapabilities(): Promise<string[]> {
   return data.features;
 }
 
+/** PUT /v1/drivers/me/features/senior — preferencia propia del conductor. */
+export async function setSeniorFeature(enabled: boolean): Promise<void> {
+  await client.put('/drivers/me/features/senior', { enabled });
+}
+
 export interface RechargeEntry {
   id: string;
   type: string;
@@ -215,6 +302,25 @@ export async function getRechargeSummary(limit = 50): Promise<{ balance: number;
     '/drivers/me/recharges',
     { params: { limit } },
   );
+  return data;
+}
+
+export interface RechargeRequestResult {
+  recharge: RechargeEntry & { driverId?: string };
+  pending: boolean;
+  status: string;
+  availableBalance: number;
+  alreadyProcessed: boolean;
+}
+
+/** POST /v1/drivers/me/recharges (createDriverRechargeManual v1) — pending hasta confirmación admin. */
+export async function requestDriverRecharge(body: {
+  amount: number;
+  reference?: string;
+  externalTransactionId?: string;
+  method?: string;
+}): Promise<RechargeRequestResult> {
+  const { data } = await client.post<RechargeRequestResult>('/drivers/me/recharges', body);
   return data;
 }
 

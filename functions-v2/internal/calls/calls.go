@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/rundi/functions-v2/internal/apns"
 	"github.com/rundi/functions-v2/internal/apperr"
 	"github.com/rundi/functions-v2/internal/fs"
 )
@@ -45,10 +46,17 @@ func CallIDFromRoom(room string) string {
 type Service struct {
 	pool *pgxpool.Pool
 	fs   *firestore.Client
+	voip *apns.Sender
 }
 
 func NewService(pool *pgxpool.Pool, fsClient *firestore.Client) *Service {
 	return &Service{pool: pool, fs: fsClient}
+}
+
+// WithVoip — opcional: sender APNs para push VoIP al callee en Initiate.
+func (s *Service) WithVoip(sender *apns.Sender) *Service {
+	s.voip = sender
+	return s
 }
 
 // callDoc — estructura v1 completa (ver database/firebase-only.json §calls).
@@ -118,7 +126,31 @@ func (s *Service) Initiate(ctx context.Context, uid string, in InitiateRequest) 
 	if _, err := batch.Commit(ctx); err != nil {
 		return "", err
 	}
+	// Push VoIP síncrono (latencia ~0 — el pending event del consumer tarda
+	// hasta 1 tick y acceptDeadline son 60s). Detached del request ctx.
+	if s.voip != nil && cd.CalleeUID != "" {
+		vctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		go func() {
+			defer cancel()
+			SendVoipCallPush(vctx, s.fs, s.voip, callID, cd.CallerUID, cd.CalleeUID)
+		}()
+	}
 	return callID, nil
+}
+
+// resolveRideID — el rideId puede ser rides.id (uuid SQL) o firebase_ride_id
+// (doc vivo REALTIME_trips_live); normaliza al uuid SQL.
+func (s *Service) resolveRideID(ctx context.Context, rideID string) (string, error) {
+	if _, err := uuid.Parse(rideID); err == nil {
+		return rideID, nil
+	}
+	var id string
+	err := s.pool.QueryRow(ctx,
+		`SELECT id::text FROM public.rides WHERE firebase_ride_id = $1`, rideID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", apperr.New(404, "ride not found")
+	}
+	return id, err
 }
 
 // resolve — mapea el request a un callDoc con roles desde SQL.
@@ -128,12 +160,18 @@ func (s *Service) resolve(ctx context.Context, uid string, in InitiateRequest) (
 		if in.RideID == "" {
 			return nil, apperr.New(400, "rideId requerido")
 		}
+		// El rideId puede ser uuid SQL o firebase_ride_id (doc vivo
+		// REALTIME_trips_live); normaliza al uuid antes del lookup.
+		rideID, err := s.resolveRideID(ctx, in.RideID)
+		if err != nil {
+			return nil, err
+		}
 		var clientID string
 		var driverID *string
 		var status string
-		err := s.pool.QueryRow(ctx, `
+		err = s.pool.QueryRow(ctx, `
 			SELECT client_id, driver_id, status::text
-			FROM public.rides WHERE id = $1::uuid`, in.RideID,
+			FROM public.rides WHERE id = $1::uuid`, rideID,
 		).Scan(&clientID, &driverID, &status)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apperr.New(404, "ride not found")
@@ -145,7 +183,7 @@ func (s *Service) resolve(ctx context.Context, uid string, in InitiateRequest) (
 			return nil, apperr.New(409, "ride has no assigned driver")
 		}
 		cd := &callDoc{
-			CallType: "ride", RideID: in.RideID,
+			CallType: "ride", RideID: rideID,
 			ClientUID: clientID, DriverUID: *driverID,
 		}
 		switch uid {

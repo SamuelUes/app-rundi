@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -32,13 +32,15 @@ import { DriverProfileHeader } from '../../components/driver/DriverProfileHeader
 import { DriverProfileStats } from '../../components/driver/DriverProfileStats';
 import { DriverProfileVehicles } from '../../components/driver/DriverProfile/DriverProfileVehicles';
 import { DriverProfileDocuments } from '../../components/driver/DriverProfile/DriverProfileDocuments';
-import { DriverProfileDesignatedDriver } from '../../components/driver/DriverProfile/DriverProfileDesignatedDriver';
+import { DriverProfileRideFeatures } from '../../components/driver/DriverProfile/DriverProfileRideFeatures';
 import { DriverProfileModeToggle, DriverProfileOverlay, DriverProfileVoiceAssistant } from '../../components/driver/DriverProfile/DriverProfilePreferences';
 import { DriverProfileInsurance } from '../../components/driver/DriverProfile/DriverProfileInsurance';
 import { DriverProfileOptions } from '../../components/driver/DriverProfile/DriverProfileOptions';
+import { VirtualDocuments } from '../../components/driver/DriverProfile/VirtualDocuments';
 
 export default function DriverProfileScreen({ navigation }: any) {
   const { t } = useTranslation();
+  const [showVirtualDocuments, setShowVirtualDocuments] = useState(false);
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
@@ -275,11 +277,13 @@ export default function DriverProfileScreen({ navigation }: any) {
           documentButtonLabel={documentButtonLabel}
           driverLicenseExpiry={driverLicenseExpiry}
           onUploadDocuments={() => navigation.navigate('DriversDocumentsInspection')}
+          onViewVirtualDocuments={() => setShowVirtualDocuments(true)}
           t={t}
           styles={styles}
         />
 
-        <DriverProfileDesignatedDriver
+        <DriverProfileRideFeatures
+          userId={user?.id}
           isDesignatedRequestPending={isDesignatedRequestPending}
           isDesignatedDriverApproved={isDesignatedDriverApproved}
           isDesignatedRequestRejected={isDesignatedRequestRejected}
@@ -348,6 +352,13 @@ export default function DriverProfileScreen({ navigation }: any) {
       colors={colors}
       styles={styles}
       t={t}
+    />
+    <VirtualDocuments
+      visible={showVirtualDocuments}
+      onClose={() => setShowVirtualDocuments(false)}
+      vehicleId={selectedVehicleId}
+      profilePhoto={profilePhoto}
+      driver={driverData}
     />
     </>
   );

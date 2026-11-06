@@ -1,5 +1,5 @@
 import { doc, getDoc } from 'firebase/firestore';
-import { getFirebaseFirestore } from '../../config/firebase';
+import { getFirebaseAuth, getFirebaseFirestore } from '../../config/firebase';
 import { FS_COL } from '../../constants/firestore';
 
 export interface ClientProfile {
@@ -24,6 +24,8 @@ export async function fetchClientProfile(clientId?: string | null, rideId?: stri
     // v2: DATA-MAIN_users solo es legible por el owner u operator (reglas).
     // Para un conductor viendo el perfil de su cliente no existe proyección
     // pública en v2 → devuelve null salvo que el lector sea el propio cliente.
+    const auth = await getFirebaseAuth();
+    if (auth.currentUser?.uid !== clientId) return null;
     const db = await getFirebaseFirestore();
     const snap = await getDoc(doc(db, FS_COL.users, clientId));
     if (snap.exists()) {

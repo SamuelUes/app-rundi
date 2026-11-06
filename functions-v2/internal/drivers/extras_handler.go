@@ -62,6 +62,21 @@ func (h *Handler) myFeatures(w http.ResponseWriter, r *http.Request) {
 	apperr.JSON(w, http.StatusOK, map[string]any{"features": codes})
 }
 
+func (h *Handler) setSeniorFeature(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Enabled == nil {
+		apperr.Write(w, apperr.New(400, "enabled must be a boolean"))
+		return
+	}
+	if err := h.svc.SetSeniorFeature(r.Context(), ctxUID(r), *body.Enabled, ctxRID(r)); err != nil {
+		apperr.Write(w, err)
+		return
+	}
+	apperr.JSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 func (h *Handler) myRecharges(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	sum, err := h.svc.RechargeSummary(r.Context(), ctxUID(r), limit)
@@ -128,13 +143,63 @@ func (h *Handler) revokeFeature(w http.ResponseWriter, r *http.Request, entityTy
 	apperr.JSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// POST /v1/drivers/me/recharges — createDriverRechargeManual v1: el conductor
+// declara una recarga que queda pending hasta validación de operaciones.
+func (h *Handler) requestRecharge(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Amount                float64 `json:"amount"`
+		Reference             string  `json:"reference,omitempty"`
+		ExternalTransactionID string  `json:"externalTransactionId,omitempty"`
+		Method                string  `json:"method,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
+		return
+	}
+	e, balance, already, err := h.svc.RequestRecharge(r.Context(), ctxUID(r),
+		body.Amount, body.Reference, body.ExternalTransactionID, body.Method, ctxRID(r))
+	if err != nil {
+		apperr.Write(w, err)
+		return
+	}
+	apperr.JSON(w, http.StatusCreated, map[string]any{
+		"recharge":         e,
+		"pending":          e.Status == "pending",
+		"status":           e.Status,
+		"availableBalance": balance,
+		"alreadyProcessed": already,
+	})
+}
+
+// POST /v1/admin/recharges/{id}/confirm — confirm_driver_recharge v1:
+// acredita una recarga pending (reescribe balances + actualiza drivers).
+func (h *Handler) confirmRecharge(w http.ResponseWriter, r *http.Request) {
+	e, err := h.svc.ConfirmRecharge(r.Context(), chi.URLParam(r, "id"), ctxRID(r))
+	if err != nil {
+		apperr.Write(w, err)
+		return
+	}
+	apperr.JSON(w, http.StatusOK, map[string]any{"recharge": e})
+}
+
+// GET /v1/admin/recharges?status=pending&limit= — solicitudes del panel CMS.
+func (h *Handler) listRecharges(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	out, err := h.svc.ListRecharges(r.Context(), r.URL.Query().Get("status"), limit)
+	if err != nil {
+		apperr.Write(w, err)
+		return
+	}
+	apperr.JSON(w, http.StatusOK, map[string]any{"recharges": out})
+}
+
 func (h *Handler) createRecharge(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Amount    float64 `json:"amount"`
 		Reference string  `json:"reference,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	e, err := h.svc.CreateRecharge(r.Context(), chi.URLParam(r, "id"),

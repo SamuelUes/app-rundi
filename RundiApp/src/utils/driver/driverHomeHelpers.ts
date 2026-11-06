@@ -2,11 +2,15 @@ import type { TFunction } from 'i18next';
 import type { DriverStackParamList } from '../../navigation/DriverStack';
 import type { DriverOfferCacheEntry } from '../../services/driver/driverOfferCacheService';
 import { parseCoordinateValue as parseCoordinate } from '../geo/coordinates';
+import { extractRequestedFeatureCodes } from '../ride/rideFeatureLabels';
 
 export { parseCoordinate };
 
 export const ACTIVE_RIDE_STATUSES = ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'];
 export const MIN_RECHARGE_BALANCE_REQUIRED = 0;
+
+export const isPendingDispatchOffer = (status: unknown, expiresAtMs: number | null, now: number): boolean =>
+  status === 'pending' && (expiresAtMs === null || expiresAtMs > now);
 
 export type RawRideStop = {
   lat?: number | string;
@@ -199,6 +203,7 @@ export const normalizeRidePreviewPayload = (
     },
     extraDestinations: normalizedStops || undefined,
     estimatedPrice,
+    featureCodes: extractRequestedFeatureCodes(ridePayload),
     estimatedDistance:
       typeof ridePayload?.estimatedDistance === 'number'
         ? ridePayload.estimatedDistance

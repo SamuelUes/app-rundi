@@ -7,7 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as LegacyFileSystem from 'expo-file-system/legacy';
 import { bootstrapUser, upgradeToDriver } from '../../api/users';
-import { registerDriver, registerVehicle } from '../../api/drivers';
+import { getMyVehicles, registerDriver, registerVehicle } from '../../api/drivers';
 import { GoogleAuthProvider, signInWithCredential, deleteUser, signOut, getAuth} from 'firebase/auth';
 import { getFirebaseAuth } from '../../config/firebase';
 import phoneAuthService from './phoneAuthService';
@@ -51,13 +51,14 @@ interface RegistrationData {
     brand: string;
     model: string;
     year: number;
+    registrationOcrYear?: number;
     color: string;
     type: 'sedan' | 'suv' | 'van' | 'moto';
     motor?: string;
     chasis?: string;
     vin?: string;
-    cylinders?: string;
-    passengers?: string;
+    cylinders?: number;
+    passengers?: number;
     fuelType?: string;
     tonnage?: string;
     vehicleClass?: string;
@@ -68,6 +69,7 @@ interface RegistrationData {
     registrationExpiry?: string;
     registrationPhotoFront?: string;
     registrationPhotoBack?: string;
+    vehiclePhoto?: string;
     insuranceNumber?: string;
     insuranceCompany?: string;
     insuranceStartDate?: string;
@@ -243,6 +245,56 @@ class RegistrationService {
   }
 
   /**
+   * Tras un 409 de placa: confirma que el vehículo propio ya existe (retry
+   * parcial del registro). Si la placa es de otro conductor devuelve false
+   * y el 409 original se propaga como error real.
+   */
+  private async ownVehicleAlreadyRegistered(plate: unknown): Promise<boolean> {
+    try {
+      const normalized = String(plate || '').trim().toUpperCase();
+      if (!normalized) {
+        return false;
+      }
+      const vehicles = await getMyVehicles();
+      return vehicles.some((v) => (v.plate || '').toUpperCase() === normalized);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * upgrade + registerDriver + registerVehicle con tolerancia a 409.
+   * El flujo de registro no es transaccional: si un intento anterior creó el
+   * perfil (o el vehículo) y falló después, el retry debe continuar en vez de
+   * quedar bloqueado en "already exists".
+   */
+  private async ensureDriverAndVehicle(driverData: any, vehicleData: any): Promise<void> {
+    await upgradeToDriver();
+    try {
+      await registerDriver(driverData);
+    } catch (error: any) {
+      if (error?.response?.status !== 409) {
+        throw error;
+      }
+      console.log('ℹ️ Perfil de conductor ya existía (retry) — continuando');
+    }
+    await getAuth().currentUser?.getIdToken(true); // propagar claim role=driver
+    if (vehicleData) {
+      try {
+        await registerVehicle(vehicleData);
+      } catch (error: any) {
+        if (
+          error?.response?.status !== 409 ||
+          !(await this.ownVehicleAlreadyRegistered(vehicleData?.plate))
+        ) {
+          throw error;
+        }
+        console.log('ℹ️ Vehículo ya registrado (retry) — continuando');
+      }
+    }
+  }
+
+  /**
    * Crear usuario final
    * Llama a Cloud Function para registrar usuario
    */
@@ -319,16 +371,14 @@ class RegistrationService {
         authProvider: registrationPayload.authProvider,
       });
       if (registrationPayload.role === 'driver' && registrationPayload.driverData) {
-        await upgradeToDriver();
-        await registerDriver(registrationPayload.driverData);
-        await getAuth().currentUser?.getIdToken(true); // propagar claim role=driver
-        if (registrationPayload.vehicleData) {
-          await registerVehicle(registrationPayload.vehicleData as any);
-        }
+        await this.ensureDriverAndVehicle(
+          registrationPayload.driverData,
+          registrationPayload.vehicleData,
+        );
       }
 
       const user = {
-        userId: firebaseUser?.uid,
+        userId: firebaseUser?.uid || getAuth().currentUser?.uid,
         email: registrationPayload.email,
         name: registrationPayload.name,
         role: registrationPayload.role,
@@ -369,12 +419,7 @@ class RegistrationService {
     try {
       console.log('📝 Completando registro de conductor...');
 
-      await upgradeToDriver();
-      await registerDriver(driverData);
-      await getAuth().currentUser?.getIdToken(true); // propagar claim role=driver
-      if (vehicleData) {
-        await registerVehicle(vehicleData);
-      }
+      await this.ensureDriverAndVehicle(driverData, vehicleData);
       const result: any = { success: true, userId };
       console.log('✅ Registro de conductor completado (v2):', result);
       return result;
@@ -397,12 +442,7 @@ class RegistrationService {
         throw new Error(this.tr('errors.driverDataRequired'));
       }
 
-      await upgradeToDriver();
-      await registerDriver(driverData);
-      await getAuth().currentUser?.getIdToken(true); // propagar claim role=driver
-      if (vehicleData) {
-        await registerVehicle(vehicleData);
-      }
+      await this.ensureDriverAndVehicle(driverData, vehicleData);
       const data = { success: true };
       console.log('✅ Upgrade cliente→conductor completado:', data);
 

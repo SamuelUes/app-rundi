@@ -3,7 +3,9 @@ import { View, Text, TouchableOpacity, StyleSheet, InteractionManager } from 're
 import { useTheme } from '../hooks/shared/theme/useTheme';
 import fcmService from '../services/notification/fcmService';
 import { initializeNotificationSetup } from '../services/notification/notificationSetup';
+import { syncVoipToken, listenVoipToken, clearVoipToken } from '../native/voip';
 import { useAuth } from '../hooks/shared/auth/useAuth';
+import proximityService from '../services/ride/proximityService';
 
 interface FCMContextType {
   isConfigured: boolean;
@@ -32,6 +34,7 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
   const [hasPermission, setHasPermission] = useState(false);
   const [isFCMAvailable, setIsFCMAvailable] = useState(false);
   const listenersConfigured = useRef(false);
+  const lastUidRef = useRef<string | null>(null);
   const { user, loading } = useAuth();
 
   useEffect(() => {
@@ -84,6 +87,7 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
       let tokenRegistered = false;
       if (user?.id) {
         tokenRegistered = await fcmService.registerToken();
+        void syncVoipToken(user.id);
       } else {
         console.log('ℹ️ [FCM] Sesión de usuario aún no lista; se difiere registro de token.');
       }
@@ -118,6 +122,7 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
       let tokenRegistered = false;
       if (user?.id) {
         tokenRegistered = await fcmService.registerToken();
+        void syncVoipToken(user.id);
       } else {
         console.log('ℹ️ [FCM] Sesión de usuario aún no lista; se difiere registro de token.');
       }
@@ -151,13 +156,17 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
         }
 
         const tokenRegistered = await fcmService.registerToken();
+        void syncVoipToken(user.id);
         setIsConfigured(tokenRegistered);
       } catch (error) {
         console.error('❌ Error sincronizando token FCM:', error);
       }
     };
 
+    lastUidRef.current = user?.id ?? lastUidRef.current;
+    const unlistenVoip = user?.id ? listenVoipToken(user.id) : undefined;
     syncTokenForUser();
+    return () => unlistenVoip?.();
   }, [user?.id, isFCMAvailable]);
 
   useEffect(() => {
@@ -168,6 +177,8 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
     const clearTokenOnLogout = async () => {
       try {
         await fcmService.clearToken();
+        await clearVoipToken(lastUidRef.current);
+        await proximityService.hideOverlayBubble('signedOut');
       } catch (error) {
         console.error('❌ Error limpiando token FCM tras logout:', error);
       } finally {

@@ -179,6 +179,7 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
         insurancePhoto: localVehicleData.insurancePhoto,
         registrationPhotoFront: localVehicleData.registrationPhotoFront,
         registrationPhotoBack: localVehicleData.registrationPhotoBack,
+        vehiclePhoto: localVehicleData.vehiclePhoto,
       });
 
       if (localDriverData.licenseNumber) {
@@ -245,9 +246,23 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
         (typeof localVehicleData.registrationPhotoFront === 'string' &&
           shouldUploadUri(localVehicleData.registrationPhotoFront)) ||
         (typeof localVehicleData.registrationPhotoBack === 'string' &&
-          shouldUploadUri(localVehicleData.registrationPhotoBack));
+          shouldUploadUri(localVehicleData.registrationPhotoBack)) ||
+        (typeof localVehicleData.vehiclePhoto === 'string' &&
+          shouldUploadUri(localVehicleData.vehiclePhoto));
 
-      if (hasAnyVehiclePhotoToUpload) {
+      // Docs periódicos sin foto (inspección/emisiones/rodante/revisado):
+      // fechas capturadas en el formulario que van por compliance.
+      const hasAnyPeriodicDoc = Boolean(
+        localVehicleData.inspectionDate ||
+          localVehicleData.inspectionValidUntil ||
+          localVehicleData.emissionsTestedAt ||
+          localVehicleData.emissionsValidUntil ||
+          localVehicleData.roadTaxPaidAt ||
+          localVehicleData.roadTaxReceiptNumber ||
+          localVehicleData.revisadoValidUntil,
+      );
+
+      if (hasAnyVehiclePhotoToUpload || hasAnyPeriodicDoc) {
         let vehicles: any[] = [];
         for (let attempt = 1; attempt <= 3; attempt++) {
           try {
@@ -277,12 +292,26 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
             console.log('📤 [RegisterConfirm] Subiendo insurancePhoto...');
             const insuranceUrl = await supabaseStorage.uploadInsurancePhoto(userId, localVehicleData.insurancePhoto);
             console.log('📝 [RegisterConfirm] Actualizando vehículo con insurance_photo:', vehicleId);
-            await vehiclesService.updateVehicle(vehicleId, { insurance_photo: insuranceUrl });
+            await vehiclesService.updateVehicle(vehicleId, {
+              insurance_photo: insuranceUrl,
+              insurance_number: localVehicleData.insuranceNumber,
+              insurance_company: localVehicleData.insuranceCompany,
+              insurance_expiry: localVehicleData.insuranceExpiry,
+              vin: localVehicleData.vin,
+              motor: localVehicleData.motor,
+              chasis: localVehicleData.chasis,
+            });
           } catch (error) {
             console.warn('⚠️ [RegisterConfirm] Error subiendo/persistiendo insurancePhoto:', error);
             uploadErrors.push('insurancePhoto');
           }
         }
+
+        // Frente y reverso en UN solo doc de circulación (submitNewCurrent
+        // crea una versión nueva por llamada — dos llamadas dejarían la
+        // vigente con una sola cara).
+        let regFrontUrl: string | null = null;
+        let regBackUrl: string | null = null;
 
         if (
           typeof localVehicleData.registrationPhotoFront === 'string' &&
@@ -290,11 +319,9 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
         ) {
           try {
             console.log('📤 [RegisterConfirm] Subiendo registrationPhotoFront...');
-            const url = await supabaseStorage.uploadRegistrationPhoto(userId, localVehicleData.registrationPhotoFront, 'front');
-            console.log('📝 [RegisterConfirm] Actualizando vehículo con registration_photo_front:', vehicleId);
-            await vehiclesService.updateVehicle(vehicleId, { registration_photo_front: url });
+            regFrontUrl = await supabaseStorage.uploadRegistrationPhoto(userId, localVehicleData.registrationPhotoFront, 'front');
           } catch (error) {
-            console.warn('⚠️ [RegisterConfirm] Error subiendo/persistiendo registrationPhotoFront:', error);
+            console.warn('⚠️ [RegisterConfirm] Error subiendo registrationPhotoFront:', error);
             uploadErrors.push('registrationPhotoFront');
           }
         }
@@ -305,12 +332,56 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
         ) {
           try {
             console.log('📤 [RegisterConfirm] Subiendo registrationPhotoBack...');
-            const url = await supabaseStorage.uploadRegistrationPhoto(userId, localVehicleData.registrationPhotoBack, 'back');
-            console.log('📝 [RegisterConfirm] Actualizando vehículo con registration_photo_back:', vehicleId);
-            await vehiclesService.updateVehicle(vehicleId, { registration_photo_back: url });
+            regBackUrl = await supabaseStorage.uploadRegistrationPhoto(userId, localVehicleData.registrationPhotoBack, 'back');
           } catch (error) {
-            console.warn('⚠️ [RegisterConfirm] Error subiendo/persistiendo registrationPhotoBack:', error);
+            console.warn('⚠️ [RegisterConfirm] Error subiendo registrationPhotoBack:', error);
             uploadErrors.push('registrationPhotoBack');
+          }
+        }
+
+        if (regFrontUrl || regBackUrl) {
+          try {
+            console.log('📝 [RegisterConfirm] Guardando doc de circulación:', vehicleId);
+            await vehiclesService.updateVehicle(vehicleId, {
+              registration_photo_front: regFrontUrl,
+              registration_photo_back: regBackUrl,
+              registration_number: localVehicleData.registrationNumber,
+              emission_date: localVehicleData.emissionDate,
+            });
+          } catch (error) {
+            console.warn('⚠️ [RegisterConfirm] Error persistiendo doc de circulación:', error);
+            uploadErrors.push('registrationPhotos');
+          }
+        }
+
+        // Foto del vehículo: columna vehicles.vehicle_photo (no es doc de
+        // compliance — va por PATCH normal).
+        if (
+          typeof localVehicleData.vehiclePhoto === 'string' &&
+          shouldUploadUri(localVehicleData.vehiclePhoto)
+        ) {
+          try {
+            console.log('📤 [RegisterConfirm] Subiendo vehiclePhoto...');
+            const vehiclePhotoUrl = await supabaseStorage.uploadDriverVehiclePhoto(
+              userId,
+              localVehicleData.vehiclePhoto,
+            );
+            console.log('📝 [RegisterConfirm] Actualizando vehículo con vehicle_photo:', vehicleId);
+            await vehiclesService.updateVehicle(vehicleId, {
+              vehicle_photo: vehiclePhotoUrl,
+            });
+          } catch (error) {
+            console.warn('⚠️ [RegisterConfirm] Error subiendo/persistiendo vehiclePhoto:', error);
+            uploadErrors.push('vehiclePhoto');
+          }
+        }
+
+        if (hasAnyPeriodicDoc) {
+          try {
+            console.log('📝 [RegisterConfirm] Enviando docs periódicos del vehículo:', vehicleId);
+            await vehiclesService.submitPeriodicDocuments(vehicleId, localVehicleData);
+          } catch (error) {
+            console.warn('⚠️ [RegisterConfirm] Error enviando docs periódicos:', error);
           }
         }
       }
@@ -722,7 +793,7 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     marginTop: 24,
   },
   actionButton: {
-    borderRadius: 22,
+    borderRadius: 16,
   },
   photoPreviewGroup: {
     marginTop: 16,

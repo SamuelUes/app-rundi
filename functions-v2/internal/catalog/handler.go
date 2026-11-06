@@ -37,7 +37,7 @@ func (h *Handler) ctx(r *http.Request) (string, string) {
 func (h *Handler) upsertService(w http.ResponseWriter, r *http.Request) {
 	var body ServiceInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	uid, rid := h.ctx(r)
@@ -51,7 +51,7 @@ func (h *Handler) upsertService(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) upsertFeature(w http.ResponseWriter, r *http.Request) {
 	var body FeatureInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	uid, rid := h.ctx(r)
@@ -65,7 +65,7 @@ func (h *Handler) upsertFeature(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) upsertSurgeRule(w http.ResponseWriter, r *http.Request) {
 	var body SurgeRuleInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	uid, rid := h.ctx(r)
@@ -79,7 +79,7 @@ func (h *Handler) upsertSurgeRule(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) assignFeature(w http.ResponseWriter, r *http.Request) {
 	var body AssignmentInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	uid, rid := h.ctx(r)

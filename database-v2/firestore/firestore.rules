@@ -78,6 +78,9 @@ service cloud.firestore {
       match /fcmTokens/{tokenId} {
         allow read, write: if isOwner(userId);
       }
+      match /voipTokens/{tokenId} {
+        allow read, write: if isOwner(userId);
+      }
       match /recurringRides/{rideId} {
         allow read, write: if isOwner(userId);
       }
@@ -168,24 +171,32 @@ service cloud.firestore {
 
     // GPS/estado en vivo del conductor — único doc que el driver escribe directo.
     // NO puede tocar aprobación, rol, saldo, comisión, viaje asignado ni compliance.
+    // status/activeServiceCodes/session* son autoridad del backend (sesión SQL):
+    // el cliente solo escribe GPS/heartbeat y metadatos de matching derivados
+    // (serviceAreaId/vehicleType); la disponibilidad va por POST/DELETE
+    // /v1/compliance/availability.
     match /REALTIME_drivers_live/{driverId} {
       allow read: if isAuth();
       // En create resource.data es null: validar keys() del doc nuevo
       // (diff() sobre null da Null value error y deniega).
       allow create: if isOwner(driverId) && isDriver()
         && request.resource.data.keys().hasOnly([
-             'location', 'status', 'serviceAreaId', 'vehicleType',
-             'activeServiceCodes', 'lastSeen', 'heading', 'speed', 'accuracy'])
+             'location', 'serviceAreaId', 'vehicleType',
+             'lastSeen', 'heading', 'speed', 'accuracy'])
         && (!request.resource.data.keys().hasAny(['location'])
             || validLatLng(request.resource.data.location));
       allow update: if isOwner(driverId) && isDriver()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-             'location', 'status', 'serviceAreaId', 'vehicleType',
-             'activeServiceCodes', 'lastSeen', 'heading', 'speed', 'accuracy'])
+             'location', 'serviceAreaId', 'vehicleType',
+             'lastSeen', 'heading', 'speed', 'accuracy'])
         && (!request.resource.data.keys().hasAny(['location'])
             || validLatLng(request.resource.data.location));
       // delete ya quedaba denegado (request.resource es null en delete).
       allow delete: if false;
+      match /vehicles/{vehicleDoc} {
+        allow read: if isOwner(driverId) || isOperator();
+        allow write: if false;
+      }
     }
 
     // Estado vivo de viaje — actualizaciones críticas por consumidor/API.
@@ -223,6 +234,18 @@ service cloud.firestore {
       allow read: if docNotYetProjected()
         || isOperator() || isTripParticipant(resource.data);
       allow write: if false; // confirmación financiera solo backend/SQL
+    }
+
+    // Billetera del conductor — saldo + recargas (financiero privado: solo el
+    // dueño; a diferencia de drivers_live/public_profiles no es isAuth amplio).
+    // El doc lo proyecta el consumer desde eventos driver.recharge.
+    match /REALTIME_driver_wallet/{uid} {
+      allow read: if isOwner(uid) || isOperator();
+      allow write: if false;
+      match /movements/{movementId} {
+        allow read: if isOwner(uid) || isOperator();
+        allow write: if false;
+      }
     }
 
     // Señalización de llamadas (LiveKit) — el doc lo crea el backend con roles
@@ -381,6 +404,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
     match /SYSTEM_projection_status/{docId} {
+      allow read, write: if false;
+    }
+    // Decisión diaria de compliance reutilizable — solo el backend la escribe
+    // y la lee (contiene motivos internos de la evaluación).
+    match /SYSTEM_driver_daily_compliance/{driverId} {
       allow read, write: if false;
     }
 

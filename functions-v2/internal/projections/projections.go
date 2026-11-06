@@ -7,15 +7,19 @@ package projections
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/firestore"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/rundi/functions-v2/internal/drivers"
 	"github.com/rundi/functions-v2/internal/fs"
 )
 
@@ -32,30 +36,66 @@ type Event struct {
 // Versionado: solo aplica si event.version > doc.appliedVersion.
 // Para catálogo (service/feature/pricing) se RE-LEE la fila SQL vigente y se
 // proyecta el estado completo — el payload solo actúa de disparador/versión.
-func Publish(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, ev Event) error {
+// Devuelve la revision SQL aplicada (-1 si el agregado no la soporta o no se
+// pudo resolver); el consumer la registra como appliedRevision del status.
+func Publish(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, ev Event) (int64, error) {
 	var p map[string]any
 	if err := json.Unmarshal(ev.Payload, &p); err != nil {
-		return err
+		return -1, err
 	}
 
 	switch ev.AggregateType {
 	case "ride":
 		if err := projectRide(ctx, pool, c, ev, p); err != nil {
-			return err
+			return -1, err
+		}
+		if err := projectCounterOffers(ctx, pool, c, ev.AggregateID); err != nil {
+			return -1, err
+		}
+		if ev.EventType == "ride.completed" || ev.EventType == "ride.status_changed" || ev.EventType == "rating.skipped" {
+			if err := projectRideDriverProfiles(ctx, pool, c, ev.AggregateID); err != nil {
+				return -1, err
+			}
 		}
 		// Efectos de crew membership (currentRideId) tras proyectar el viaje.
-		return crewSideEffects(ctx, c, ev, p)
+		if err := crewSideEffects(ctx, c, ev, p); err != nil {
+			return -1, err
+		}
+		// Ocupación del conductor asignado en drivers_live (on_ride).
+		if err := projectRideDriverEngagement(ctx, c, p); err != nil {
+			return -1, err
+		}
+		// rides.version es la revision de fila (entero en orden de commit).
+		if v, ok := p["version"].(float64); ok {
+			return int64(v), nil
+		}
+		return -1, nil
 
 	case "payment":
 		return projectPayment(ctx, pool, c, ev, p)
 
 	case "driver":
+		if ev.EventType == "driver.recharge" {
+			return -1, projectDriverWallet(ctx, pool, c, ev, p)
+		}
+		if ev.EventType == "driver.activated" || ev.EventType == "driver.deactivated" {
+			return -1, projectDriverSession(ctx, c, p, ev.EventType == "driver.activated")
+		}
+		if ev.EventType == "driver.ride_finished" {
+			return -1, projectDriverRideFinished(ctx, c, p)
+		}
+		features, err := drivers.NewService(pool, nil).MyFeatureCapabilities(ctx, ev.AggregateID)
+		if err != nil {
+			return -1, err
+		}
+		revision := rowRevision(ctx, pool, "public.drivers", "user_id", ev.AggregateID)
 		// Whitelist: nunca proyectar campos de compliance/licencias (reglas §8).
 		data := map[string]any{
 			"driverId":       ev.AggregateID,
 			"appliedVersion": p["version"],
 			"updatedAt":      firestore.ServerTimestamp,
 			"lastEventId":    ev.EventID,
+			"features":       features,
 		}
 		for _, k := range []string{
 			"userId", "accountStatus", "averageRating", "totalRides",
@@ -67,25 +107,12 @@ func Publish(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, ev Ev
 		}
 		mainRef := c.Collection(fs.ColDrivers).Doc(ev.AggregateID)
 		if err := applyVersioned(ctx, c, mainRef, p, data); err != nil {
-			return err
+			return -1, err
 		}
-		// Perfil público: lo mínimo para que un cliente identifique a su
-		// oferente/conductor asignado (nombre, foto, rating, conteo de viajes).
-		public := map[string]any{
-			"driverId":       ev.AggregateID,
-			"appliedVersion": p["version"],
-			"updatedAt":      firestore.ServerTimestamp,
-			"lastEventId":    ev.EventID,
-		}
-		for _, k := range []string{"displayName", "photoUrl", "averageRating", "totalRides"} {
-			if v, ok := p[k]; ok {
-				public[k] = v
-			}
-		}
-		publicRef := c.Collection(fs.ColDriverPublic).Doc(ev.AggregateID)
-		return applyVersioned(ctx, c, publicRef, p, public)
+		return revision, projectPublicDriver(ctx, pool, c, ev.AggregateID)
 
 	case "vehicle":
+		revision := rowRevision(ctx, pool, "public.vehicles", "id", ev.AggregateID)
 		data := map[string]any{
 			"vehicleId":      ev.AggregateID,
 			"appliedVersion": p["version"],
@@ -101,7 +128,27 @@ func Publish(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, ev Ev
 			}
 		}
 		ref := c.Collection(fs.ColVehicles).Doc(ev.AggregateID)
-		return applyVersioned(ctx, c, ref, p, data)
+		if err := applyVersioned(ctx, c, ref, p, data); err != nil {
+			return -1, err
+		}
+		uid, _ := p["driverUid"].(string)
+		if uid == "" {
+			return revision, nil
+		}
+		if err := projectActiveVehicle(ctx, pool, c, uid, p); err != nil {
+			return -1, err
+		}
+		return revision, projectPublicDriver(ctx, pool, c, uid)
+
+	case "rating":
+		if p["ratedRole"] == "client" {
+			return -1, nil
+		}
+		uid, _ := p["toUserId"].(string)
+		return -1, projectPublicDriver(ctx, pool, c, uid)
+
+	case "driver_public":
+		return -1, projectPublicDriver(ctx, pool, c, ev.AggregateID)
 
 	case "user":
 		// Firestore-first: la API ya escribió el doc operativo; esta proyección
@@ -120,21 +167,69 @@ func Publish(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, ev Ev
 			}
 		}
 		ref := c.Collection(fs.ColUsers).Doc(ev.AggregateID)
-		return applyVersioned(ctx, c, ref, p, data)
+		if err := applyVersioned(ctx, c, ref, p, data); err != nil {
+			return -1, err
+		}
+		return -1, projectPublicDriver(ctx, pool, c, ev.AggregateID)
 
 	case "service":
-		return ProjectService(ctx, pool, c, ev)
+		return -1, ProjectService(ctx, pool, c, ev)
 
 	case "feature":
-		return ProjectFeature(ctx, pool, c, ev)
+		return -1, ProjectFeature(ctx, pool, c, ev)
 
 	case "pricing":
-		return ProjectSurgeRules(ctx, pool, c, ev)
+		return -1, ProjectSurgeRules(ctx, pool, c, ev)
 
 	default:
 		slog.Warn("unhandled aggregate", "type", ev.AggregateType, "event", ev.EventID)
-		return nil
+		return -1, nil
 	}
+}
+
+// rowRevision — revision actual de la fila (monotona en orden de commit);
+// -1 si no se puede leer (la fila aun no existe, p.ej.).
+func rowRevision(ctx context.Context, pool *pgxpool.Pool, table, idCol, id string) int64 {
+	var rev int64
+	err := pool.QueryRow(ctx,
+		fmt.Sprintf("SELECT revision FROM %s WHERE %s = $1", table, idCol), id).Scan(&rev)
+	if err != nil {
+		return -1
+	}
+	return rev
+}
+
+// Re-read SQL so delayed vehicle events cannot restore a previously selected vehicle.
+func projectActiveVehicle(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, uid string, p map[string]any) error {
+	var id, plate, vehicleType string
+	var year *int
+	err := pool.QueryRow(ctx, `
+		SELECT v.id::text, v.plate, COALESCE(v.type, ''), v.registration_ocr_year
+		FROM public.vehicles v JOIN public.drivers d ON d.id = v.driver_id
+		WHERE d.user_id = $1 AND v.is_active = TRUE AND v.deleted_at IS NULL
+		ORDER BY v.created_at DESC, v.id DESC LIMIT 1`, uid).Scan(&id, &plate, &vehicleType, &year)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	data := map[string]any{"vehicleId": nil, "plate": nil, "type": nil, "ocrYear": nil, "premiumBadge": nil,
+		"premiumFrom": nil, "premiumGraceFrom": nil, "premiumUntil": nil,
+		"appliedVersion": p["version"], "updatedAt": firestore.ServerTimestamp}
+	if err == nil {
+		data["vehicleId"], data["plate"], data["type"] = id, plate, vehicleType
+		if year != nil {
+			data["ocrYear"] = *year
+		}
+		if year != nil && *year >= 1900 && *year <= 2100 && vehicleType != "" && !strings.Contains(strings.ToLower(vehicleType), "moto") {
+			// Managua is UTC-6 and does not currently observe daylight saving time.
+			loc := time.FixedZone("America/Managua", -6*60*60)
+			data["premiumBadge"] = "premium"
+			data["premiumFrom"] = time.Date(*year, 1, 1, 0, 0, 0, 0, loc)
+			data["premiumGraceFrom"] = time.Date(*year+5, 1, 1, 0, 0, 0, 0, loc)
+			data["premiumUntil"] = time.Date(*year+5, 7, 1, 0, 0, 0, 0, loc)
+		}
+	}
+	ref := c.Collection(fs.ColDriversLive).Doc(uid).Collection("vehicles").Doc("active")
+	return applyVersioned(ctx, c, ref, p, data)
 }
 
 // projectRide — re-lee la fila SQL autoritativa (vista rides_with_complete_route
@@ -332,22 +427,23 @@ func projectRide(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, e
 // REALTIME_payments_live/{firebase_ride_id} (mismo id que trips_live) y
 // DATA-MAIN_payments/{paymentId}. Unifica el doc id que antes se partía en
 // firebaseRideId (created) vs rideId SQL (resto de eventos).
-func projectPayment(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, ev Event, p map[string]any) error {
+func projectPayment(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, ev Event, p map[string]any) (int64, error) {
 	var (
 		rideID, fbID, clientID, driverID, statusV, method, provider *string
 		amount, tip, commission, total                              *float64
+		revision                                                    int64
 	)
 	err := pool.QueryRow(ctx, `
 		SELECT pay.ride_id::text, r.firebase_ride_id, r.client_id, r.driver_id,
 		       pay.status::text, pay.payment_method, pay.payment_provider,
-		       pay.amount, pay.tip, pay.commission, pay.total
+		       pay.amount, pay.tip, pay.commission, pay.total, pay.revision
 		FROM public.payments pay
 		LEFT JOIN public.rides r ON r.id = pay.ride_id
 		WHERE pay.id = $1::uuid`, ev.AggregateID).Scan(
 		&rideID, &fbID, &clientID, &driverID, &statusV, &method, &provider,
-		&amount, &tip, &commission, &total)
+		&amount, &tip, &commission, &total, &revision)
 	if err != nil {
-		return fmt.Errorf("projectPayment read %s: %w", ev.AggregateID, err)
+		return -1, fmt.Errorf("projectPayment read %s: %w", ev.AggregateID, err)
 	}
 
 	base := map[string]any{
@@ -397,11 +493,14 @@ func projectPayment(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client
 	if liveID != "" {
 		liveRef := c.Collection(fs.ColPaymentsLive).Doc(liveID)
 		if err := applyVersioned(ctx, c, liveRef, p, base); err != nil {
-			return err
+			return -1, err
 		}
 	}
 	mainRef := c.Collection(fs.ColPayments).Doc(ev.AggregateID)
-	return applyVersioned(ctx, c, mainRef, p, base)
+	if err := applyVersioned(ctx, c, mainRef, p, base); err != nil {
+		return -1, err
+	}
+	return revision, nil
 }
 
 // ProjectService — re-lee public.services + feature codes habilitados y
@@ -635,6 +734,203 @@ func crewSideEffects(ctx context.Context, c *firestore.Client, ev Event, p map[s
 
 // applyVersioned — compare-and-set: solo aplica si payload.version estrictamente
 // mayor que doc.appliedVersion (idempotencia/out-of-order, doc §5.3).
+// projectDriverWallet — eventos driver.recharge → REALTIME_driver_wallet/{uid}.
+// Re-lee el estado SQL (balance + pendientes + el movimiento disparador) igual
+// que el catálogo: el payload actúa de disparador y la proyección converge al
+// estado real sin depender del orden de eventos.
+func projectDriverWallet(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, ev Event, p map[string]any) error {
+	uid := ev.AggregateID
+	var balance float64
+	err := pool.QueryRow(ctx, `
+		SELECT COALESCE(current_recharge_balance, 0) FROM public.drivers
+		WHERE user_id = $1 AND deleted_at IS NULL`, uid).Scan(&balance)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var pendingAmount float64
+	var pendingCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(amount), 0), COUNT(*)
+		FROM public.driver_wallet_movements
+		WHERE driver_id = $1 AND status = 'pending'`, uid).
+		Scan(&pendingAmount, &pendingCount); err != nil {
+		return err
+	}
+	ref := c.Collection(fs.ColDriverWallet).Doc(uid)
+	if _, err := ref.Set(ctx, map[string]any{
+		"driverId":         uid,
+		"balance":          balance,
+		"pendingAmount":    pendingAmount,
+		"pendingRecharges": pendingCount,
+		"updatedAt":        firestore.ServerTimestamp,
+		"lastEventId":      ev.EventID,
+	}, firestore.MergeAll); err != nil {
+		return err
+	}
+	// El movimiento que disparó el evento → doc propio (status re-leído:
+	// pending ↔ confirmed converge en movements/{id}).
+	rid, _ := p["rechargeId"].(string)
+	if rid == "" {
+		return nil
+	}
+	var mType, mSource, mStatus string
+	var mAmount float64
+	var mRef *string
+	var mCreated time.Time
+	err = pool.QueryRow(ctx, `
+		SELECT movement_type::text, source::text, amount, status::text,
+		       external_reference, created_at
+		FROM public.driver_wallet_movements
+		WHERE id = $1::uuid AND driver_id = $2`, rid, uid).
+		Scan(&mType, &mSource, &mAmount, &mStatus, &mRef, &mCreated)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	mData := map[string]any{
+		"movementId": rid,
+		"type":       mType,
+		"source":     mSource,
+		"amount":     mAmount,
+		"status":     mStatus,
+		"createdAt":  mCreated.UTC(),
+		"updatedAt":  firestore.ServerTimestamp,
+	}
+	if mRef != nil {
+		mData["externalReference"] = *mRef
+	}
+	_, err = ref.Collection("movements").Doc(rid).Set(ctx, mData, firestore.MergeAll)
+	return err
+}
+
+// projectDriverSession — driver.activated/deactivated → estado operativo en
+// REALTIME_drivers_live. El cerco es sessionSeq (monótono en SQL): un evento
+// atrasado no apaga una activación más reciente ni revive una ya cerrada.
+// Una activación nunca baja un 'on_ride'/'busy' en curso.
+func projectDriverSession(ctx context.Context, c *firestore.Client, p map[string]any, online bool) error {
+	uid, _ := p["driverUid"].(string)
+	if uid == "" {
+		return errors.New("driver session event without driverUid")
+	}
+	seq, _ := p["sessionSeq"].(float64)
+	ref := c.Collection(fs.ColDriversLive).Doc(uid)
+	return c.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		snap, err := tx.Get(ref)
+		if err != nil && status.Code(err) != codes.NotFound {
+			return err
+		}
+		existingStatus := ""
+		if err == nil {
+			existingStatus, _ = snap.Data()["status"].(string)
+			var prev float64
+			switch v := snap.Data()["sessionSeq"].(type) {
+			case int64:
+				prev = float64(v)
+			case float64:
+				prev = v
+			}
+			if prev > seq {
+				return nil
+			}
+		}
+		data := map[string]any{
+			"sessionSeq": seq,
+			"updatedAt":  firestore.ServerTimestamp,
+		}
+		if online {
+			if existingStatus != "on_ride" && existingStatus != "busy" {
+				data["status"] = "online"
+			}
+			data["sessionId"], _ = p["sessionId"].(string)
+			data["sessionExpiresAt"], _ = p["expiresAt"].(string)
+			if codes, ok := p["serviceCodes"].([]any); ok {
+				data["activeServiceCodes"] = codes
+			}
+			data["offlineAt"] = nil
+		} else {
+			data["status"] = "offline"
+			data["offlineAt"] = firestore.ServerTimestamp
+			data["sessionId"] = nil
+			data["sessionExpiresAt"] = nil
+		}
+		return tx.Set(ref, data, firestore.MergeAll)
+	})
+}
+
+// projectRideDriverEngagement — un viaje asignado/en curso marca al conductor
+// 'on_ride' en drivers_live (antes lo escribía la app). Solo desde 'online':
+// un evento atrasado no reviste como ocupado a un conductor ya offline.
+func projectRideDriverEngagement(ctx context.Context, c *firestore.Client, p map[string]any) error {
+	uid, _ := p["driverId"].(string)
+	rideStatus, _ := p["status"].(string)
+	if uid == "" {
+		return nil
+	}
+	switch rideStatus {
+	case "accepted", "driver_on_route", "driver_arrived", "in_progress", "pending_payment":
+	default:
+		return nil
+	}
+	ref := c.Collection(fs.ColDriversLive).Doc(uid)
+	return c.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		snap, err := tx.Get(ref)
+		if err != nil && status.Code(err) != codes.NotFound {
+			return err
+		}
+		var cur string
+		if err == nil {
+			cur, _ = snap.Data()["status"].(string)
+		}
+		if cur != "online" {
+			return nil
+		}
+		return tx.Set(ref, map[string]any{
+			"status":    "on_ride",
+			"updatedAt": firestore.ServerTimestamp,
+		}, firestore.MergeAll)
+	})
+}
+
+// projectDriverRideFinished — driver.ride_finished (viaje cancelado con
+// conductor asignado): restaura 'online' si la sesión proyectada sigue viva,
+// si no queda 'offline'. La finalización de viaje no pasa por aquí — emite
+// driver.deactivated directamente.
+func projectDriverRideFinished(ctx context.Context, c *firestore.Client, p map[string]any) error {
+	uid, _ := p["driverUid"].(string)
+	if uid == "" {
+		return errors.New("driver.ride_finished without driverUid")
+	}
+	ref := c.Collection(fs.ColDriversLive).Doc(uid)
+	return c.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		snap, err := tx.Get(ref)
+		if err != nil {
+			if status.Code(err) == codes.NotFound {
+				return nil // sin doc operativo no hay nada que restaurar
+			}
+			return err
+		}
+		sessID, _ := snap.Data()["sessionId"].(string)
+		exp, _ := snap.Data()["sessionExpiresAt"].(string)
+		expiry, perr := time.Parse(time.RFC3339, exp)
+		data := map[string]any{"updatedAt": firestore.ServerTimestamp}
+		if sessID != "" && perr == nil && expiry.After(time.Now()) {
+			data["status"] = "online"
+			data["offlineAt"] = nil
+			return tx.Set(ref, data, firestore.MergeAll)
+		}
+		data["status"] = "offline"
+		data["offlineAt"] = firestore.ServerTimestamp
+		data["sessionId"] = nil
+		data["sessionExpiresAt"] = nil
+		return tx.Set(ref, data, firestore.MergeAll)
+	})
+}
+
 func applyVersioned(ctx context.Context, c *firestore.Client, ref *firestore.DocumentRef, p map[string]any, data map[string]any) error {
 	return c.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		snap, err := tx.Get(ref)
@@ -642,10 +938,18 @@ func applyVersioned(ctx context.Context, c *firestore.Client, ref *firestore.Doc
 			return err
 		}
 		if err == nil {
-			if av, ok := snap.Data()["appliedVersion"].(int64); ok {
-				if v, ok2 := p["version"].(float64); ok2 && int64(v) <= av {
-					return nil
-				}
+			var previous float64
+			hasPrevious := false
+			switch v := snap.Data()["appliedVersion"].(type) {
+			case int64:
+				previous = float64(v)
+				hasPrevious = true
+			case float64:
+				previous = v
+				hasPrevious = true
+			}
+			if v, ok := p["version"].(float64); ok && hasPrevious && v <= previous {
+				return nil
 			}
 		}
 		return tx.Set(ref, data, firestore.MergeAll)

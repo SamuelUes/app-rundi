@@ -39,7 +39,7 @@ export async function cancelRide(
   return data;
 }
 
-/** Driver contraoferta precio mientras el viaje es negociable. */
+/** Negociación por rol del caller: cliente ajusta precio sugerido, driver contraoferta. */
 export async function negotiateRidePrice(
   rideId: string,
   body: NegotiatePriceRequest,

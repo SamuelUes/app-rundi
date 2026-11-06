@@ -31,7 +31,7 @@ func (h *Handler) submit(w http.ResponseWriter, r *http.Request) {
 	uid, _ := r.Context().Value(middleware.CtxUID).(string)
 	var body SubmitRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	i, err := h.svc.Submit(r.Context(), uid, body)
@@ -57,7 +57,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	uid, _ := r.Context().Value(middleware.CtxUID).(string)
 	var body SubmitRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	i, err := h.svc.Update(r.Context(), chi.URLParam(r, "id"), uid, body)

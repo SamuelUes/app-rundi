@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/rundi/functions-v2/internal/apns"
 	"github.com/rundi/functions-v2/internal/calls"
 	"github.com/rundi/functions-v2/internal/config"
 	"github.com/rundi/functions-v2/internal/db"
@@ -62,13 +63,20 @@ func main() {
 	}
 	notify := notifications.NewCenter(fsClient, fcmSender)
 
+	// APNs para pushes VoIP (CallKit/PushKit). Sin config → nil, no fatal.
+	apnsSender, err := apns.NewSenderFromEnv()
+	if err != nil {
+		slog.Warn("apns disabled", "err", err)
+		apnsSender = nil
+	}
+
 	n, sweepErr := sweep(ctx, pool, fsClient, fcmSender, notify, cfg)
 	if sweepErr != nil {
 		slog.Error("sweep", "err", sweepErr, "processed", n)
 	}
 	slog.Info("outbox sweep done", "processed", n)
 
-	pe, err := processPendingEvents(ctx, pool, fsClient, notify)
+	pe, err := processPendingEvents(ctx, pool, fsClient, notify, apnsSender)
 	if err != nil {
 		slog.Error("pending events", "err", err, "processed", pe)
 	}
@@ -177,8 +185,13 @@ func sweep(ctx context.Context, pool *pgxpool.Pool, fsClient *firestore.Client, 
 			AggregateType: ev.AggregateType, AggregateID: ev.AggregateID,
 			Payload: ev.Payload,
 		}
+		var appliedRevision int64 = -1
 		publishErr := publishAndDispatch(ev,
-			func() error { return projections.Publish(ctx, pool, fsClient, pev) },
+			func() error {
+				var err error
+				appliedRevision, err = projections.Publish(ctx, pool, fsClient, pev)
+				return err
+			},
 			func(p map[string]any) error { return dispatchOffers(ctx, pool, fsClient, fcmSender, cfg, ev, p) },
 			func() error { return closePendingRideOffers(ctx, pool, fsClient, ev.AggregateID) },
 		)
@@ -186,39 +199,29 @@ func sweep(ctx context.Context, pool *pgxpool.Pool, fsClient *firestore.Client, 
 			if ev.Attempts >= ev.MaxAttempts {
 				// Dead-letter: terminal 'failed' + failed_at (alerta/reproceso
 				// manual — nunca reintento caliente infinito).
-				if _, qerr := pool.Exec(ctx, `
-					UPDATE public.outbox_events
-					SET status = 'failed', failed_at = NOW(), last_error = $2
-					WHERE event_id = $1`, ev.EventID, err.Error()); qerr != nil {
+				if qerr := markOutboxFailed(ctx, pool, ev.EventID, leaseUntil, err.Error()); qerr != nil {
 					return len(published), qerr
 				}
 				processed[ev.EventID] = true
-				writeProjectionStatus(ctx, fsClient, ev, "failed", err.Error())
+				writeProjectionStatus(ctx, fsClient, ev, "failed", err.Error(), -1)
 				slog.Error("outbox dead-letter", "event", ev.EventID,
 					"type", ev.EventType, "err", err)
 				continue
 			}
 			// Backoff exponencial; evento queda pending para próximo sweep.
 			backoff := time.Duration(1<<minEv(ev.Attempts, 6)) * time.Second
-			if _, qerr := pool.Exec(ctx, `
-				UPDATE public.outbox_events
-				SET next_attempt_at = NOW() + $2 * interval '1 second',
-				    last_error = $3
-				WHERE event_id = $1`, ev.EventID, int(backoff.Seconds()), err.Error()); qerr != nil {
+			if qerr := rescheduleOutbox(ctx, pool, ev.EventID, leaseUntil, int(backoff.Seconds()), err.Error()); qerr != nil {
 				return len(published), qerr
 			}
 			processed[ev.EventID] = true
-			writeProjectionStatus(ctx, fsClient, ev, "error", err.Error())
+			writeProjectionStatus(ctx, fsClient, ev, "error", err.Error(), -1)
 			continue
 		}
-		if _, err := pool.Exec(ctx, `
-			UPDATE public.outbox_events
-			SET status = 'published', published_at = NOW(), last_error = NULL
-			WHERE event_id = $1`, ev.EventID); err != nil {
+		if err := markOutboxPublished(ctx, pool, ev.EventID, leaseUntil); err != nil {
 			return len(published), err
 		}
 		processed[ev.EventID] = true
-		writeProjectionStatus(ctx, fsClient, ev, "ok", "")
+		writeProjectionStatus(ctx, fsClient, ev, "ok", "", appliedRevision)
 		published = append(published, ev)
 	}
 
@@ -306,23 +309,12 @@ func closePendingRideOffers(ctx context.Context, pool *pgxpool.Pool, c *firestor
 // writeProjectionStatus — SYSTEM_projection_status/{aggType}_{aggId}: versión
 // aplicada y estado de sync (doc §3 SYSTEM). El reconciliador lo lee para
 // detectar divergencia con la autoridad SQL.
-func writeProjectionStatus(ctx context.Context, c *firestore.Client, ev pendingEvent, st, lastErr string) {
+func writeProjectionStatus(ctx context.Context, c *firestore.Client, ev pendingEvent, st, lastErr string, revision int64) {
 	var p map[string]any
 	_ = json.Unmarshal(ev.Payload, &p)
-	data := map[string]any{
-		"aggregateType":  ev.AggregateType,
-		"aggregateId":    ev.AggregateID,
-		"appliedVersion": p["version"],
-		"lastEventId":    ev.EventID,
-		"status":         st,
-		"updatedAt":      firestore.ServerTimestamp,
+	if err := projections.WriteStatus(ctx, c, ev.AggregateType, ev.AggregateID, p["version"], revision, ev.EventID, st, lastErr); err != nil {
+		slog.Warn("projection status", "event", ev.EventID, "err", err)
 	}
-	if lastErr != "" {
-		data["lastError"] = lastErr
-	}
-	docID := fmt.Sprintf("%s_%s", ev.AggregateType, ev.AggregateID)
-	_, _ = c.Collection(fs.ColProjectionStatus).Doc(docID).
-		Set(ctx, data, firestore.MergeAll)
 }
 
 // ==========================================================================
@@ -332,50 +324,61 @@ func writeProjectionStatus(ctx context.Context, c *firestore.Client, ev pendingE
 // forma idempotente y registra SYSTEM_processed_events/{eventId}.
 // ==========================================================================
 
-func processPendingEvents(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, notify *notifications.Center) (int, error) {
-	iter := c.Collection(fs.ColPendingEvents).
+func processPendingEvents(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, notify *notifications.Center, apnsSender *apns.Sender) (int, error) {
+	var notifier pendingNotifier
+	if notify != nil {
+		notifier = notify
+	}
+	return processPendingEventsWithHandler(ctx, c, func(ctx context.Context, eventType string, data map[string]any) (string, error) {
+		return applyPendingEvent(ctx, pool, c, notifier, apnsSender, eventType, data)
+	})
+}
+
+func processPendingEventsWithHandler(ctx context.Context, c *firestore.Client, apply func(context.Context, string, map[string]any) (string, error)) (int, error) {
+	query := c.Collection(fs.ColPendingEvents).
 		Where("status", "==", "pending").
 		OrderBy("createdAt", firestore.Asc).
-		Limit(50).
-		Documents(ctx)
-	snaps, err := iter.GetAll()
-	if err != nil {
-		return 0, err
-	}
+		Limit(50)
 	processed := 0
-	for _, s := range snaps {
-		eventID := s.Ref.ID
-		d := s.Data()
-		eventType, _ := d["eventType"].(string)
-		// Dedupe: si ya existe processed_events/{eventId} solo se cierra el pending.
-		exists, _ := c.Collection(fs.ColProcessedEvents).Doc(eventID).Get(ctx)
-		if exists != nil && exists.Exists() {
-			_, _ = s.Ref.Update(ctx, []firestore.Update{
-				{Path: "status", Value: "processed"},
-			})
-			continue
+	attempted := 0
+	// Skip leased events without letting them block the next eligible page.
+	for page := 0; page < 4 && attempted < 50; page++ {
+		snaps, err := query.Documents(ctx).GetAll()
+		if err != nil {
+			return processed, err
 		}
-		result, perr := applyPendingEvent(ctx, pool, c, notify, eventType, d)
-		if perr != nil {
-			result = "error: " + perr.Error()
-			slog.Warn("pending event", "id", eventID, "type", eventType, "err", perr)
+		for _, s := range snaps {
+			claim, err := claimPendingEvent(ctx, c, s.Ref)
+			if err != nil {
+				return processed, err
+			}
+			if claim == nil {
+				continue
+			}
+			attempted++
+			eventType, _ := claim.data["eventType"].(string)
+			result, applyErr := apply(ctx, eventType, claim.data)
+			if applyErr != nil {
+				slog.Warn("pending event", "id", s.Ref.ID, "type", eventType, "err", applyErr,
+					"attempt", claim.attempts, "failures", claim.failures+1)
+			}
+			if err := finishPendingEvent(ctx, c, s.Ref, claim, result, applyErr); err != nil {
+				return processed, err
+			}
+			if applyErr != nil && claim.failures+1 >= pendingEventMaxAttempts {
+				slog.Error("pending event dead-letter", "id", s.Ref.ID, "type", eventType, "err", applyErr)
+			}
+			if applyErr == nil {
+				processed++
+			}
+			if attempted == 50 {
+				break
+			}
 		}
-		_, werr := c.Collection(fs.ColProcessedEvents).Doc(eventID).Set(ctx, map[string]any{
-			"eventType":   eventType,
-			"aggregateId": d["aggregateId"],
-			"result":      result,
-			"payload":     d["payload"],
-			"processedAt": firestore.ServerTimestamp,
-			// TTL declarado en el doc: la policy de Firestore borra por expireAt.
-			"expireAt": time.Now().Add(30 * 24 * time.Hour),
-		})
-		if werr != nil {
-			return processed, werr
+		if len(snaps) < 50 {
+			break
 		}
-		_, _ = s.Ref.Update(ctx, []firestore.Update{
-			{Path: "status", Value: "processed"},
-		})
-		processed++
+		query = query.StartAfter(snaps[len(snaps)-1])
 	}
 	return processed, nil
 }
@@ -383,8 +386,12 @@ func processPendingEvents(ctx context.Context, pool *pgxpool.Pool, c *firestore.
 // applyPendingEvent — persistencia SQL por tipo de evento. Idempotente:
 // re-ejecutar el mismo evento converge al mismo estado.
 // NUNCA confiar en el payload: se valida participación antes de escribir.
+type pendingNotifier interface {
+	Notify(context.Context, string, string, notifications.Type, notifications.NotifyOpts) error
+}
+
 func applyPendingEvent(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client,
-	notify *notifications.Center, eventType string, d map[string]any) (string, error) {
+	notify pendingNotifier, apnsSender *apns.Sender, eventType string, d map[string]any) (string, error) {
 	payload, _ := d["payload"].(map[string]any)
 	switch eventType {
 	case "arrival_photo_uploaded":
@@ -423,6 +430,9 @@ func applyPendingEvent(ctx context.Context, pool *pgxpool.Pool, c *firestore.Cli
 				},
 			})
 		}
+		if apnsSender != nil && callee != "" {
+			calls.SendVoipCallPush(ctx, c, apnsSender, callID, uid, callee)
+		}
 		return "push enviado a callee", nil
 
 	case "call_ended":
@@ -445,7 +455,7 @@ func applyPendingEvent(ctx context.Context, pool *pgxpool.Pool, c *firestore.Cli
 		}
 		snap, err := c.Collection(fs.ColChats).Doc(chatID).Get(ctx)
 		if err != nil {
-			return "", fmt.Errorf("chat %s no encontrado", chatID)
+			return "", fmt.Errorf("load chat %s: %w", chatID, err)
 		}
 		parts, _ := snap.Data()["participants"].([]any)
 		isPart := false
@@ -463,10 +473,12 @@ func applyPendingEvent(ctx context.Context, pool *pgxpool.Pool, c *firestore.Cli
 			if to == "" || to == uid || notify == nil {
 				continue
 			}
-			_ = notify.Notify(ctx, to, "", notifications.ChatMessage, notifications.NotifyOpts{
+			if err := notify.Notify(ctx, to, "", notifications.ChatMessage, notifications.NotifyOpts{
 				Key:       "chat-" + chatID,
 				ExtraData: map[string]string{"type": "chat", "chatId": chatID},
-			})
+			}); err != nil {
+				return "", fmt.Errorf("notify chat participant: %w", err)
+			}
 		}
 		return "notified", nil
 
@@ -479,11 +491,13 @@ func applyPendingEvent(ctx context.Context, pool *pgxpool.Pool, c *firestore.Cli
 			return "", fmt.Errorf("payload incompleto (clientId/rideId)")
 		}
 		if notify != nil {
-			_ = notify.Notify(ctx, clientID, rideID, notifications.RideDriverOffered,
+			if err := notify.Notify(ctx, clientID, rideID, notifications.RideDriverOffered,
 				notifications.NotifyOpts{
 					Key:       "proximity-" + rideID,
 					ExtraData: map[string]string{"type": "proximity", "rideId": rideID},
-				})
+				}); err != nil {
+				return "", fmt.Errorf("notify proximity: %w", err)
+			}
 		}
 		return "notified", nil
 
@@ -500,7 +514,7 @@ func callParticipant(ctx context.Context, c *firestore.Client, callID, uid, role
 	}
 	snap, err := c.Collection(fs.ColCalls).Doc(callID).Get(ctx)
 	if err != nil {
-		return "", fmt.Errorf("call %s no encontrada", callID)
+		return "", fmt.Errorf("load call %s: %w", callID, err)
 	}
 	d := snap.Data()
 	caller, _ := d["callerUid"].(string)
@@ -745,12 +759,57 @@ func dispatchOffers(ctx context.Context, pool *pgxpool.Pool, fsClient *firestore
 	} else {
 		return fmt.Errorf("load ride for dispatch: %w", err)
 	}
+	premiumRequested, seniorRequested := false, false
+	if codes, ok := offerCtx["featureCodes"].([]string); ok {
+		for _, code := range codes {
+			if code == "premium" {
+				premiumRequested = true
+			}
+			if code == "senior" {
+				seniorRequested = true
+			}
+		}
+	}
+	limit := cfg.MatchMaxOffers
+	if premiumRequested || seniorRequested {
+		// Aplicar el límite después de filtrar para no descartar candidatos aptos.
+		limit = 0
+	}
 	cands, err := matching.FindDrivers(ctx, fsClient, matching.Query{
 		ServiceAreaID: areaID, ServiceCode: serviceCode, VehicleType: vehicleType,
-		Latitude: lat, Longitude: lng, RadiusKm: cfg.MatchRadiusKm, Limit: cfg.MatchMaxOffers,
+		Latitude: lat, Longitude: lng, RadiusKm: cfg.MatchRadiusKm, Limit: limit,
 	})
 	if err != nil {
 		return err
+	}
+	if premiumRequested || seniorRequested {
+		ids := make([]string, 0, len(cands))
+		for _, c := range cands {
+			ids = append(ids, c.DriverUID)
+		}
+		premiumEligible, seniorEligible := map[string]bool{}, map[string]bool{}
+		if premiumRequested {
+			premiumEligible, err = matching.PremiumEligibleDrivers(ctx, pool, ids)
+			if err != nil {
+				return err
+			}
+		}
+		if seniorRequested {
+			seniorEligible, err = matching.SeniorEligibleDrivers(ctx, pool, ids)
+			if err != nil {
+				return err
+			}
+		}
+		filtered := cands[:0]
+		for _, c := range cands {
+			if (!premiumRequested || premiumEligible[c.DriverUID]) && (!seniorRequested || seniorEligible[c.DriverUID]) {
+				filtered = append(filtered, c)
+			}
+		}
+		cands = filtered
+		if cfg.MatchMaxOffers > 0 && len(cands) > cfg.MatchMaxOffers {
+			cands = cands[:cfg.MatchMaxOffers]
+		}
 	}
 	if err := reserveOffers(ctx, pool, ev.AggregateID, cands, cfg.OfferTTL); err != nil {
 		return err
@@ -785,7 +844,32 @@ func dispatchOffers(ctx context.Context, pool *pgxpool.Pool, fsClient *firestore
 	if err := rows.Err(); err != nil {
 		return err
 	}
+	eligibleOffers := map[string]bool{}
+	seniorOffers := map[string]bool{}
+	if premiumRequested {
+		ids := make([]string, 0, len(offers))
+		for _, offer := range offers {
+			ids = append(ids, offer.driverID)
+		}
+		eligibleOffers, err = matching.PremiumEligibleDrivers(ctx, pool, ids)
+		if err != nil {
+			return err
+		}
+	}
+	if seniorRequested {
+		ids := make([]string, 0, len(offers))
+		for _, offer := range offers {
+			ids = append(ids, offer.driverID)
+		}
+		seniorOffers, err = matching.SeniorEligibleDrivers(ctx, pool, ids)
+		if err != nil {
+			return err
+		}
+	}
 	for _, offer := range offers {
+		if (premiumRequested && !eligibleOffers[offer.driverID]) || (seniorRequested && !seniorOffers[offer.driverID]) {
+			continue
+		}
 		offerID := ev.AggregateID + "_" + offer.driverID
 		doc := map[string]any{
 			"rideId":     ev.AggregateID,

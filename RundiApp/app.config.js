@@ -2,7 +2,7 @@
 // ya está registrado por otro equipo de Apple y los equipos gratuitos solo pueden
 // registrar IDs que no existan, así que usamos uno propio para esas builds.
 const iosBundleIdentifier =
-  process.env.EXPO_UNSIGNED === '1' ? 'com.samuelues.rundi' : 'com.driveangel.rundidev';
+  process.env.EXPO_UNSIGNED === '1' ? 'com.gruporzc.rundi' : 'com.gruporzc.rundi';
 const androidPackage = 'com.gruporzc.rundi';
 const androidFirebaseClient = require('./google-services.json').client.find(
   (client) => client.client_info.android_client_info.package_name === androidPackage
@@ -18,7 +18,7 @@ export default {
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',
   icon: './src/assets/images/rundi_logo.png',
-  scheme: 'com.driveangel.rundidev',
+  scheme: 'com.gruporzc.rundi',
   ios: {
     supportsTablet: true,
     deploymentTarget: '16.4',
@@ -43,11 +43,21 @@ export default {
     // aprovisionamiento real, Keychain rechaza el acceso con errSecMissingEntitlement).
     entitlements: {
       'keychain-access-groups': [`$(AppIdentifierPrefix)${iosBundleIdentifier}`],
+      // APNs: sin aps-environment el registro remoto falla silencioso en
+      // device físico (getAPNSToken null → sin token FCM). Solo builds firmadas:
+      // una build sin firma/development no puede llevar este entitlement.
+      // Local/dev = 'development' (perfil dev); store/EAS = APNS_ENVIRONMENT=production.
+      ...(process.env.EXPO_UNSIGNED === '1'
+        ? {}
+        : { 'aps-environment': process.env.APNS_ENVIRONMENT || 'development' }),
     },
     // EXPO_UNSIGNED=1 omite capabilities que exigen firma real (Apple Sign In),
     // permitiendo builds de simulador sin appleTeamId ni certificados.
     // usesAppleSignIn: true,
     usesAppleSignIn: process.env.EXPO_UNSIGNED !== '1',
+    // Requerido por @bacons/apple-targets (widget RideActivity) en builds
+    // firmadas; en EXPO_UNSIGNED se omite para permitir Personal Team.
+    appleTeamId: process.env.EXPO_UNSIGNED === '1' ? undefined : 'D9LF8F9R7K',
     googleServicesFile: "./GoogleService-Info.plist"
   },
   android: {
@@ -77,15 +87,8 @@ export default {
       'WRITE_EXTERNAL_STORAGE',
       'POST_NOTIFICATIONS',
       'RECEIVE_BOOT_COMPLETED',
-      'com.anddoes.launcher.permission.UPDATE_COUNT',
       'com.google.android.c2dm.permission.RECEIVE',
       'com.google.android.gms.permission.ACTIVITY_RECOGNITION',
-      'com.htc.launcher.permission.READ_SETTINGS',
-      'com.htc.launcher.permission.UPDATE_SHORTCUT',
-      'com.majeur.launcher.permission.UPDATE_BADGE',
-      'com.sec.android.provider.badge.permission.READ',
-      'com.sec.android.provider.badge.permission.WRITE',
-      'com.sonyericsson.home.permission.BROADCAST_BADGE',
     ],
     config: {
       googleMaps: {
@@ -160,7 +163,7 @@ export default {
         color: '#b6915a',
         sounds: ['./src/assets/sounds/notification.wav'],
         defaultChannel: 'rundi-default-v2',
-        mode: 'production',
+        // aps-environment se controla en ios.entitlements (APNS_ENVIRONMENT), no vía `mode`.
         enableBackgroundRemoteNotifications: true,
       },
     ],

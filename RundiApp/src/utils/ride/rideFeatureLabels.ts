@@ -1,12 +1,17 @@
 import type { TFunction } from 'i18next';
 
-const readFeatureCodes = (ride: any): string[] => {
-  const codes = ride?.featureCodes ?? ride?.feature_codes ?? ride?.pricingSnapshot?.featureCodes;
-  return Array.isArray(codes) ? codes.filter((code: unknown): code is string => typeof code === 'string') : [];
-};
+// Edit these hex colors to change feature badges in the list and preview.
+export const RIDE_FEATURE_COLOR = '#7047B8';
+export const RIDE_FEATURE_COLOR_DARK = '#D5C2FF';
+
+export const extractRequestedFeatureCodes = (ride: any): string[] =>
+  Array.from(new Set(
+    [ride?.featureCodes, ride?.feature_codes, ride?.pricingSnapshot?.featureCodes]
+      .flatMap((codes) => Array.isArray(codes) ? codes.filter((code: unknown): code is string => typeof code === 'string') : []),
+  ));
 
 export function getRideFeatureLabels(ride: any, t: TFunction): string[] {
-  return [...new Set(readFeatureCodes(ride).map((code) => {
+  return [...new Set(extractRequestedFeatureCodes(ride).map((code) => {
     switch (code) {
       case 'night':
         return t('shared.searchRide.features.night');
@@ -25,7 +30,7 @@ export function getRideFeatureLabels(ride: any, t: TFunction): string[] {
 }
 
 export function getRideServiceTypeLabel(ride: any, t: TFunction): string {
-  const featureCodes = readFeatureCodes(ride);
+  const featureCodes = extractRequestedFeatureCodes(ride);
   const specialServiceCodes = featureCodes.filter((code) =>
     ['senior', 'premium', 'pet_friendly'].includes(code),
   );

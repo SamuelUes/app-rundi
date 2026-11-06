@@ -5,6 +5,7 @@ package fcm
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	firebase "firebase.google.com/go/v4"
@@ -82,12 +83,7 @@ func (s *Sender) SendToTokens(ctx context.Context, tokens []string, title, body 
 	if err != nil {
 		return nil, fmt.Errorf("fcm multicast: %w", err)
 	}
-	for i, r := range resp.Responses {
-		if !r.Success && messaging.IsUnregistered(r.Error) {
-			invalid = append(invalid, tokens[i])
-		}
-	}
-	return invalid, nil
+	return processResponses(tokens, resp), nil
 }
 
 // SendDataOnly — push silencioso (procesamiento en background). apns-push-type
@@ -115,10 +111,22 @@ func (s *Sender) SendDataOnly(ctx context.Context, tokens []string, data map[str
 	if err != nil {
 		return nil, fmt.Errorf("fcm multicast: %w", err)
 	}
+	return processResponses(tokens, resp), nil
+}
+
+// Individual failures are not returned as an error: retrying the whole multicast
+// would duplicate notifications already delivered to other devices.
+func processResponses(tokens []string, resp *messaging.BatchResponse) []string {
+	var invalid []string
 	for i, r := range resp.Responses {
-		if !r.Success && messaging.IsUnregistered(r.Error) {
+		if r.Success {
+			continue
+		}
+		if messaging.IsUnregistered(r.Error) {
 			invalid = append(invalid, tokens[i])
+		} else {
+			log.Printf("fcm: delivery failed for device %d: %v", i+1, r.Error)
 		}
 	}
-	return invalid, nil
+	return invalid
 }

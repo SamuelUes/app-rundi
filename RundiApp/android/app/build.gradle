@@ -88,7 +88,7 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.driveangel.rundidev'
+    namespace 'com.gruporzc.rundi'
     defaultConfig {
         applicationId 'com.gruporzc.rundi'
         minSdkVersion rootProject.ext.minSdkVersion

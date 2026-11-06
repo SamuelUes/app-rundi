@@ -7,6 +7,7 @@ package chats
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	"cloud.google.com/go/firestore"
 	"github.com/jackc/pgx/v5"
@@ -25,12 +26,33 @@ func NewService(pool *pgxpool.Pool, fsClient *firestore.Client) *Service {
 	return &Service{pool: pool, fs: fsClient}
 }
 
+var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// resolveRideID — el rideId del request puede ser rides.id (uuid SQL) o
+// firebase_ride_id (doc vivo REALTIME_trips_live); normaliza al uuid SQL.
+func (s *Service) resolveRideID(ctx context.Context, rideID string) (string, error) {
+	if uuidRe.MatchString(rideID) {
+		return rideID, nil
+	}
+	var id string
+	err := s.pool.QueryRow(ctx,
+		`SELECT id::text FROM public.rides WHERE firebase_ride_id = $1`, rideID).Scan(&id)
+	if err == pgx.ErrNoRows {
+		return "", apperr.New(404, "ride no encontrado")
+	}
+	return id, err
+}
+
 // RideChat — crea/devuelve el chat del viaje. chatId = "ride-{rideId}".
 // Solo participantes (client_id/driver_id/follower_driver_id).
 func (s *Service) RideChat(ctx context.Context, uid, rideID string) (string, error) {
+	rideID, err := s.resolveRideID(ctx, rideID)
+	if err != nil {
+		return "", err
+	}
 	var clientID string
 	var driverID, followerID *string
-	err := s.pool.QueryRow(ctx, `
+	err = s.pool.QueryRow(ctx, `
 		SELECT client_id, driver_id, follower_driver_id
 		FROM public.rides WHERE id = $1::uuid`, rideID).
 		Scan(&clientID, &driverID, &followerID)

@@ -94,6 +94,7 @@ export function useLivekitConnection(): UseLivekitConnection {
   }, []);
 
   const disconnect = useCallback(() => {
+    connectAttemptRef.current += 1;
     try {
       roomRef.current?.disconnect();
     } catch (err) {

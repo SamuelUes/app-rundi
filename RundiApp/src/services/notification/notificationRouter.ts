@@ -167,6 +167,20 @@ export const routeNotification = async (data: any, options: RouteOptions = {}): 
       return;
     }
 
+    case 'support_call': {
+      // Llamada entrante de soporte → abrir la pantalla de llamada (el listener
+      // global useIncomingCalls también cubre foreground; esto es el tap al push).
+      const complaintId = typeof data?.complaintId === 'string' ? data.complaintId : null;
+      const ready = await waitForNavigation();
+      if (!ready) return;
+      if (complaintId) {
+        navigate('SupportCall', { complaintId } as any);
+      } else {
+        navigate('SupportChat', {} as any);
+      }
+      return;
+    }
+
     case 'new_ride':
     case 'ride_accepted':
     case 'ride_started':
@@ -188,7 +202,6 @@ export const routeNotification = async (data: any, options: RouteOptions = {}): 
     case 'programmed_ride_activated':
     case 'programmed_ride_reminder':
     case 'programmed_ride_confirmation':
-    case 'support_call':
     case 'support_call_request':
     case 'admin_notice':
     case 'general':

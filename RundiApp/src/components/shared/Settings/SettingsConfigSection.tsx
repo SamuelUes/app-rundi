@@ -11,11 +11,16 @@ interface SettingsConfigSectionProps {
   mapTrafficEnabled: boolean;
   soundEnabled: boolean;
   vibrationEnabled: boolean;
+  biometricUnlockAvailable: boolean;
+  biometricUnlockEnabled: boolean;
+  /** Falso para conductores: su flujo ya exige biometría y el candado de app no aplica. */
+  showBiometricUnlock: boolean;
   colors: any;
   onThemeChange: (value: ThemeValue) => void;
   onToggleNotifications: (value: boolean) => void;
   onToggleTraffic: (value: boolean) => void;
   onToggleSoundVibration: (value: boolean) => void;
+  onToggleBiometricUnlock: (value: boolean) => void;
   t: TFunction;
   styles: any;
 }
@@ -26,11 +31,15 @@ export function SettingsConfigSection({
   mapTrafficEnabled,
   soundEnabled,
   vibrationEnabled,
+  biometricUnlockAvailable,
+  biometricUnlockEnabled,
+  showBiometricUnlock,
   colors,
   onThemeChange,
   onToggleNotifications,
   onToggleTraffic,
   onToggleSoundVibration,
+  onToggleBiometricUnlock,
   t,
   styles,
 }: SettingsConfigSectionProps) {
@@ -102,7 +111,7 @@ export function SettingsConfigSection({
         />
       </View>
 
-      <View style={[styles.row, styles.rowLast, !notificationsEnabled && styles.rowDisabled]}>
+      <View style={[styles.row, !notificationsEnabled && styles.rowDisabled]}>
         <View style={styles.rowIcon}>
           <Ionicons name="volume-high-outline" size={18} color={colors.primary} />
         </View>
@@ -118,6 +127,25 @@ export function SettingsConfigSection({
           disabled={!notificationsEnabled}
         />
       </View>
+
+      {showBiometricUnlock && (
+        <View style={[styles.row, styles.rowLast, !biometricUnlockAvailable && styles.rowDisabled]}>
+          <View style={styles.rowIcon}>
+            <Ionicons name="finger-print-outline" size={18} color={colors.primary} />
+          </View>
+          <View style={styles.rowBody}>
+            <Text style={styles.rowTitle}>{t('shared.profile.config.biometricUnlock')}</Text>
+          </View>
+          <Switch
+            value={biometricUnlockEnabled}
+            onValueChange={onToggleBiometricUnlock}
+            trackColor={{ false: colors.border, true: colors.primary }}
+            thumbColor="#fff"
+            ios_backgroundColor={colors.border}
+            disabled={!biometricUnlockAvailable}
+          />
+        </View>
+      )}
     </View>
   );
 }

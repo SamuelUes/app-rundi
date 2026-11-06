@@ -21,6 +21,7 @@ import DynamicMap from '../../components/map/DynamicMap';
 import { useAcceptedRideListener } from '../../hooks/driver/DriverHomeScreen/useAcceptedRideListener';
 import { useNearbyDriversMarkers } from '../../hooks/driver/DriverHomeScreen/useNearbyDriversMarkers';
 import proximityService from '../../services/ride/proximityService';
+import { normalizeVehicleTypeForMatching } from '../../services/ride/ridesService';
 import type { DriverOfferCacheEntry } from '../../services/driver/driverOfferCacheService';
 import { checkRideDriverCompatibility, isDesignatedRideRequest } from '../../utils/ride/availableRidesHelpers';
 import { useDriverActiveRides } from '../../hooks/driver/DriverHomeScreen/useDriverActiveRides';
@@ -137,7 +138,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
     driverInfoCacheRef,
     profilePhotoUri,
   } = useDriverInfoListener(user?.id, markTaskCompleted);
-  const { driverFeatureCodes, vehicleFeatureCodes } =
+  const { driverFeatureCodes, vehicleFeatureCodes, premium } =
     useDriverRideFeatureCapabilities(user?.id, currentVehicleId);
 
   const { pendingPayments } = usePendingPayments({ userId: user?.id, markTaskCompleted });
@@ -147,15 +148,26 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   } = useDriverActiveRides({ userId: user?.id, coords, isAvailable, formatCurrency });
   const visibleRideRequests = useMemo(() => {
     if (isFollower) return [];
-    return availableRideRequests.filter((ride) =>
-      checkRideDriverCompatibility(
+    const filtered: Record<string, number> = {};
+    const visible = availableRideRequests.filter((ride) => {
+      const result = checkRideDriverCompatibility(
         ride,
-        currentVehicleType === 'moto' ? 'moto' : currentVehicleType === 'auto' ? 'auto' : null,
+        normalizeVehicleTypeForMatching(currentVehicleType),
         isDesignatedDriverMode,
         driverFeatureCodes,
         vehicleFeatureCodes,
-      ).ok,
-    );
+      );
+      if (__DEV__ && !result.ok) {
+        const reason = result.reason || 'incompatible';
+        filtered[reason] = (filtered[reason] || 0) + 1;
+      }
+      return result.ok;
+    });
+    if (__DEV__) console.log('[DriverHome compatibility]', {
+      candidates: availableRideRequests.length, visible: visible.length, filtered,
+      vehicleType: currentVehicleType, designatedMode: isDesignatedDriverMode,
+    });
+    return visible;
   }, [
     availableRideRequests,
     currentVehicleType,
@@ -329,6 +341,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
               destination,
               estimatedPrice: Number.isFinite(ride.priceAmount) ? Number(ride.priceAmount) : 0,
               estimatedDistance: typeof ride.distanceKm === 'number' ? ride.distanceKm : undefined,
+              featureCodes: ride.featureCodes,
               clientSuggestedPrice: Number.isFinite(ride.clientSuggestedPrice) ? Number(ride.clientSuggestedPrice) : undefined,
               driverOfferedPrice: null,
               paymentMethod: ride.paymentMethod,
@@ -359,12 +372,18 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
       </View>
 
       <DriverHomeBanners
+        premiumNotice={premium.vehicle && (premium.expired || premium.grace || premium.eligible) ? {
+          title: t(premium.expired ? 'driver.premium.expired' : premium.grace ? 'driver.premium.grace' : 'driver.premium.badge'),
+          subtitle: premium.grace
+            ? t('driver.premium.graceUntil', { date: new Date(premium.vehicle.premiumUntil! - 1).toLocaleDateString(undefined, { timeZone: 'America/Managua' }) })
+            : t(premium.expired ? 'driver.premium.expiredDescription' : 'driver.premium.eligibleDescription', { plate: premium.vehicle.plate }),
+          onPress: () => navigation.navigate('DriverProfile'),
+        } : null}
         activeRide={activeRide}
         hasPendingAction={hasPendingAction}
         hasInsufficientFunds={hasInsufficientFunds}
         rechargeFundsSummary={rechargeFundsSummary}
         pendingPayments={pendingPayments}
-        pendingAction={pendingAction}
         colors={colors}
         onActiveRidePress={() =>
           navigation.replace('ActiveRide', {
@@ -408,6 +427,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         onNavigateEarnings={() => navigation.navigate('Earnings')}
         onNavigate={handleNavigate}
         onLogout={handleLogout}
+        pendingAction={pendingAction}
         crewChip={
           <DesignatedCrewChip
             membership={crewMembership}

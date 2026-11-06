@@ -1,5 +1,5 @@
 
-import { getRechargeSummary } from '../../api/drivers';
+import { getRechargeSummary, requestDriverRecharge } from '../../api/drivers';
 
 export type DriverRechargeHistoryItem = {
   id: string;
@@ -150,8 +150,12 @@ class RechargeFundsService {
     };
   }
 
-  /** Recargas manuales son admin-only en v2 (POST /v1/admin/drivers/{id}/recharges). */
-  async createRecharge(_params: CreateRechargeParams): Promise<{
+  /**
+   * Solicitud de recarga del conductor (createDriverRechargeManual v1): queda
+   * status='pending' hasta que operaciones la confirme contra el estado de
+   * cuenta (POST /v1/admin/recharges/{id}/confirm acredita el saldo).
+   */
+  async createRecharge(params: CreateRechargeParams): Promise<{
     success: boolean;
     driverId?: string;
     movementId?: string;
@@ -161,7 +165,21 @@ class RechargeFundsService {
     pending?: boolean;
     status?: string;
   }> {
-    throw new Error('Las recargas manuales se gestionan por operación en esta versión');
+    const res = await requestDriverRecharge({
+      amount: params.amount,
+      reference: params.reference,
+      externalTransactionId: params.externalTransactionId,
+      method: params.method,
+    });
+    return {
+      success: true,
+      driverId: res.recharge?.driverId,
+      movementId: res.recharge?.id,
+      availableBalance: res.availableBalance,
+      alreadyProcessed: res.alreadyProcessed,
+      pending: res.pending ?? res.status === 'pending',
+      status: res.status ?? res.recharge?.status,
+    };
   }
 }
 

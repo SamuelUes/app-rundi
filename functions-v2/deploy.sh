@@ -20,7 +20,7 @@ fi
 PROJECT="${GCP_PROJECT_ID:-${PROJECT:-rundi-dev-2}}"
 REGION="${REGION:-us-east1}"
 INSTANCE="${INSTANCE:-rundi-db-sql}"
-CONN="$PROJECT:$REGION:$INSTANCE"
+CONN="${INSTANCE_CONNECTION_NAME:-$PROJECT:$REGION:$INSTANCE}"
 REPO="rundi-v2"
 API_SA="rundi-api@$PROJECT.iam.gserviceaccount.com"
 WORKER_SA="rundi-worker@$PROJECT.iam.gserviceaccount.com"
@@ -41,7 +41,7 @@ ensure_secret() {
   gcloud secrets describe "$name" --project="$PROJECT" >/dev/null 2>&1 \
     || gcloud secrets create "$name" --project="$PROJECT" \
          --replication-policy=automatic --quiet
-  echo "$val" | gcloud secrets versions add "$name" --project="$PROJECT" \
+  printf '%s' "$val" | gcloud secrets versions add "$name" --project="$PROJECT" \
     --data-file=- --quiet
   SECRETS_FLAGS+=("$var=$name:latest")
   echo "  $name actualizado desde $var"
@@ -50,14 +50,36 @@ ensure_secret() {
 seed_secrets() {
   SECRETS_FLAGS=()
   ensure_secret DB_PASSWORD db-password
+  # Cloud Run uses INSTANCE_CONNECTION_NAME; DATABASE_URL would override the connector.
   ensure_secret RIDE_SHARE_SECRET ride-share-secret
+  ensure_secret LIVEKIT_URL livekit-url
   ensure_secret LIVEKIT_API_SECRET livekit-api-secret
   ensure_secret LIVEKIT_API_KEY livekit-api-key
   ensure_secret PUNTOEXPRESS_WEBHOOK_TOKEN puntoexpress-token
+  ensure_secret APNS_P8_KEY apns-p8-key
 }
 
 secrets_arg() {
   ((${#SECRETS_FLAGS[@]})) && printf -- "--set-secrets=%s" "$(IFS=,; echo "${SECRETS_FLAGS[*]}")"
+}
+
+# base_env — env vars comunes del API y los jobs. Usa el delimitador `;`
+# (--set-env-vars=^;^...) para tolerar comas dentro de valores como
+# ADMIN_ALLOWED_ORIGINS. PORT no se propaga: Cloud Run lo inyecta.
+base_env() {
+  printf '^;^GCP_PROJECT_ID=%s;REGION=%s;INSTANCE_CONNECTION_NAME=%s;DB_NAME=%s;DB_USER=%s;DB_HOST=%s;DB_PORT=%s;DB_SSLMODE=%s;DB_IP_TYPE=%s;DB_POOL_MAX=%s;DB_STATEMENT_TIMEOUT_MS=%s;FIRESTORE_DATABASE_ID=%s;APP_CHECK_ENFORCE=%s;LOG_LEVEL=%s;FIREBASE_STORAGE_BUCKET=%s;CLOUD_TASKS_QUEUE=%s;CLOUD_TASKS_SA_EMAIL=%s;CLOUD_TASKS_AUDIENCE=%s;OFFER_TTL_SECONDS=%s;GPS_MIN_INTERVAL_MS=%s;PRESENCE_TIMEOUT_SECONDS=%s;MATCH_RADIUS_KM=%s;MATCH_MAX_OFFERS=%s;APNS_TEAM_ID=%s;APNS_KEY_ID=%s;APNS_SANDBOX=%s' \
+    "$PROJECT" "$REGION" "$CONN" \
+    "${DB_NAME:-rundi}" "${DB_USER:-rundi_app}" "${DB_HOST:-}" \
+    "${DB_PORT:-5432}" "${DB_SSLMODE:-disable}" "${DB_IP_TYPE:-public}" \
+    "${DB_POOL_MAX:-5}" "${DB_STATEMENT_TIMEOUT_MS:-10000}" \
+    "${FIRESTORE_DATABASE_ID:-}" "${APP_CHECK_ENFORCE:-monitor}" \
+    "${LOG_LEVEL:-info}" "${FIREBASE_STORAGE_BUCKET:-}" \
+    "${CLOUD_TASKS_QUEUE:-rundi-tasks}" "${CLOUD_TASKS_SA_EMAIL:-$API_SA}" \
+    "${CLOUD_TASKS_AUDIENCE:-${CLOUD_TASKS_OIDC_AUDIENCE:-}}" \
+    "${OFFER_TTL_SECONDS:-60}" "${GPS_MIN_INTERVAL_MS:-2500}" \
+    "${PRESENCE_TIMEOUT_SECONDS:-90}" "${MATCH_RADIUS_KM:-15}" \
+    "${MATCH_MAX_OFFERS:-10}" "${APNS_TEAM_ID:-}" "${APNS_KEY_ID:-}" \
+    "${APNS_SANDBOX:-}"
 }
 
 do_setup() {
@@ -109,7 +131,7 @@ do_api() {
     --add-cloudsql-instances="$CONN" \
     --allow-unauthenticated \
     --min-instances=0 --max-instances=10 --concurrency=80 \
-    --set-env-vars="GCP_PROJECT_ID=$PROJECT,REGION=$REGION,INSTANCE_CONNECTION_NAME=$CONN,DB_NAME=${DB_NAME:-rundi},DB_USER=${DB_USER:-rundi_app},FIRESTORE_DATABASE_ID=${FIRESTORE_DATABASE_ID:-},APP_CHECK_ENFORCE=${APP_CHECK_ENFORCE:-monitor},LOG_LEVEL=${LOG_LEVEL:-info},FIREBASE_STORAGE_BUCKET=${FIREBASE_STORAGE_BUCKET:-},CLOUD_TASKS_QUEUE=${CLOUD_TASKS_QUEUE:-rundi-tasks},CLOUD_TASKS_SA_EMAIL=${CLOUD_TASKS_SA_EMAIL:-$API_SA},CLOUD_TASKS_OIDC_AUDIENCE=${CLOUD_TASKS_OIDC_AUDIENCE:-}" \
+    --set-env-vars="$(base_env);ADMIN_ALLOWED_ORIGINS=${ADMIN_ALLOWED_ORIGINS:-}" \
     $(secrets_arg)
   API_URL=$(gcloud run services describe rundi-api --region="$REGION" \
     --format='value(status.url)')
@@ -129,7 +151,7 @@ do_jobs() {
       --image "$REGION-docker.pkg.dev/$PROJECT/$REPO/$j:latest" \
       --region="$REGION" --service-account="$WORKER_SA" \
       --set-cloudsql-instances="$CONN" --max-retries=1 \
-      --set-env-vars="GCP_PROJECT_ID=$PROJECT,REGION=$REGION,INSTANCE_CONNECTION_NAME=$CONN,DB_NAME=${DB_NAME:-rundi},DB_USER=${DB_USER:-rundi_app},LOG_LEVEL=${LOG_LEVEL:-info}" \
+      --set-env-vars="$(base_env)" \
       $(secrets_arg)
   done
   # Job dedicado a viajes programados: misma imagen del scheduler, solo el
@@ -138,46 +160,57 @@ do_jobs() {
     --image "$REGION-docker.pkg.dev/$PROJECT/$REPO/scheduler:latest" \
     --region="$REGION" --service-account="$WORKER_SA" \
     --set-cloudsql-instances="$CONN" --max-retries=1 \
-    --set-env-vars="GCP_PROJECT_ID=$PROJECT,REGION=$REGION,INSTANCE_CONNECTION_NAME=$CONN,DB_NAME=${DB_NAME:-rundi},DB_USER=${DB_USER:-rundi_app},LOG_LEVEL=${LOG_LEVEL:-info},SCHEDULER_ONLY=programmed" \
+    --set-env-vars="$(base_env);SCHEDULER_ONLY=programmed" \
     $(secrets_arg)
-  gcloud run jobs add-iam-policy-binding rundi-consumer \
-    --member="serviceAccount:${CLOUD_TASKS_SA_EMAIL:-$API_SA}" \
-    --role=roles/run.invoker --region="$REGION" --quiet >/dev/null
+  # El SA de Cloud Tasks invoca jobs: consumer (wakes deduplicados por
+  # mutación) y programmed (promoción agendada por viaje).
+  for j in consumer programmed; do
+    gcloud run jobs add-iam-policy-binding "rundi-$j" \
+      --member="serviceAccount:${CLOUD_TASKS_SA_EMAIL:-$API_SA}" \
+      --role=roles/run.invoker --region="$REGION" --quiet >/dev/null
+  done
   for j in consumer scheduler programmed; do
     gcloud run jobs add-iam-policy-binding "rundi-$j" \
       --member="serviceAccount:$SCHED_SA" --role=roles/run.invoker \
       --region="$REGION" --quiet >/dev/null
   done
+  # Frecuencias de los ticks (cron). Defaults = comportamiento vigente; al
+  # validar el modelo on-demand (wake por mutación + poke de pending events)
+  # pueden bajarse sin tocar el script:
+  #   CONSUMER_TICK_SCHEDULE="*/5 * * * *"  ./deploy.sh jobs
+  CONSUMER_TICK_SCHEDULE="${CONSUMER_TICK_SCHEDULE:-* * * * *}"
+  SCHEDULER_TICK_SCHEDULE="${SCHEDULER_TICK_SCHEDULE:-*/5 * * * *}"
+  PROGRAMMED_TICK_SCHEDULE="${PROGRAMMED_TICK_SCHEDULE:-* * * * *}"
   # OAuth (no OIDC): el target es la API de Google run.googleapis.com — para
   # endpoints Google se usa OAuth token con scope cloud-platform; OIDC con
   # audience custom es para invocar servicios propios (Cloud Run services).
   gcloud scheduler jobs create http rundi-consumer-tick \
-    --location="$REGION" --schedule="* * * * *" \
+    --location="$REGION" --schedule="$CONSUMER_TICK_SCHEDULE" \
     --uri="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT/jobs/rundi-consumer:run" \
     --http-method=POST \
     --oauth-service-account-email="$SCHED_SA" 2>/dev/null \
     || gcloud scheduler jobs update http rundi-consumer-tick \
-      --location="$REGION" --schedule="* * * * *" \
+      --location="$REGION" --schedule="$CONSUMER_TICK_SCHEDULE" \
       --uri="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT/jobs/rundi-consumer:run" \
       --http-method=POST --oauth-service-account-email="$SCHED_SA"
   gcloud scheduler jobs create http rundi-scheduler-tick \
-    --location="$REGION" --schedule="*/5 * * * *" \
+    --location="$REGION" --schedule="$SCHEDULER_TICK_SCHEDULE" \
     --uri="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT/jobs/rundi-scheduler:run" \
     --http-method=POST \
     --oauth-service-account-email="$SCHED_SA" 2>/dev/null \
     || gcloud scheduler jobs update http rundi-scheduler-tick \
-      --location="$REGION" --schedule="*/5 * * * *" \
+      --location="$REGION" --schedule="$SCHEDULER_TICK_SCHEDULE" \
       --uri="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT/jobs/rundi-scheduler:run" \
       --http-method=POST --oauth-service-account-email="$SCHED_SA"
   # Promoción de programados cada minuto (ventana +2min de gracia); el tick
   # de 5min sigue ejecutando el mismo Process como respaldo.
   gcloud scheduler jobs create http rundi-programmed-tick \
-    --location="$REGION" --schedule="* * * * *" \
+    --location="$REGION" --schedule="$PROGRAMMED_TICK_SCHEDULE" \
     --uri="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT/jobs/rundi-programmed:run" \
     --http-method=POST \
     --oauth-service-account-email="$SCHED_SA" 2>/dev/null \
     || gcloud scheduler jobs update http rundi-programmed-tick \
-      --location="$REGION" --schedule="* * * * *" \
+      --location="$REGION" --schedule="$PROGRAMMED_TICK_SCHEDULE" \
       --uri="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT/jobs/rundi-programmed:run" \
       --http-method=POST --oauth-service-account-email="$SCHED_SA"
   echo "Jobs + triggers listos"

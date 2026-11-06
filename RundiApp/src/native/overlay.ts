@@ -28,6 +28,7 @@ type RideOverlayArgs = {
   price: number;
   distanceKm: number;
   clientName?: string | null;
+  featureCodes?: string[];
   variant?: 'app' | 'nearby_ride';
 };
 
@@ -150,14 +151,23 @@ export const overlayManager = {
       };
       console.log('🔵 [overlayManager] Step 4: Llamando a módulo nativo...', payload);
 
-      await callNative(
+      const shown = await callNative(
         isIOS
-          ? iosModule!.showRideActivity(payload)
+          ? iosModule!.showRideActivity({
+              ...payload,
+              featureCodes: variant === 'nearby_ride' && Array.isArray(options.featureCodes)
+                ? options.featureCodes.filter((code): code is string => typeof code === 'string')
+                : [],
+            })
           : androidModule!.showRideOverlay(payload),
         'showing overlay'
       );
 
-      console.log('✅ [overlayManager] Overlay shown successfully - módulo nativo ejecutado');
+      if (shown === false) {
+        console.log('⏭️ [overlayManager] Overlay omitido por el módulo nativo (app en background, sin activity activa)');
+      } else {
+        console.log('✅ [overlayManager] Overlay shown successfully - módulo nativo ejecutado');
+      }
     } catch (error: any) {
       console.error('❌ [overlayManager] showRideOverlay error:', error?.message || error);
       console.error('❌ [overlayManager] Stack trace:', error?.stack);

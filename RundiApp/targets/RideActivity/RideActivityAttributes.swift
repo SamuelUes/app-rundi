@@ -8,6 +8,7 @@ struct RideActivityAttributes: ActivityAttributes {
         var price: Double
         var distanceKm: Double
         var clientName: String
+        var featureCodes: [String]?
         var variant: String
     }
 }

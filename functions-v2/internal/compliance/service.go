@@ -22,6 +22,8 @@ import (
 
 var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
+const duplicatePlatePredicate = `LOWER(plate) = LOWER($1) AND id <> $2::uuid AND deleted_at IS NULL`
+
 // DocumentTables — whitelist fija (los nombres van interpolados al SQL;
 // nunca viene del cliente un nombre arbitrario).
 var DocumentTables = map[string]bool{
@@ -62,13 +64,17 @@ func NewService(pool *pgxpool.Pool, notify *notifications.Center, sign *rstorage
 
 // driverRow — resuelve por UUID interno (id o user_id) o Firebase UID.
 func (s *Service) driverRow(ctx context.Context, identifier string) (id, uid string, found bool, err error) {
+	return driverRowWithQuerier(ctx, s.pool, identifier)
+}
+
+func driverRowWithQuerier(ctx context.Context, db factsQuerier, identifier string) (id, uid string, found bool, err error) {
 	q := `SELECT id::text, user_id FROM public.drivers WHERE deleted_at IS NULL AND `
 	if uuidRe.MatchString(identifier) {
-		q += `(id = $1::uuid OR user_id = $1)`
+		q += `(id = $1::uuid OR user_id = $1::text)`
 	} else {
 		q += `user_id = $1`
 	}
-	err = s.pool.QueryRow(ctx, q+" LIMIT 1", identifier).Scan(&id, &uid)
+	err = db.QueryRow(ctx, q+" LIMIT 1", identifier).Scan(&id, &uid)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", false, nil
 	}
@@ -76,8 +82,21 @@ func (s *Service) driverRow(ctx context.Context, identifier string) (id, uid str
 }
 
 func (s *Service) loadContext(ctx context.Context, today string) (*RuleContext, error) {
+	return loadRuleContext(ctx, s.pool, today)
+}
+
+type ruleQueryer interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+type factsQuerier interface {
+	ruleQueryer
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func loadRuleContext(ctx context.Context, db ruleQueryer, today string) (*RuleContext, error) {
 	rules := map[string]RuleConfig{}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := db.Query(ctx, `
 		SELECT code, severity, blocking, enabled, warning_days, legal_basis, params
 		FROM public.compliance_rules`)
 	if err != nil {
@@ -93,7 +112,9 @@ func (s *Service) loadContext(ctx context.Context, today string) (*RuleContext, 
 			return nil, err
 		}
 		rc.WarningDays, rc.LegalBasis = wd, lb
-		_ = json.Unmarshal(params, &rc.Params)
+		if err := json.Unmarshal(params, &rc.Params); err != nil {
+			return nil, fmt.Errorf("invalid compliance rule params %s: %w", rc.Code, err)
+		}
 		if rc.Params == nil {
 			rc.Params = map[string]any{}
 		}
@@ -104,7 +125,7 @@ func (s *Service) loadContext(ctx context.Context, today string) (*RuleContext, 
 	}
 
 	var catRules []CategoryRuleRow
-	crows, err := s.pool.Query(ctx, `
+	crows, err := db.Query(ctx, `
 		SELECT vehicle_type, service_code, required_categories, severity, confirmed_by_source
 		FROM public.license_category_rules WHERE is_active = TRUE`)
 	if err != nil {
@@ -118,20 +139,27 @@ func (s *Service) loadContext(ctx context.Context, today string) (*RuleContext, 
 		}
 		catRules = append(catRules, r)
 	}
-	return &RuleContext{Today: today, Rules: rules, CategoryRules: catRules}, rows.Err()
+	if err := crows.Err(); err != nil {
+		return nil, err
+	}
+	return &RuleContext{Today: today, Rules: rules, CategoryRules: catRules}, nil
 }
 
 func (s *Service) loadFacts(ctx context.Context, driverID, vehicleID, serviceCode, today string) (*Facts, error) {
+	return loadFactsWithQuerier(ctx, s.pool, driverID, vehicleID, serviceCode, today)
+}
+
+func loadFactsWithQuerier(ctx context.Context, db factsQuerier, driverID, vehicleID, serviceCode, today string) (*Facts, error) {
 	f := &Facts{ServiceCode: nilIf(serviceCode), VehicleRequested: vehicleID != ""}
 
-	dID, uid, found, err := s.driverRow(ctx, driverID)
+	dID, uid, found, err := driverRowWithQuerier(ctx, db, driverID)
 	if err != nil {
 		return nil, err
 	}
 	if found {
 		f.Driver = &DriverFacts{ID: dID, UserID: uid}
 		var acct, docs *string
-		if err := s.pool.QueryRow(ctx, `
+		if err := db.QueryRow(ctx, `
 			SELECT account_status::text, documents_status::text
 			FROM public.drivers WHERE id = $1::uuid`, dID).Scan(&acct, &docs); err != nil {
 			return nil, err
@@ -140,7 +168,7 @@ func (s *Service) loadFacts(ctx context.Context, driverID, vehicleID, serviceCod
 
 		// Licencia vigente
 		var lic LicenseFacts
-		err := s.pool.QueryRow(ctx, `
+		err := db.QueryRow(ctx, `
 			SELECT id::text, status, license_number, license_type::text, categories,
 			       issue_date::text, expiry_date::text, reported_status
 			FROM public.driver_licenses
@@ -155,28 +183,24 @@ func (s *Service) loadFacts(ctx context.Context, driverID, vehicleID, serviceCod
 		}
 		// Duplicado de número de licencia
 		if lic.LicenseNumber != nil {
-			rows, err := s.pool.Query(ctx, `
+			rows, err := db.Query(ctx, `
 				SELECT driver_id::text FROM public.driver_licenses
 				WHERE license_number = $1 AND is_current = TRUE AND driver_id <> $2::uuid
 				  AND deleted_at IS NULL`, *lic.LicenseNumber, dID)
 			if err != nil {
 				return nil, err
 			}
-			for rows.Next() {
-				var d string
-				if err := rows.Scan(&d); err != nil {
-					rows.Close()
-					return nil, err
-				}
-				f.Duplicates.LicenseNumberDriverIDs = append(f.Duplicates.LicenseNumberDriverIDs, d)
+			ids, err := collectDuplicateIDs(rows)
+			if err != nil {
+				return nil, err
 			}
-			rows.Close()
+			f.Duplicates.LicenseNumberDriverIDs = ids
 		}
 	}
 
 	if vehicleID != "" && uuidRe.MatchString(vehicleID) {
 		v := &VehicleFacts{}
-		err := s.pool.QueryRow(ctx, `
+		err := db.QueryRow(ctx, `
 			SELECT id::text, driver_id::text, plate, type, service_type, vehicle_class,
 			       vin, chasis, motor, year, emission_date::text, COALESCE(is_active,false),
 			       created_at::text
@@ -195,7 +219,7 @@ func (s *Service) loadFacts(ctx context.Context, driverID, vehicleID, serviceCod
 		vid := f.Vehicle.ID
 		// Circulación
 		var c CirculationFacts
-		if err := s.pool.QueryRow(ctx, `
+		if err := db.QueryRow(ctx, `
 			SELECT id::text, status, card_number, issued_at::text, declared_valid_until::text,
 			       declared_plate, declared_vin, declared_chasis, declared_motor, declared_service_type
 			FROM public.vehicle_circulation_cards
@@ -209,7 +233,7 @@ func (s *Service) loadFacts(ctx context.Context, driverID, vehicleID, serviceCod
 		}
 		// RC insurance
 		var ins InsuranceFacts
-		if err := s.pool.QueryRow(ctx, `
+		if err := db.QueryRow(ctx, `
 			SELECT id::text, status, policy_number, insurer_code, coverage_type::text,
 			       effective_from::text, effective_until::text, insured_plate, insured_vin,
 			       insured_motor, insured_chasis
@@ -226,7 +250,7 @@ func (s *Service) loadFacts(ctx context.Context, driverID, vehicleID, serviceCod
 		}
 		// Cobertura pasajeros
 		var cnt int
-		if err := s.pool.QueryRow(ctx, `
+		if err := db.QueryRow(ctx, `
 			SELECT count(*) FROM public.vehicle_insurance_policies
 			WHERE vehicle_id = $1::uuid AND coverage_type = 'pasajeros'
 			  AND is_current = TRUE AND deleted_at IS NULL`, vid).Scan(&cnt); err != nil {
@@ -236,7 +260,7 @@ func (s *Service) loadFacts(ctx context.Context, driverID, vehicleID, serviceCod
 		// Periódicos
 		load := func(table, atCol string) (*PeriodicFacts, error) {
 			var p PeriodicFacts
-			err := s.pool.QueryRow(ctx, fmt.Sprintf(`
+			err := db.QueryRow(ctx, fmt.Sprintf(`
 				SELECT id::text, status, %s::text, result::text, valid_until::text
 				FROM public.%s
 				WHERE vehicle_id = $1::uuid AND is_current = TRUE AND deleted_at IS NULL
@@ -255,7 +279,7 @@ func (s *Service) loadFacts(ctx context.Context, driverID, vehicleID, serviceCod
 		}
 		// Revisado (sin result)
 		var rev RevisadoFacts
-		if err := s.pool.QueryRow(ctx, `
+		if err := db.QueryRow(ctx, `
 			SELECT id::text, status, sticker_year, issued_at::text, valid_until::text
 			FROM public.vehicle_revisado_stickers
 			WHERE vehicle_id = $1::uuid AND is_current = TRUE AND deleted_at IS NULL
@@ -267,7 +291,7 @@ func (s *Service) loadFacts(ctx context.Context, driverID, vehicleID, serviceCod
 		}
 		// Rodamiento del año corriente
 		var rt RoadTaxFacts
-		if err := s.pool.QueryRow(ctx, `
+		if err := db.QueryRow(ctx, `
 			SELECT id::text, status, tax_year, paid_at::text, exempt, exempt_reason
 			FROM public.vehicle_road_taxes
 			WHERE vehicle_id = $1::uuid AND tax_year = $2 AND is_current = TRUE
@@ -280,22 +304,13 @@ func (s *Service) loadFacts(ctx context.Context, driverID, vehicleID, serviceCod
 		}
 		// Duplicados placa/vin/póliza
 		dup := func(q string, args ...any) ([]string, error) {
-			rows, err := s.pool.Query(ctx, q, args...)
+			rows, err := db.Query(ctx, q, args...)
 			if err != nil {
 				return nil, err
 			}
-			defer rows.Close()
-			var out []string
-			for rows.Next() {
-				var d string
-				if err := rows.Scan(&d); err != nil {
-					return nil, err
-				}
-				out = append(out, d)
-			}
-			return out, rows.Err()
+			return collectDuplicateIDs(rows)
 		}
-		if ids, err := dup(`SELECT id::text FROM public.vehicles WHERE plate ILIKE $1 AND id <> $2::uuid AND deleted_at IS NULL`, f.Vehicle.Plate, vid); err != nil {
+		if ids, err := dup(`SELECT id::text FROM public.vehicles WHERE `+duplicatePlatePredicate, f.Vehicle.Plate, vid); err != nil {
 			return nil, err
 		} else {
 			f.Duplicates.PlateVehicleIDs = ids
@@ -324,16 +339,53 @@ func (s *Service) loadFacts(ctx context.Context, driverID, vehicleID, serviceCod
 	return f, nil
 }
 
+func collectDuplicateIDs(rows pgx.Rows) ([]string, error) {
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
 // ---------- evaluaciones (ComplianceService) ----------
 
 func (s *Service) evaluate(ctx context.Context, driverID, vehicleID, serviceCode, scope, evaluatedBy string) (*Evaluation, error) {
 	today := TodayNicaragua()
-	rctx, err := s.loadContext(ctx, today)
+	// Reglas, hechos y señales se leen en un solo snapshot RepeatableRead: la
+	// decisión y las generaciones registradas corresponden exactamente a los
+	// datos evaluados, aunque otra tx los cambie durante la evaluación.
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return nil, err
 	}
-	facts, err := s.loadFacts(ctx, driverID, vehicleID, serviceCode, today)
+	defer tx.Rollback(ctx)
+	rctx, err := loadRuleContext(ctx, tx, today)
 	if err != nil {
+		return nil, err
+	}
+	facts, err := loadFactsWithQuerier(ctx, tx, driverID, vehicleID, serviceCode, today)
+	if err != nil {
+		return nil, err
+	}
+	var inputGenerations map[string]int64
+	if facts.Driver != nil {
+		keys := signalKeysForFacts(facts.Driver.ID, facts)
+		if err := seedComplianceSignals(ctx, tx, keys); err != nil {
+			return nil, err
+		}
+		if inputGenerations, err = loadSignalGenerations(ctx, tx, keys); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	reasons := EvaluateFacts(*facts, rctx)
@@ -352,7 +404,8 @@ func (s *Service) evaluate(ctx context.Context, driverID, vehicleID, serviceCode
 	ev := &Evaluation{
 		Allowed: allowed, Status: status, Reasons: reasons,
 		EvaluatedAt: time.Now().Format(time.RFC3339), RulesVersion: RulesVersion,
-		ServiceCode: facts.ServiceCode,
+		ServiceCode:  facts.ServiceCode,
+		NicaraguaDay: today, InputGenerations: inputGenerations,
 	}
 	if facts.Driver != nil {
 		ev.DriverID = &facts.Driver.ID

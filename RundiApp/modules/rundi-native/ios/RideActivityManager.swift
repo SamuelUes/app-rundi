@@ -7,6 +7,7 @@ struct RideActivityPayload: Record {
     @Field var price: Double = 0
     @Field var distanceKm: Double = 0
     @Field var clientName: String? = nil
+    @Field var featureCodes: [String] = []
     @Field var variant: String = "app"
 }
 
@@ -29,33 +30,28 @@ final class RideActivityManager {
             price: payload.price,
             distanceKm: payload.distanceKm,
             clientName: payload.clientName ?? "",
+            featureCodes: payload.featureCodes,
             variant: payload.variant
         )
 
-        if #available(iOS 16.2, *) {
-            let content = ActivityContent(state: state, staleDate: nil)
-
-            if let existing = currentActivity() {
-                await existing.update(content)
-                return true
-            }
-
-            _ = try Activity<RideActivityAttributes>.request(
-                attributes: RideActivityAttributes(),
-                content: content,
-                pushType: nil
-            )
-            return true
+        // Activity.request exige la app en foreground ("Target is not
+        // foreground"); los update de una activity existente sí corren en
+        // background. Sin activity activa + app en background → skip.
+        let canRequest = await MainActor.run {
+            UIApplication.shared.applicationState == .active
         }
+
+        let content = ActivityContent(state: state, staleDate: nil)
 
         if let existing = currentActivity() {
-            await existing.update(using: state)
+            await existing.update(content)
             return true
         }
+        guard canRequest else { return false }
 
         _ = try Activity<RideActivityAttributes>.request(
             attributes: RideActivityAttributes(),
-            contentState: state,
+            content: content,
             pushType: nil
         )
         return true
@@ -63,14 +59,10 @@ final class RideActivityManager {
 
     func endAll() async {
         for activity in Activity<RideActivityAttributes>.activities {
-            if #available(iOS 16.2, *) {
-                await activity.end(
-                    ActivityContent(state: activity.content.state, staleDate: nil),
-                    dismissalPolicy: .immediate
-                )
-            } else {
-                await activity.end(using: activity.contentState, dismissalPolicy: .immediate)
-            }
+            await activity.end(
+                ActivityContent(state: activity.content.state, staleDate: nil),
+                dismissalPolicy: .immediate
+            )
         }
     }
 }

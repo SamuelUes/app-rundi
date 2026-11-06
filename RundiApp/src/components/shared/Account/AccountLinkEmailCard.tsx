@@ -42,6 +42,10 @@ export function AccountLinkEmailCard({
         placeholderTextColor={colors.textSecondary}
         keyboardType="email-address"
         autoCapitalize="none"
+        autoCorrect={false}
+        textContentType="username"
+        autoComplete="email"
+        importantForAutofill="yes"
         value={email}
         onChangeText={onSetEmail}
       />
@@ -52,6 +56,11 @@ export function AccountLinkEmailCard({
         secureTextEntry
         value={password}
         onChangeText={onSetPassword}
+        autoCapitalize="none"
+        autoCorrect={false}
+        textContentType="newPassword"
+        autoComplete="new-password"
+        importantForAutofill="yes"
       />
       <TextInput
         style={styles.input}
@@ -60,6 +69,11 @@ export function AccountLinkEmailCard({
         secureTextEntry
         value={confirmPassword}
         onChangeText={onSetConfirmPassword}
+        autoCapitalize="none"
+        autoCorrect={false}
+        textContentType="newPassword"
+        autoComplete="new-password"
+        importantForAutofill="yes"
       />
       <TouchableOpacity
         style={[styles.button, submitting && styles.buttonDisabled]}

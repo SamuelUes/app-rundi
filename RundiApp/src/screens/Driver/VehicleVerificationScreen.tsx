@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import StorageImage from '../../components/shared/StorageImage';
 import supabaseStorage from '../../services/media/storageService';
 import vehiclesService from '../../services/driver/vehiclesService';
 import complianceService from '../../services/driver/complianceService';
+import { vehicleVerificationData } from '../../utils/driver/vehicleVerificationData';
 
 interface VehicleVerificationProps {
   route: any;
@@ -65,6 +66,11 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
   const [revisadoPhoto, setRevisadoPhoto] = useState<string | null>(null);
 
   const [uploadProgress, setUploadProgress] = useState(0);
+  const loadedDocumentsRef = useRef<{
+    data: ReturnType<typeof vehicleVerificationData>;
+    hasCard: boolean;
+    hasInsurance: boolean;
+  } | null>(null);
 
   // Solicitar permisos para la cámara
   useEffect(() => {
@@ -83,6 +89,7 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
 
   // Cargar datos existentes del vehículo
   useEffect(() => {
+    loadedDocumentsRef.current = null;
     const loadVehicleData = async () => {
       try {
         if (!vehicleId) {
@@ -106,46 +113,25 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         const vehicle = vehicles.find((v: any) => v.id === vehicleId);
         
         if (vehicle) {
-          console.log('✅ Datos del vehículo cargados:', {
-            registrationNumber: vehicle.registrationNumber,
-            registrationExpiry: vehicle.registrationExpiry,
-            insuranceNumber: vehicle.insuranceNumber,
-            insuranceCompany: vehicle.insuranceCompany,
-            insuranceExpiry: vehicle.insuranceExpiry,
-            vehiclePhoto: vehicle.vehiclePhoto ? '✅' : '❌',
-            registrationPhotoFront: vehicle.registrationPhotoFront ? '✅' : '❌',
-            registrationPhotoBack: vehicle.registrationPhotoBack ? '✅' : '❌',
-            insurancePhoto: vehicle.insurancePhoto ? '✅' : '❌',
-          });
-
-          // Cargar datos existentes (ya están mapeados a camelCase por normalizeVehicle)
-          if (vehicle.registrationNumber) {
-            setRegistrationNumber(vehicle.registrationNumber);
-          }
-          if (vehicle.registrationExpiry) {
-            setRegistrationExpiry(vehicle.registrationExpiry);
-          }
-          if (vehicle.insuranceNumber) {
-            setInsuranceNumber(vehicle.insuranceNumber);
-          }
-          if (vehicle.insuranceCompany) {
-            setInsuranceCompany(vehicle.insuranceCompany);
-          }
-          if (vehicle.insuranceExpiry) {
-            setInsuranceExpiry(vehicle.insuranceExpiry);
-          }
-          if (vehicle.vehiclePhoto) {
-            setVehiclePhoto(vehicle.vehiclePhoto);
-          }
-          if (vehicle.registrationPhotoFront) {
-            setRegistrationPhotoFront(vehicle.registrationPhotoFront);
-          }
-          if (vehicle.registrationPhotoBack) {
-            setRegistrationPhotoBack(vehicle.registrationPhotoBack);
-          }
-          if (vehicle.insurancePhoto) {
-            setInsurancePhoto(vehicle.insurancePhoto);
-          }
+          const result = await complianceService.getMyDocuments();
+          const docs = result.vehicles.find((item) => item.id === vehicleId)?.documents;
+          const data = vehicleVerificationData(vehicle, docs);
+          loadedDocumentsRef.current = {
+            data,
+            hasCard: Boolean(docs?.vehicle_circulation_cards?.length),
+            hasInsurance: Boolean(docs?.vehicle_insurance_policies?.some(
+              (policy: any) => policy.coverage_type === 'rc_obligatorio',
+            )),
+          };
+          setRegistrationNumber(data.registrationNumber);
+          setRegistrationExpiry(data.registrationExpiry);
+          setRegistrationPhotoFront(data.registrationPhotoFront || null);
+          setRegistrationPhotoBack(data.registrationPhotoBack || null);
+          setInsuranceNumber(data.insuranceNumber);
+          setInsuranceCompany(data.insuranceCompany);
+          setInsuranceExpiry(data.insuranceExpiry);
+          setInsurancePhoto(data.insurancePhoto || null);
+          setVehiclePhoto(data.vehiclePhoto || null);
         } else {
           console.log('⚠️ Vehículo no encontrado con ID:', vehicleId);
         }
@@ -276,8 +262,8 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         // Subir la foto a Supabase
         let downloadUrl: string;
 
-        if (/^https?:\/\//.test(photo.uri)) {
-          // La foto ya está en Storage (cargada del vehículo); conservar su URL
+        if (!/^(file:|content:|ph:|assets-library:)/i.test(photo.uri)) {
+          // Conservar rutas existentes de Storage; solo se suben archivos locales.
           downloadUrl = photo.uri;
         } else if (photo.type === 'registration_front' || photo.type === 'registration_back') {
           downloadUrl = await supabaseStorage.uploadRegistrationPhoto(
@@ -303,24 +289,37 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
       // Registrar en el sistema de compliance (versiones vigentes + historial;
       // el backend mantiene las columnas legacy sincronizadas)
       console.log('💾 Registrando documentos del vehículo en compliance...');
-      await complianceService.submitVehicleDocument({
-        vehicleId,
-        documentType: 'circulation_card',
-        cardNumber: registrationNumber,
-        declaredValidUntil: registrationExpiry,
-        documentPath: uploadedUrls['registration_front'],
-        documentPathBack: uploadedUrls['registration_back'],
-      });
+      const loaded = loadedDocumentsRef.current;
+      if (!loaded?.hasCard ||
+          loaded.data.registrationNumber !== registrationNumber ||
+          loaded.data.registrationExpiry !== registrationExpiry ||
+          loaded.data.registrationPhotoFront !== uploadedUrls['registration_front'] ||
+          loaded.data.registrationPhotoBack !== uploadedUrls['registration_back']) {
+        await complianceService.submitVehicleDocument({
+          vehicleId,
+          documentType: 'circulation_card',
+          cardNumber: registrationNumber,
+          declaredValidUntil: registrationExpiry,
+          documentPath: uploadedUrls['registration_front'],
+          documentPathBack: uploadedUrls['registration_back'],
+        });
+      }
 
-      await complianceService.submitVehicleDocument({
-        vehicleId,
-        documentType: 'insurance',
-        policyNumber: insuranceNumber,
-        insurerName: insuranceCompany,
-        coverageType: 'rc_obligatorio',
-        effectiveUntil: insuranceExpiry,
-        documentPath: uploadedUrls['insurance_photo'],
-      });
+      if (!loaded?.hasInsurance ||
+          loaded.data.insuranceNumber !== insuranceNumber ||
+          loaded.data.insuranceCompany !== insuranceCompany ||
+          loaded.data.insuranceExpiry !== insuranceExpiry ||
+          loaded.data.insurancePhoto !== uploadedUrls['insurance_photo']) {
+        await complianceService.submitVehicleDocument({
+          vehicleId,
+          documentType: 'insurance',
+          policyNumber: insuranceNumber,
+          insurerName: insuranceCompany,
+          coverageType: 'rc_obligatorio',
+          effectiveUntil: insuranceExpiry,
+          documentPath: uploadedUrls['insurance_photo'],
+        });
+      }
 
       // Documentos periódicos: se registran solo cuando el conductor capturó
       // las fechas (son opcionales en esta pantalla; el motor decide si son

@@ -14,7 +14,6 @@ import (
 	"cloud.google.com/go/firestore"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/rundi/functions-v2/internal/fs"
 	"github.com/rundi/functions-v2/internal/projections"
 )
 
@@ -45,81 +44,81 @@ func reconcileKind(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client,
 	}
 	defer rows.Close()
 	type cand struct {
-		id      string
-		version float64
+		id       string
+		version  float64
+		revision float64
 	}
 	var cands []cand
 	for rows.Next() {
 		var cd cand
-		if err := rows.Scan(&cd.id, &cd.version); err != nil {
+		if err := rows.Scan(&cd.id, &cd.version, &cd.revision); err != nil {
 			rows.Close()
 			return repaired, errors + 1
 		}
 		cands = append(cands, cd)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		slog.Error("reconcile rows", "agg", spec.aggType, "err", err)
+		return 0, 1
+	}
 
 	for _, cd := range cands {
-		applied := appliedVersion(ctx, c, spec.aggType, cd.id)
-		if applied >= cd.version {
-			continue // sincronizado
-		}
-		payload, err := spec.build(ctx, pool, cd.id)
+		changed, err := reconcileCandidate(ctx, pool, c, spec, cd.id, cd.version, cd.revision)
 		if err != nil {
-			slog.Warn("reconcile build", "agg", spec.aggType, "id", cd.id, "err", err)
+			slog.Warn("reconcile candidate", "agg", spec.aggType, "id", cd.id, "err", err)
 			errors++
 			continue
 		}
-		payload["version"] = cd.version
-		raw, _ := json.Marshal(payload)
-		ev := projections.Event{
-			EventID: fmt.Sprintf("reconcile-%s-%s", cd.id, time.Now().UTC().Format("20060102T150405")),
-			// EventType vacío: solo proyección de estado, sin side-effects.
-			AggregateType: spec.aggType,
-			AggregateID:   cd.id,
-			Payload:       raw,
+		if changed {
+			repaired++
 		}
-		if err := projections.Publish(ctx, pool, c, ev); err != nil {
-			slog.Warn("reconcile publish", "agg", spec.aggType, "id", cd.id, "err", err)
-			errors++
-			writeStatus(ctx, c, spec.aggType, cd.id, cd.version, "error", err.Error())
-			continue
-		}
-		writeStatus(ctx, c, spec.aggType, cd.id, cd.version, "reconciled", "")
-		repaired++
-		slog.Info("reconciled", "agg", spec.aggType, "id", cd.id, "version", cd.version, "was", applied)
 	}
 	return repaired, errors
 }
 
-// appliedVersion — versión registrada en SYSTEM_projection_status (0 si no hay doc).
-func appliedVersion(ctx context.Context, c *firestore.Client, aggType, id string) float64 {
-	snap, err := c.Collection(fs.ColProjectionStatus).Doc(aggType + "_" + id).Get(ctx)
+func reconcileCandidate(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, spec entitySpec, id string, candidateVersion, candidateRevision float64) (bool, error) {
+	applied, err := projections.ReadStatusRevision(ctx, c, spec.aggType, id)
 	if err != nil {
-		return 0
+		return false, fmt.Errorf("read status: %w", err)
 	}
-	if v, ok := snap.Data()["appliedVersion"].(int64); ok {
-		return float64(v)
+	if applied >= candidateRevision {
+		return false, nil
 	}
-	if v, ok := snap.Data()["appliedVersion"].(float64); ok {
-		return v
+	payload, err := spec.build(ctx, pool, id)
+	if err != nil {
+		return false, fmt.Errorf("build projection: %w", err)
 	}
-	return 0
+	version := reconciledVersion(candidateVersion, payload)
+	payload["version"] = version
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return false, fmt.Errorf("encode projection: %w", err)
+	}
+	ev := projections.Event{
+		EventID:       fmt.Sprintf("reconcile-%s-%s", id, time.Now().UTC().Format("20060102T150405")),
+		AggregateType: spec.aggType,
+		AggregateID:   id,
+		Payload:       raw,
+	}
+	if _, err := projections.Publish(ctx, pool, c, ev); err != nil {
+		if statusErr := projections.WriteStatus(ctx, c, spec.aggType, id, version, -1, "", "error", err.Error()); statusErr != nil {
+			slog.Warn("reconcile status write", "agg", spec.aggType, "id", id, "err", statusErr)
+		}
+		return false, fmt.Errorf("publish projection: %w", err)
+	}
+	if err := projections.WriteStatus(ctx, c, spec.aggType, id, version, int64(candidateRevision), "", "reconciled", ""); err != nil {
+		return false, fmt.Errorf("write status: %w", err)
+	}
+	slog.Info("reconciled", "agg", spec.aggType, "id", id, "revision", candidateRevision, "was", applied)
+	return true, nil
 }
 
-func writeStatus(ctx context.Context, c *firestore.Client, aggType, id string, version float64, st, lastErr string) {
-	data := map[string]any{
-		"aggregateType":  aggType,
-		"aggregateId":    id,
-		"appliedVersion": version,
-		"status":         st,
-		"updatedAt":      firestore.ServerTimestamp,
+func reconciledVersion(candidate float64, payload map[string]any) float64 {
+	if version, ok := payload["version"].(float64); ok && version > candidate {
+		return version
 	}
-	if lastErr != "" {
-		data["lastError"] = lastErr
-	}
-	_, _ = c.Collection(fs.ColProjectionStatus).Doc(aggType+"_"+id).
-		Set(ctx, data, firestore.MergeAll)
+	return candidate
 }
 
 // ---------- specs por agregado (payload = mismas claves que el outbox) ----------
@@ -127,7 +126,7 @@ func writeStatus(ctx context.Context, c *firestore.Client, aggType, id string, v
 var ridesSpec = entitySpec{
 	aggType: "ride",
 	query: `
-		SELECT id::text, version FROM public.rides
+		SELECT id::text, version, version FROM public.rides
 		WHERE updated_at > NOW() - $1::interval`,
 	build: func(ctx context.Context, pool *pgxpool.Pool, id string) (map[string]any, error) {
 		var p = map[string]any{}
@@ -167,7 +166,7 @@ var ridesSpec = entitySpec{
 var paymentsSpec = entitySpec{
 	aggType: "payment",
 	query: `
-		SELECT id::text, extract(epoch from updated_at) * 1000 FROM public.payments
+		SELECT id::text, extract(epoch from updated_at) * 1000, revision FROM public.payments
 		WHERE updated_at > NOW() - $1::interval`,
 	build: func(ctx context.Context, pool *pgxpool.Pool, id string) (map[string]any, error) {
 		var p = map[string]any{}
@@ -203,7 +202,7 @@ var paymentsSpec = entitySpec{
 var driversSpec = entitySpec{
 	aggType: "driver", // aggregateID = Firebase UID (igual que el outbox)
 	query: `
-		SELECT user_id, extract(epoch from updated_at) * 1000 FROM public.drivers
+		SELECT user_id, extract(epoch from updated_at) * 1000, revision FROM public.drivers
 		WHERE updated_at > NOW() - $1::interval`,
 	build: func(ctx context.Context, pool *pgxpool.Pool, driverUID string) (map[string]any, error) {
 		var acct, designated *string
@@ -250,7 +249,7 @@ var driversSpec = entitySpec{
 var vehiclesSpec = entitySpec{
 	aggType: "vehicle",
 	query: `
-		SELECT id::text, extract(epoch from updated_at) * 1000 FROM public.vehicles
+		SELECT id::text, extract(epoch from updated_at) * 1000000, revision FROM public.vehicles
 		WHERE updated_at > NOW() - $1::interval`,
 	build: func(ctx context.Context, pool *pgxpool.Pool, vehicleID string) (map[string]any, error) {
 		var plate string

@@ -79,6 +79,7 @@ export type DriverStackParamList = {
       estimatedPrice: number;
       estimatedDistance?: number;
       estimatedDuration?: number;
+      featureCodes?: string[];
       clientSuggestedPrice?: number;
       driverOfferedPrice?: number | null;
       paymentMethod?: 'cash' | 'card';

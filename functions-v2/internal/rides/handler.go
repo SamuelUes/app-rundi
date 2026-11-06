@@ -73,7 +73,7 @@ func (h *Handler) request(w http.ResponseWriter, r *http.Request) {
 
 	var body RequestRideRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	ride, err := h.svc.RequestRide(r.Context(), uid, reqID, body)
@@ -98,7 +98,7 @@ func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
 
 	var body CancelRideRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	ride, err := h.svc.CancelRide(r.Context(), rideID, uid, role, body.Reason, reqID)
@@ -110,7 +110,8 @@ func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
 	apperr.JSON(w, http.StatusOK, RideResponse{Ride: *ride, Event: "ride.canceled"})
 }
 
-// POST /v1/rides/{rideId}/negotiate — conductor contraoferta precio.
+// POST /v1/rides/{rideId}/negotiate — negociación por rol: cliente ajusta
+// su precio sugerido; conductor contraoferta.
 func (h *Handler) negotiate(w http.ResponseWriter, r *http.Request) {
 	uid, _ := r.Context().Value(middleware.CtxUID).(string)
 	reqID, _ := r.Context().Value(middleware.CtxRequestID).(string)
@@ -122,7 +123,7 @@ func (h *Handler) negotiate(w http.ResponseWriter, r *http.Request) {
 
 	var body NegotiatePriceRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	ride, err := h.svc.NegotiatePrice(r.Context(), rideID, uid, body.OfferedPrice, reqID)
@@ -145,7 +146,7 @@ func (h *Handler) complete(w http.ResponseWriter, r *http.Request) {
 
 	var body CompleteRideRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	ride, err := h.svc.CompleteRide(r.Context(), rideID, uid, body, reqID)
@@ -168,7 +169,7 @@ func (h *Handler) accept(w http.ResponseWriter, r *http.Request) {
 
 	var body AcceptRideRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	// El conductor solo puede aceptar para sí mismo (auth.uid == driverId).
@@ -295,7 +296,7 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request) {
 
 	var body transitionBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	ride, err := h.svc.TransitionRide(r.Context(), rideID, uid, body.From, body.To, reqID)
@@ -313,7 +314,7 @@ func (h *Handler) recordLocations(w http.ResponseWriter, r *http.Request) {
 		Points []LocationPoint `json:"points"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apperr.Write(w, apperr.New(400, "invalid body"))
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
 	rideID, err := h.rideID(r.Context(), r)

@@ -12,10 +12,12 @@ interface AuthState {
   user: User | null;
   loading: boolean;
   logoutInProgress: boolean;
+  biometricLocked: boolean;
   userMode: 'client' | 'driver';
   setUser: (user: User | null) => void;
   setLoading: (loading: boolean) => void;
   setLogoutInProgress: (value: boolean) => void;
+  setBiometricLocked: (value: boolean) => void;
   setUserMode: (mode: 'client' | 'driver') => void;
 }
 
@@ -23,10 +25,12 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   loading: true,
   logoutInProgress: false,
+  biometricLocked: false,
   userMode: 'client',
 
   setUser: (user) => set({ user }),
   setLoading: (loading) => set({ loading }),
   setLogoutInProgress: (value) => set({ logoutInProgress: value }),
+  setBiometricLocked: (value) => set({ biometricLocked: value }),
   setUserMode: (mode) => set({ userMode: mode }),
 }));

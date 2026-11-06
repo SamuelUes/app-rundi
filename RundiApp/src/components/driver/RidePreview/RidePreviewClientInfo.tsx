@@ -4,6 +4,7 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import StorageImage from '../../shared/StorageImage';
 import type { TFunction } from 'i18next';
 import type { ClientProfile } from '../../../services/user/clientProfilesService';
+import { RIDE_FEATURE_COLOR, RIDE_FEATURE_COLOR_DARK } from '../../../utils/ride/rideFeatureLabels';
 
 interface RidePreviewClientInfoProps {
   resolvedClientName: string;
@@ -13,6 +14,7 @@ interface RidePreviewClientInfoProps {
   distanceKm?: number | null;
   durationMin?: number | null;
   paymentMethod?: 'cash' | 'card' | null;
+  featureLabels: string[];
   colors: any;
   isDark: boolean;
   formatCurrency: (value?: number | null) => string;
@@ -30,6 +32,7 @@ export function RidePreviewClientInfo({
   distanceKm,
   durationMin,
   paymentMethod,
+  featureLabels,
   colors,
   isDark,
   formatCurrency,
@@ -98,6 +101,17 @@ export function RidePreviewClientInfo({
           <Text style={[styles.clientTripMeta, { color: colors.textSecondary }]} numberOfLines={1}>
             {tripMeta}
           </Text>
+        ) : null}
+        {featureLabels.length > 0 ? (
+          <View style={styles.featureBadges}>
+            {featureLabels.map((label) => (
+              <View key={label} style={[styles.featureBadge, { backgroundColor: `${RIDE_FEATURE_COLOR}20` }]}>
+                <Text style={[styles.featureBadgeText, { color: isDark ? RIDE_FEATURE_COLOR_DARK : RIDE_FEATURE_COLOR }]}>
+                  {label}
+                </Text>
+              </View>
+            ))}
+          </View>
         ) : null}
         {normalizedClientComment.trim().length > 0 ? (
           <Text style={[styles.clientNoteText, { color: colors.textSecondary }]} numberOfLines={2}>

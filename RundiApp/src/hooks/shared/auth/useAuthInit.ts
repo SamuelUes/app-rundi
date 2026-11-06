@@ -10,6 +10,7 @@ import { getFirebaseAuth } from '../../../config/firebase';
 import { User as FirebaseAuthUser } from 'firebase/auth';
 import backendConfig from '../../../config/backendConfig';
 import firebaseAuthService from '../../../services/auth/firebaseAuthService';
+import BiometricService from '../../../services/user/biometricService';
 import sessionService from '../../../services/user/sessionService';
 import preflightService from '../../../services/ride/preflightService';
 import alertService from '../../../services/notification/alertService';
@@ -18,8 +19,33 @@ import { clearPreflightResult } from '../../../stores/preflightStore';
 import { useAuthStore, User } from '../../../stores/authStore';
 import { resolveUserModeFromRole } from './useUserMode';
 import { devTiming } from '../../../utils/devTiming';
+import i18n from '../../../i18n';
 
 let authStartupSessionConflict = false;
+let biometricUnlockedThisLaunch = false;
+let firstAuthEventHandled = false;
+
+export function markBiometricUnlocked() {
+  biometricUnlockedThisLaunch = true;
+}
+
+async function evaluateBiometricGate(
+  isStartupRestore: boolean,
+  role: User['role'],
+): Promise<'lock' | 'prompt' | 'none'> {
+  // Los conductores ya pasan verificación biométrica obligatoria en su flujo
+  // de entrada: el candado de app sería redundante (ni lock ni prompt).
+  if (role === 'driver' || role === 'designated_driver') return 'none';
+  const unlockEnabled = await BiometricService.isBiometricUnlockEnabled();
+  if (unlockEnabled) {
+    return isStartupRestore && !biometricUnlockedThisLaunch ? 'lock' : 'none';
+  }
+  const [asked, available] = await Promise.all([
+    BiometricService.hasBiometricUnlockDecision(),
+    BiometricService.isAvailable(),
+  ]);
+  return !asked && available ? 'prompt' : 'none';
+}
 
 function normalizeRoleValue(role: any): User['role'] | null {
   const normalized = typeof role === 'string' ? role.trim().toLowerCase() : '';
@@ -48,6 +74,7 @@ export function useAuthInit() {
   const setUser = useAuthStore((s) => s.setUser);
   const setLoading = useAuthStore((s) => s.setLoading);
   const setUserMode = useAuthStore((s) => s.setUserMode);
+  const setBiometricLocked = useAuthStore((s) => s.setBiometricLocked);
 
   useEffect(() => {
     const startupStarted = Date.now();
@@ -126,6 +153,27 @@ export function useAuthInit() {
                   role,
                   phone: userData.phone,
                 });
+
+                const isStartupRestore = !firstAuthEventHandled;
+                firstAuthEventHandled = true;
+                try {
+                  const gate = await evaluateBiometricGate(isStartupRestore, role);
+                  if (observedUid !== firebaseUser.uid) return;
+                  if (gate === 'lock') {
+                    setBiometricLocked(true);
+                  } else if (gate === 'prompt') {
+                    alertService.showConfirmAlert(
+                      i18n.t('shared.biometricLock.enableTitle'),
+                      i18n.t('shared.biometricLock.enableMessage'),
+                      () => void BiometricService.setBiometricUnlockEnabled(true),
+                      () => void BiometricService.setBiometricUnlockEnabled(false),
+                      i18n.t('shared.biometricLock.enable'),
+                      i18n.t('shared.biometricLock.notNow'),
+                    );
+                  }
+                } catch (gateError) {
+                  console.warn('[AuthInit] biometric gate error:', gateError);
+                }
               } catch (profileError: any) {
                 if (observedUid !== firebaseUser.uid) return;
                 if (profileError?.code === 'ACCOUNT_DISABLED' || profileError?.message === 'ACCOUNT_DISABLED') {
@@ -147,6 +195,7 @@ export function useAuthInit() {
               observedRole = null;
               setUser(null);
               setUserMode('client');
+              setBiometricLocked(false);
             }
           };
           const unsubscribe = await firebaseAuthService.onAuthStateChange((firebaseUser) =>

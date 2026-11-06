@@ -189,7 +189,8 @@ const RegistrationCheckpointScreen: React.FC<Props> = ({ navigation }) => {
       Boolean(vehicleData.type) &&
       Boolean(vehicleData.insurancePhoto) &&
       Boolean(vehicleData.registrationPhotoFront) &&
-      Boolean(vehicleData.registrationPhotoBack);
+      Boolean(vehicleData.registrationPhotoBack) &&
+      Boolean(vehicleData.vehiclePhoto);
 
     return licenseComplete && vehicleComplete;
   };
@@ -709,7 +710,7 @@ const createStyles = (colors: any, isDark: boolean) => {
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: isDark ? 'rgba(212, 175, 55, 0.16)' : 'rgba(212, 175, 55, 0.12)',
-      borderWidth: 1,
+      borderWidth: 0.2,
       borderColor: 'rgba(212, 175, 55, 0.4)',
     },
     title: {
@@ -734,7 +735,7 @@ const createStyles = (colors: any, isDark: boolean) => {
     infoBox: {
       width: '100%',
       borderRadius: 14,
-      borderWidth: 1,
+      borderWidth: 0.2,
       borderColor: colors.border,
       backgroundColor: colors.surface,
       paddingVertical: 12,
@@ -753,7 +754,7 @@ const createStyles = (colors: any, isDark: boolean) => {
       marginTop: 10,
     },
     actionButton: {
-      borderRadius: 22,
+      borderRadius: 14,
     },
     actionButtonText: {
       fontSize: 16,

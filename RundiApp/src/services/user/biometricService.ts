@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
+import * as SecureStore from 'expo-secure-store';
 import { logBiometric } from '../../api/platform';
 import i18n from '../../i18n';
 
@@ -331,6 +332,106 @@ class BiometricService {
         error: error?.message || this.t('services.biometricService.errors.unknown', 'Unknown error.'),
         errorCode: 'UNKNOWN',
       };
+    }
+  }
+
+  /**
+   * Autentica con el método de seguridad del dispositivo (PIN, patrón,
+   * contraseña o biometría). El sistema decide qué mostrar: en Android es el
+   * prompt combinado (biometría + credencial), en iOS biometría con fallback
+   * a código. Si no hay biometría enrolada, va directo a la credencial.
+   */
+  static async authenticateWithDeviceCredential(
+    reason: string = this.t('services.biometricService.prompts.reason', 'Confirm your identity'),
+    fallbackLabel: string = this.t('services.biometricService.prompts.fallbackLabel', 'Use PIN'),
+  ): Promise<BiometricResult> {
+    try {
+      const result = await LocalAuthentication.authenticateAsync({
+        disableDeviceFallback: false,
+        requireConfirmation: false,
+        promptMessage: reason,
+        cancelLabel: this.t('common.actions.cancel', 'Cancel'),
+        fallbackLabel,
+        biometricsSecurityLevel: 'weak',
+      });
+
+      if (result.success) {
+        return {
+          success: true,
+          biometryType: 'device_credential',
+          verifiedAt: new Date().toISOString(),
+          usedPinFallback: true,
+        };
+      }
+
+      const rawError = String((result as any)?.error || '').toLowerCase();
+      const mappedCode: BiometricErrorCode =
+        rawError.includes('not_available') || rawError.includes('not supported')
+          ? 'NOT_SUPPORTED'
+          : rawError.includes('not_enrolled') || rawError.includes('not enrolled')
+            ? 'NOT_ENROLLED'
+            : 'AUTH_FAILED';
+
+      return {
+        success: false,
+        error:
+          mappedCode === 'AUTH_FAILED'
+            ? this.t('services.biometricService.errors.authFailed', 'Biometric authentication failed.')
+            : this.t(
+                'services.biometricService.errors.noDeviceSecurity',
+                'This device has no security method configured.',
+              ),
+        errorCode: mappedCode,
+        biometryType: 'device_credential',
+        usedPinFallback: true,
+      };
+    } catch (error: any) {
+      console.error('❌ Error en autenticación con credencial del dispositivo:', error);
+      return {
+        success: false,
+        error: error?.message || this.t('services.biometricService.errors.unknown', 'Unknown error.'),
+        errorCode: 'UNKNOWN',
+      };
+    }
+  }
+
+  /**
+   * ¿El dispositivo tiene algún método de seguridad enrolado (PIN, patrón,
+   * contraseña o biometría)? Falso solo si el dispositivo está completamente
+   * abierto — en ese caso authenticateWithDeviceCredential no puede verificar.
+   */
+  static async hasDeviceCredential(): Promise<boolean> {
+    try {
+      const level = await LocalAuthentication.getEnrolledLevelAsync();
+      return level !== LocalAuthentication.SecurityLevel.NONE;
+    } catch {
+      return false;
+    }
+  }
+
+  private static UNLOCK_KEY = 'rundi_biometric_unlock';
+
+  static async isBiometricUnlockEnabled(): Promise<boolean> {
+    try {
+      return (await SecureStore.getItemAsync(this.UNLOCK_KEY)) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  static async hasBiometricUnlockDecision(): Promise<boolean> {
+    try {
+      return (await SecureStore.getItemAsync(this.UNLOCK_KEY)) !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  static async setBiometricUnlockEnabled(enabled: boolean): Promise<void> {
+    try {
+      await SecureStore.setItemAsync(this.UNLOCK_KEY, enabled ? '1' : '0');
+    } catch (error) {
+      console.warn('[BiometricService] No se pudo guardar preferencia de desbloqueo:', error);
     }
   }
 

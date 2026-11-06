@@ -166,7 +166,7 @@ func ApplyPricingFeatures(baseFare float64, features []PricingFeature, at time.T
 	}
 	ordered := make([]PricingFeature, 0, len(features))
 	for _, feat := range features {
-		if len(sel) > 0 && !sel[feat.Code] {
+		if !sel[feat.Code] {
 			continue
 		}
 		switch feat.PricingType {

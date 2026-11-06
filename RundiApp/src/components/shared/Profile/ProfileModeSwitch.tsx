@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import IonIcons from '@expo/vector-icons/Ionicons';
 
 interface ProfileModeSwitchProps {
   modeTitle: string;
@@ -29,8 +29,8 @@ export function ProfileModeSwitch({
       <View style={styles.profileModeCard}>
         <View style={styles.profileModeHeader}>
           <View style={styles.preferenceIconWrapper}>
-            <MaterialIcons
-              name={isDriverCapable ? 'swap-horiz' : 'directions-car'}
+            <IonIcons
+              name={isDriverCapable ? 'swap-horizontal-outline' : 'car-sport-sharp'}
               size={24}
               color={colors.primary}
             />

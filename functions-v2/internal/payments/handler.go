@@ -157,7 +157,7 @@ func (h *Handler) PuntoExpressWebhook(expectedToken string) http.HandlerFunc {
 			ExternalTransactionID string  `json:"externalTransactionId"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			apperr.Write(w, apperr.New(400, "invalid body"))
+			apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 			return
 		}
 		driverID := body.DriverID

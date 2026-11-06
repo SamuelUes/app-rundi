@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, Alert } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import StorageImage from './StorageImage';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import BiometricService from '../../services/user/biometricService';
@@ -268,7 +269,10 @@ export default function DriverOfferCard({
         {acceptedClientPrice ? (
           <TouchableOpacity
             style={[styles.acceptButton, { backgroundColor: '#4CAF50' }]}
-            onPress={onAcceptOffer}
+            onPress={() => {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              onAcceptOffer();
+            }}
           >
             <Text style={styles.acceptButtonText}>
               {t('common.components.driverOfferCard.price.acceptRide')}
@@ -289,7 +293,14 @@ export default function DriverOfferCard({
                 styles.quickAcceptButton,
                 { backgroundColor: hasPendingCounterOffer ? '#9E9E9E' : '#4CAF50' },
               ]}
-              onPress={hasPendingCounterOffer ? undefined : onAcceptOffer}
+              onPress={
+                hasPendingCounterOffer
+                  ? undefined
+                  : () => {
+                      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      onAcceptOffer();
+                    }
+              }
               disabled={hasPendingCounterOffer}
             >
               <Text style={styles.quickAcceptButtonText}>

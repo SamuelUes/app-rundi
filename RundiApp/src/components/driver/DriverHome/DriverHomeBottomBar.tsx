@@ -4,6 +4,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { LoadingIcon } from '../../ui/LoadingIcon';
 import { DriverHomeNavChips } from './DriverHomeNavChips';
+import { BannerRow } from './DriverHomeBanners';
 import { useTheme } from '../../../hooks/shared/theme/useTheme';
 import type { TFunction } from 'i18next';
 
@@ -24,6 +25,7 @@ interface DriverHomeBottomBarProps {
   onNavigate: (route: any) => void;
   onLogout: () => void;
   crewChip?: React.ReactNode;
+  pendingAction?: { title: string; subtitle: string; onPress: () => void } | null;
   styles: any;
   t: TFunction;
 }
@@ -45,6 +47,7 @@ export function DriverHomeBottomBar({
   onNavigate,
   onLogout,
   crewChip,
+  pendingAction,
   styles,
   t,
 }: DriverHomeBottomBarProps) {
@@ -108,6 +111,18 @@ export function DriverHomeBottomBar({
         t={t}
       />
 
+      {pendingAction && (
+        <BannerRow
+          variant="gold"
+          icon="pending-actions"
+          title={pendingAction.title}
+          subtitle={pendingAction.subtitle}
+          onPress={pendingAction.onPress}
+          styles={styles}
+        />
+      )}
+
+      {!hasPendingAction && (
       <View style={[styles.dock, compact && styles.dockCompact]}>
         <Pressable
           style={({ pressed }) => [
@@ -173,6 +188,7 @@ export function DriverHomeBottomBar({
           </>
         )}
       </View>
+      )}
     </View>
   );
 }
