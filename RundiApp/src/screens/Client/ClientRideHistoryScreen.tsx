@@ -20,10 +20,12 @@ import { getRideServiceTypeLabel } from '../../utils/ride/rideFeatureLabels';
 
 export default function ClientRideHistoryScreen({ navigation }: any) {
   const { user } = useAuth();
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const { t } = useTranslation();
   const { rides, loading, refreshing, filter, setFilter, handleRefresh, getStatusColor, formatDate } = useRideHistory(user?.id, 'client');
+
+  
 
   const handleBackPress = () => {
     if (typeof navigation?.canGoBack === 'function' && navigation.canGoBack()) {
@@ -355,14 +357,14 @@ export default function ClientRideHistoryScreen({ navigation }: any) {
   );
 }
 
-const createStyles = (colors: any) =>
+const createStyles = (colors: any, isDark: boolean) =>
   StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: colors.background,
     },
     topActionsRow: {
-      marginTop: 40,
+      marginTop: 80,
       marginHorizontal: 16,
       marginBottom: 10,
       flexDirection: 'row',
@@ -374,7 +376,7 @@ const createStyles = (colors: any) =>
       width: 42,
       height: 42,
       borderRadius: 21,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: colors.border,
       backgroundColor: colors.surface || colors.background,
       alignItems: 'center',
@@ -385,9 +387,9 @@ const createStyles = (colors: any) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: 4,
-      padding: 3,
+      padding: 5,
       borderRadius: 14,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: colors.border,
       backgroundColor: colors.surface || colors.background,
     },
@@ -418,11 +420,11 @@ const createStyles = (colors: any) =>
       paddingBottom: 20,
     },
     rideCard: {
-      backgroundColor: colors.card,
+      backgroundColor: isDark ? '#2C2C2C' : '#fafafa',
       borderRadius: 18,
       padding: 16,
       marginBottom: 12,
-      borderWidth: 1,
+      borderWidth: 0.5,
       borderColor: colors.border,
     },
     header: {

@@ -860,7 +860,9 @@ class RidesService {
 
   async updateRideStatus(rideId: string, status: Ride['status'], additionalData?: any): Promise<any> {
     if (status === 'in_progress') {
-      const { ride } = await v2TransitionRide(rideId, { from: 'driver_arrived', to: 'in_progress' });
+      const { ride } = await v2TransitionRide(rideId, {
+        from: 'driver_arrived', to: 'in_progress', pickupCode: additionalData?.pickupCode,
+      });
       await analyticsService.logRideEvent(AnalyticsEvents.RIDE_STARTED, rideId);
       return this.normalizeRidePreservingRaw(ride);
     }

@@ -38,11 +38,13 @@ func TestAcceptRide_BindingOffer(t *testing.T) {
 			RETURNING id`).Scan(uid); err != nil {
 			t.Fatalf("driver user fixture: %v", err)
 		}
-		if _, err := pool.Exec(ctx, `
+		var driverID string
+		if err := pool.QueryRow(ctx, `
 			INSERT INTO public.drivers (user_id, account_status)
-			VALUES ($1, 'active')`, *uid); err != nil {
+			VALUES ($1, 'active') RETURNING id::text`, *uid).Scan(&driverID); err != nil {
 			t.Fatalf("driver fixture: %v", err)
 		}
+		openTestDriverSession(t, ctx, pool, driverID)
 	}
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO public.rides (client_id, status, client_suggested_price, estimated_price)

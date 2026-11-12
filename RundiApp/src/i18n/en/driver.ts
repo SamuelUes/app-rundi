@@ -797,8 +797,8 @@ const driver = {
           navigation: {
             title: 'Navigate with GPS',
             subtitle: 'Choose your preferred navigation app',
-            googleMaps: '🗺️ Google Maps',
-            waze: '🚗 Waze',
+            googleMaps: 'Google Maps',
+            waze: 'Waze',
             cancel: 'Cancel',
             button: 'Navigate',
           },
@@ -821,6 +821,7 @@ const driver = {
         },
         crew: {
           addColleague: 'Add colleague',
+          requestSent: 'Request sent',
           following: 'Following {{name}}',
           colleague: 'Colleague: {{name}}',
           unpair: 'Unpair',
@@ -848,11 +849,12 @@ const driver = {
               offline: 'Offline',
               not_eligible: 'Not a verified designated driver',
               self: 'This is you',
+              invited: 'Invitation sent',
             },
           },
           invite: {
             title: 'Colleague invitation',
-            body: '{{name}} wants you as their follower on designated-driver trips.',
+            body: 'wants you as their follower on designated-driver trips.',
             license: 'License {{license}}',
             accept: 'Accept',
             reject: 'Reject',
@@ -879,6 +881,7 @@ const driver = {
           errors: {
             generic: 'Could not complete the action. Try again.',
             followerCannotAccept: 'You are paired as a follower and cannot accept your own trips.',
+            pendingInvite: 'You already have a pending invitation. Wait for a response or expiry.',
           },
         },
        earnings: {
@@ -1104,7 +1107,7 @@ const driver = {
             title: 'Cannot change payment method',
             subtitle: 'The client already confirmed the payment',
           },
-          codeLabel: 'Confirmation code: {{code}}',
+          codeLabel: 'Ask the client for their 4-digit code',
           support: {
             title: 'Help with payment confirmation',
             label: 'Issues with this charge?',
@@ -1143,6 +1146,8 @@ const driver = {
             codeSuccessTitle: 'Code verified',
             codeSuccessMessage: 'The code is correct. You can now confirm the payment.',
             codeErrorMessage: 'Incorrect code',
+            codeSentTitle: 'Code sent',
+            codeSentMessage: "The code is on the client's screen. Ask for it and enter it.",
           },
           methodNames: {
             cash: 'Cash',
@@ -1245,12 +1250,25 @@ const driver = {
             text:
               '⚠️ Ensure the photos are clear and legible. Our team will verify these documents.',
           },
+          ocr: {
+            hint: 'Take the photo head-on, with good light and no laminate glare. We autofill the fields for you.',
+            reading: 'Reading document…',
+            detected: 'Autofilled: {{fields}}. Please verify the data.',
+            notDetected:
+              'We could not read data from the photo — retake it closer and sharper, or fill the fields manually.',
+            fields: {
+              licenseNumber: 'license number',
+              licenseExpiry: 'license expiry',
+            },
+          },
           loading: {
             uploading: 'Uploading documents... {{progress}}%',
           },
           verified: {
             title: 'Documents verified ✅',
             subtitle: 'If you need to update your information, contact support.',
+            resubmitHint:
+              'You changed data or photos of a verified document. Saving will send it back for review.',
           },
           buttons: {
             save: 'Save documents',
@@ -1268,6 +1286,8 @@ const driver = {
             missingDataMessage: 'Please complete all fields and photos to continue.',
             successTitle: 'Success',
             successMessage: 'Driver documents updated successfully.',
+            successPendingMessage:
+              'Documents updated. They went back to review (pending).',
             successButton: 'OK',
             uploadErrorTitle: 'Error',
             uploadErrorMessage: 'We could not upload the documents. Please try again.',
@@ -1387,9 +1407,9 @@ const driver = {
             insuranceExpiryPlaceholder: 'Ex: 2030-02-12',
           },
           periodic: {
-            title: 'Periodic documents (optional)',
+            title: 'Periodic documents',
             subtitle:
-              'Required to operate: technical inspection (ITM), emissions certificate, municipal road tax and revisado sticker. Fill them in if you already have them.',
+              'Required to operate: technical inspection (ITM), emissions certificate, municipal road tax and revisado sticker. Fill in the ones you have — the system will tell you if any are missing.',
             inspectionName: 'Technical inspection (ITM)',
             emissionsName: 'Emissions certificate',
             inspectionDateLabel: 'ITM inspection date (YYYY-MM-DD)',
@@ -1423,12 +1443,34 @@ const driver = {
             text:
               '⚠️ Make sure every photo is clear and readable. Our team will review these documents.',
           },
+          ocr: {
+            hint: 'Take each photo head-on, with good light and no glare. We autofill the fields for you.',
+            reading: 'Reading document…',
+            detected: 'Autofilled: {{fields}}. Please verify the data.',
+            notDetected:
+              'We could not read data from the photo — retake it closer and sharper, or fill the fields manually.',
+            fields: {
+              registrationNumber: 'registration number',
+              registrationExpiry: 'registration expiry',
+              insuranceNumber: 'policy number',
+              insuranceCompany: 'insurance company',
+              insuranceExpiry: 'insurance expiry',
+            },
+          },
           loading: {
             verifying: 'Verifying vehicle... {{progress}}%',
           },
           buttons: {
             submit: 'Verify vehicle',
+            update: 'Update documents',
             incomplete: 'Complete all information and photos',
+          },
+          verified: {
+            title: 'Vehicle verified ✅',
+            subtitle:
+              'Your documents are approved. If you change a field or a photo, you can update them and they will go back to review.',
+            resubmitHint:
+              'You changed data or photos of a verified document. Saving will send it back to review.',
           },
           alerts: {
             permissionTitle: 'Permissions required',

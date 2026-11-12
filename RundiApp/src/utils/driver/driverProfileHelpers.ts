@@ -183,14 +183,10 @@ export const getDisplayName = (
   userName: string | undefined,
   t: (key: string) => string,
 ): string => {
-  const firstName =
-    driverData?.firstName ||
-    driverData?.first_name ||
-    userName?.split(' ')?.[0] ||
-    userName ||
-    t('driver.profile.header.nameFallback');
-  const lastName = driverData?.lastName || driverData?.last_name || '';
-  return [firstName, lastName].filter(Boolean).join(' ').trim() || t('driver.profile.header.nameFallback');
+  const firstName = (driverData?.firstName || driverData?.first_name || '').trim();
+  const lastName = (driverData?.lastName || driverData?.last_name || '').trim();
+  const fullName = [firstName, lastName].filter(Boolean).join(' ');
+  return (firstName && lastName ? fullName : userName?.trim() || fullName) || t('driver.profile.header.nameFallback');
 };
 
 export const getDisplayEmail = (

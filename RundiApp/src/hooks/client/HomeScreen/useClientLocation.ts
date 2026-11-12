@@ -34,6 +34,7 @@ export function useClientLocation(
   // el antiguo clientsLocations/{uid}.
   const [clientLocationData, setClientLocationData] = useState<any>(null);
   const [loadingClientLocation, setLoadingClientLocation] = useState(true);
+  const locationWriteRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     if (!userId) {
@@ -64,7 +65,7 @@ export function useClientLocation(
       address: string,
       options?: { source?: 'manual' | 'gps'; manualOverride?: { active: boolean; updatedAt?: string } },
     ) => {
-      if (!userId) return;
+      if (!userId) throw new Error('No user for client location');
 
       try {
         const now = Date.now();
@@ -85,8 +86,12 @@ export function useClientLocation(
               updatedAt: new Date(now).toISOString(),
             },
         };
-        await AsyncStorage.setItem(`clientLocation:${userId}`, JSON.stringify(record));
-        setClientLocationData(record);
+        const write = locationWriteRef.current.catch(() => {}).then(async () => {
+          await AsyncStorage.setItem(`clientLocation:${userId}`, JSON.stringify(record));
+          setClientLocationData(record);
+        });
+        locationWriteRef.current = write;
+        await write;
       } catch (error) {
         console.error('❌ Error guardando ubicación:', error);
         alertService.showErrorAlert(t('client.home.alerts.locationSaveError'));

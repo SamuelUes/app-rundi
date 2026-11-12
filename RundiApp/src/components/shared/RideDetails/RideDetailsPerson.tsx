@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { TFunction } from 'i18next';
+import StorageImage from '../StorageImage';
 
 interface RideDetailsPersonProps {
   isDriver: boolean;
@@ -44,6 +45,7 @@ export function RideDetailsPerson({
     !isDriver && person?.rating && parseFloat(String(person.rating)) > 0
       ? parseFloat(String(person.rating))
       : null;
+  const photo = typeof person?.photo === 'string' && person.photo.length > 0 ? person.photo : null;
 
   return (
     <View style={styles.section}>
@@ -55,9 +57,13 @@ export function RideDetailsPerson({
       <View style={styles.card}>
         {hasPerson && name ? (
           <View style={styles.personRow}>
-            <View style={styles.personAvatar}>
-              <Text style={styles.personAvatarText}>{getInitials(name)}</Text>
-            </View>
+            {photo ? (
+              <StorageImage uri={photo} style={styles.personAvatarImage} contentFit="cover" />
+            ) : (
+              <View style={styles.personAvatar}>
+                <Text style={styles.personAvatarText}>{getInitials(name)}</Text>
+              </View>
+            )}
             <View style={styles.personBody}>
               <Text style={styles.personName}>{name}</Text>
 

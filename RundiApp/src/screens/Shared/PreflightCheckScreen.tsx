@@ -55,6 +55,7 @@ import {
   checkDriverBiometricAccess,
 } from '../../utils/preflight/preflightChecks';
 import { resolveBestEffortLocation } from '../../utils/preflight/resolveBestEffortLocation';
+import { clientRatingAfterPreflight } from '../../utils/preflight/pendingRating';
 import { PreflightProgressBar } from '../../components/shared/Preflight/PreflightProgressBar';
 import { PreflightErrorDisplay } from '../../components/shared/Preflight/PreflightErrorDisplay';
 import { PreflightActionsSummary } from '../../components/shared/Preflight/PreflightActionsSummary';
@@ -156,6 +157,23 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
           nav.replace(targetRoute as keyof typeof nav.replace, { approvalInfo: approval });
           return;
         }
+      }
+
+      const initialRating = clientRatingAfterPreflight(getPreflightResult()?.preflightData);
+      const pendingRating = role === 'client' && initialRating
+        ? await preflightService.refreshClientPendingRating()
+        : null;
+      if (modeSwitchRequestedRef.current || currentAuth.currentUser?.uid !== user?.id) {
+        return;
+      }
+      if (pendingRating) {
+        nav.replace('Rating' as keyof typeof nav.replace, {
+          rideId: pendingRating.rideId,
+          role: 'client',
+          captainRated: pendingRating.captainRated,
+          followerRated: pendingRating.followerRated,
+        });
+        return;
       }
 
       nav.replace(successRoute as keyof typeof nav.replace);
@@ -935,7 +953,7 @@ const createStyles = (colors: any) =>
       padding: 16,
       backgroundColor: 'rgba(239, 68, 68, 0.1)',
       borderRadius: 12,
-      borderWidth: 0.4,
+      borderWidth: 0.1,
       borderColor: '#EF4444',
       alignItems: 'center',
     },
@@ -1084,15 +1102,35 @@ const createStyles = (colors: any) =>
       paddingVertical: 12,
       borderRadius: 16,
       borderWidth: 0.5,
-      borderColor: 'rgb(239, 68, 68)',
-      backgroundColor: 'rgba(239, 68, 68, 0.25)',
+      backgroundColor: colors.card,
+      borderColor: colors.primary,
       alignItems: 'center',
       justifyContent: 'center',
     },
     retryButtonText: {
       fontSize: 14,
       fontWeight: '600',
-      color: '#B91C1C',
+      color: colors.text,
+      textAlign: 'center',
+    },
+    continueClientButton: {
+      minWidth: 150,
+      minHeight: 48,
+      flexGrow: 1,
+      flexBasis: 150,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      borderRadius: 16,
+      borderWidth: 0,
+      borderColor: colors.primary,
+      backgroundColor: 'rgba(179, 138, 55, 0.8)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    continueClientButtonText: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: colors.text,
       textAlign: 'center',
     },
     secondaryButton: {

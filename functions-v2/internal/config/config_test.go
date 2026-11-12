@@ -39,3 +39,22 @@ func TestLoad_InvalidAppCheckMode(t *testing.T) {
 		t.Fatal("esperaba error por APP_CHECK_ENFORCE inválido")
 	}
 }
+
+func TestLoad_RateLimitSettings(t *testing.T) {
+	t.Setenv("GCP_PROJECT_ID", "p")
+	t.Setenv("INSTANCE_CONNECTION_NAME", "p:r:i")
+	t.Setenv("RATE_LIMIT_MODE", "enforce")
+	t.Setenv("RATE_LIMIT_PUBLIC_MODE", "monitor")
+	t.Setenv("RATE_LIMIT_CHATS_PER_MINUTE", "25")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RateLimitMode != "enforce" || cfg.RateLimitPublicMode != "monitor" || cfg.RateLimitLimits["chats"] != 25 {
+		t.Fatalf("unexpected rate limit settings: %+v", cfg)
+	}
+	t.Setenv("RATE_LIMIT_CHATS_PER_MINUTE", "0")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected invalid limit error")
+	}
+}

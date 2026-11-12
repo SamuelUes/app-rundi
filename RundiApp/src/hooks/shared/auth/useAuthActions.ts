@@ -40,8 +40,9 @@ function normalizeUserData(raw: any): User {
   const name = raw.name || '';
   const role = normalizeRoleValue(raw.role) as User['role'];
   const phone = raw.phone;
+  const profilePhoto = raw.profilePhoto || raw.profile_photo || raw.photoURL || raw.photoUrl;
   if (!id || !role) throw new Error('Respuesta de usuario incompleta');
-  return { id, email, name, role, phone };
+  return { id, email, name, role, phone, profilePhoto };
 }
 
 async function ensureTrackingIfNeeded(role?: User['role']) {
@@ -180,7 +181,7 @@ export function useAuthActions() {
         await startSessionWithPolicy(authService, setUser);
         await AsyncStorage.setItem('user', JSON.stringify(userData));
         const currentUser = useAuthStore.getState().user;
-        setUser(currentUser ? { ...currentUser, role: normalizedRole } : userData);
+        setUser(currentUser ? { ...currentUser, ...userData, role: normalizedRole } : userData);
         await updateUserMode(resolveUserModeFromRole(normalizedRole));
         await ensureTrackingIfNeeded(normalizedRole);
       } catch (error) {
@@ -202,6 +203,7 @@ export function useAuthActions() {
           email: payload.email,
           name: payload.name,
           role: (normalizeRoleValue(payload.role) || 'client') as User['role'],
+          profilePhoto: payload.profilePhoto || payload.profile_photo || payload.photoURL || payload.photoUrl,
         };
 
         await startSessionWithPolicy(authService, setUser);
@@ -265,6 +267,7 @@ export function useAuthActions() {
           name: profileData?.name || userData.name,
           phone: userData.phone,
           role: finalRole as User['role'],
+          profilePhoto: profileData?.profilePhoto || profileData?.profile_photo || profileData?.photoURL || profileData?.photoUrl,
         };
 
         await startSessionWithPolicy(authService, setUser);

@@ -13,7 +13,7 @@ import {
   updateMyDriverProfile as updateMyDriverProfileV2,
   updateVehicle as updateVehicleV2,
 } from '../../api/drivers';
-import { writeDriverLiveLocation, writePresence } from '../../live/driverLive';
+import { writeDriverDesignatedMode, writeDriverLiveLocation, writePresence } from '../../live/driverLive';
 import {
   activateAvailability,
   deactivateAvailability,
@@ -117,16 +117,23 @@ class DriversService {
     const uid = await currentUid();
 
     let lastError: unknown = null;
+    let resultStatus: string = status;
+    let activation: ActivationResult | undefined;
+    // La mutación del endpoint corre una sola vez: si ya abrió/cerró la
+    // sesión, reintentarla por un fallo posterior de Firestore creaba
+    // eventos driver.activated/deactivated duplicados (seq desperdiciada).
+    let mutationDone = false;
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        let resultStatus: string = status;
-        let activation: ActivationResult | undefined;
-        if (status === 'available') {
-          activation = await activateAvailability();
-          resultStatus = activation.allowed ? 'available' : 'offline';
-        } else if (status === 'offline') {
-          await deactivateAvailability();
-          resultStatus = 'offline';
+        if (!mutationDone) {
+          if (status === 'available') {
+            activation = await activateAvailability();
+            resultStatus = activation.allowed ? 'available' : 'offline';
+          } else if (status === 'offline') {
+            await deactivateAvailability();
+            resultStatus = 'offline';
+          }
+          mutationDone = true;
         }
         // GPS + presencia (campos client-writable; nunca reactivan).
         await writeDriverLiveLocation(uid, {
@@ -208,12 +215,11 @@ class DriversService {
     return snap.exists() ? { id: snap.id, ...snap.data() } : null;
   }
 
-  async updateDesignatedDriverMode(_driverId: string, _isActive: boolean): Promise<{ success: boolean }> {
-    // activeServiceCodes pasó a ser autoridad del backend: la sesión de
-    // disponibilidad la proyecta desde driver_services SQL (los servicios
-    // designados *_auto/*_moto se piden y aprueban vía /v1/drivers/me/services).
-    // El modo designado del toggle vive en el estado local de disponibilidad;
-    // aquí ya no hay nada que sincronizar.
+  async updateDesignatedDriverMode(driverId: string, isActive: boolean): Promise<{ success: boolean }> {
+    // drivers_live.designatedMode — gate vivo de viajes designados (matching
+    // lo exige para serviceCode designated_driver_*). Paridad con
+    // driversInfo.isDesignatedDriverMode de v1.
+    await writeDriverDesignatedMode(driverId, isActive);
     return { success: true };
   }
 

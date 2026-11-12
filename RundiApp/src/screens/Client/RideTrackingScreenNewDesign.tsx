@@ -35,6 +35,9 @@ import DynamicMap from '../../components/map/DynamicMap';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useLocation } from '../../hooks/shared/location/useLocation';
 import { useFirebaseItem } from '../../hooks/shared/firebase/useFirebaseData';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { getFirebaseFirestore } from '../../config/firebase';
+import { liveTripDocId } from '../../live/tripIds';
 import { FS_COL } from '../../constants/firestore';
 import firebaseTrackingService from '../../services/ride/firebaseTrackingService';
 import ridesService from '../../services/ride/ridesService';
@@ -126,7 +129,7 @@ const useDriverLocation = (driverId: string) => {
   return { driverLocation, isConnected };
 };
 
-const TERMINAL_RIDE_STATUSES = ['completed', 'canceled'];
+const TERMINAL_RIDE_STATUSES = ['completed', 'rating_completed', 'rating_skipped', 'canceled'];
 
 // Hook para estado del viaje
 const useRideStatus = (rideId: string) => {
@@ -193,6 +196,20 @@ const useDriverAndVehicleData = (
       name: driverDbData.displayName || driverDbData.name || prev.name,
       photo: driverDbData.photoUrl || driverDbData.photoURL || prev.photo,
     }));
+
+    // Vehículo activo del perfil público: rellena huecos cuando trips_live
+    // o los params no traen datos del vehículo.
+    const profileVehicle = driverDbData.vehicle;
+    if (profileVehicle && typeof profileVehicle === 'object') {
+      setVehicleData(prev => ({
+        ...prev,
+        plate: prev.plate || profileVehicle.plate || '',
+        brand: prev.brand || profileVehicle.brand || '',
+        model: prev.model || profileVehicle.model || '',
+        color: prev.color || profileVehicle.color || '',
+        type: prev.type || profileVehicle.type || null,
+      }));
+    }
   }, [driverDbData]);
 
   useEffect(() => {
@@ -279,6 +296,22 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
     rideError,
     loading: rideLoading,
   } = useRideStatus(rideId);
+  const [pickupCode, setPickupCode] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+    setPickupCode(null);
+    (async () => {
+      const db = await getFirebaseFirestore();
+      const liveId = await liveTripDocId(rideId);
+      if (cancelled) return;
+      unsubscribe = onSnapshot(doc(db, FS_COL.tripsLive, liveId, 'private', 'pickup'), (snap) => {
+        const value = snap.data()?.code;
+        setPickupCode(typeof value === 'string' && /^[0-9]{4}$/.test(value) ? value : null);
+      }, (error) => console.warn('[RideTracking] Error leyendo código de recogida:', error));
+    })().catch((error) => console.warn('[RideTracking] Error inicializando código de recogida:', error));
+    return () => { cancelled = true; unsubscribe?.(); };
+  }, [rideId]);
 
   useEffect(() => {
     if (!showDesignatedDriverEvidenceNotice) return;
@@ -459,35 +492,34 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
 
   // Código de verificación de 4 dígitos (viajes normales): el cliente lo ve
   // pre-recogida y lo dicta al conductor para que pueda iniciar el viaje.
-  const showPickupCode = isAccepted && !isDesignatedRideRequest(rideData);
-  // v2: el código de recogida viaja en el doc trips_live (best effort —
-  // si el backend no lo proyecta, queda null).
-  const pickupCode =
-    (rideData as any)?.pickupCode ??
-    (rideData as any)?.verificationCode ??
-    (rideData as any)?.code ??
-    null;
+  const showPickupCode = isAccepted;
 
-  // Navegar automáticamente a pantalla de pago cuando el viaje queda en pending_payment
+  // Navegar automáticamente a pantalla de pago cuando el viaje queda en
+  // pending_payment O completed: CompleteRide va directo a 'completed' en
+  // SQL (la obligación queda 'pending' en payments) — trips_live nunca
+  // proyecta 'pending_payment', así que esperarlo dejaba al cliente atascado.
+  // Ojo: 'completed' es terminal y apaga el listener (rideData queda null),
+  // por eso los datos se arman desde los estados persistidos + rideData ?? {}.
   useEffect(() => {
     if (hasNavigatedToPaymentRef.current) return;
-    if (rideStatus !== 'pending_payment' || !rideData) return;
+    if (!['pending_payment', 'completed'].includes(rideStatus)) return;
 
     hasNavigatedToPaymentRef.current = true;
 
+    const rd = rideData ?? {};
     const paymentMethodFromRide =
-      rideData.paymentMethod || rideData.payment?.method || paymentMethod || 'cash';
+      rd.paymentMethod || rd.payment?.method || paymentMethod || 'cash';
     const amount =
-      rideData.finalFare ||
-      rideData.estimatedPrice ||
+      rd.finalFare ||
+      rd.estimatedPrice ||
       finalFare ||
       estimatedFare ||
       0;
-    const driverDisplayName = rideData.driver?.name || driverData.name || 'Conductor';
-    const driverPhoto = rideData.driver?.photoURL || undefined;
+    const driverDisplayName = rd.driver?.name || driverData.name || 'Conductor';
+    const driverPhoto = rd.driver?.photoURL || undefined;
     const plateFromRide =
-      rideData.vehicle?.plate ||
-      rideData.driver?.vehicle?.plate ||
+      rd.vehicle?.plate ||
+      rd.driver?.vehicle?.plate ||
       vehicleData.plate ||
       'N/A';
 
@@ -495,7 +527,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
       navigation.replace('Payment', {
         rideId,
         amount,
-        driverId: rideData.driverId || driverId,
+        driverId: rd.driverId || driverId,
         driverName: driverDisplayName,
         vehiclePlate: plateFromRide,
         driverPhoto,

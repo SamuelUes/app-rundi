@@ -47,7 +47,8 @@ class PaymentsService {
   // Fachada v2 (los consumidores pueden migrar a llamadas directas luego)
   registerCashPayment = (rideId: string, tip = 0): Promise<Payment> =>
     registerCashPayment(rideId, tip);
-  confirmCashPayment = (rideId: string): Promise<Payment> => confirmCashPayment(rideId);
+  confirmCashPayment = (rideId: string, code?: string): Promise<Payment> =>
+    confirmCashPayment(rideId, code);
   generateCashCode = (rideId: string) => generateCashCode(rideId);
   cancelCashPayment = (rideId: string, reason?: string): Promise<Payment> =>
     cancelCashPayment(rideId, reason);

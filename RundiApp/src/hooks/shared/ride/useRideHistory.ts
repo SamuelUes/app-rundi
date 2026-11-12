@@ -18,7 +18,10 @@ export function useRideHistory(userId: string | undefined, userType?: 'client' |
       if (data && Array.isArray(data)) {
         let filtered = data;
         if (filter === 'completed') {
-          filtered = data.filter((r: any) => r.status === 'completed');
+          // rating_completed/rating_skipped también son viajes completados
+          // (el viaje finalizó; solo cambia si hubo calificación).
+          filtered = data.filter((r: any) =>
+            ['completed', 'rating_completed', 'rating_skipped'].includes(r.status));
         } else if (filter === 'canceled') {
           filtered = data.filter((r: any) => r.status === 'canceled');
         }
@@ -44,9 +47,15 @@ export function useRideHistory(userId: string | undefined, userType?: 'client' |
   const getStatusColor = useCallback((status: string): string => {
     const colorMap: Record<string, string> = {
       completed: '#4CAF50',
+      rating_completed: '#4CAF50',
+      rating_skipped: '#4CAF50',
       canceled: '#F44336',
       requested: '#FF9800',
+      driver_offered: '#2196F3',
+      pending_payment: '#FF9800',
       accepted: '#2196F3',
+      driver_on_route: '#2196F3',
+      driver_arrived: '#2196F3',
       started: '#9C27B0',
       in_progress: '#FF9800',
     };

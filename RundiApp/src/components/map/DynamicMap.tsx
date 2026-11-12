@@ -39,9 +39,12 @@ interface DynamicMapProps {
   longitude: number;
   style?: any;
   onMapPress?: (event: { latitude: number; longitude: number }) => void;
+  onPanDrag?: () => void;
+  scrollEnabled?: boolean;
+  zoomEnabled?: boolean;
   // Center coordinate callbacks when the camera/region changes
-  onRegionChangeCenter?: (center: { latitude: number; longitude: number; altitude?: number }) => void;
-  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number; altitude?: number }) => void;
+  onRegionChangeCenter?: (center: { latitude: number; longitude: number; altitude?: number; isGesture?: boolean }) => void;
+  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number; altitude?: number; isGesture?: boolean }) => void;
   onDriverPress?: (driverId: string) => void; // when user taps a driver marker
   showMarker?: boolean;
   markerPosition?: { latitude: number; longitude: number };
@@ -90,6 +93,8 @@ interface DynamicMapProps {
   onMarkerDragStart?: (location: { latitude: number; longitude: number }) => void;
   // ✅ NUEVO: Burbujas de dirección sobre pines
   originLabel?: string;
+  originBubbleCompact?: boolean;
+  originBubbleDark?: boolean;
   destinationLabel?: string;
   originTitle?: string;
   destinationTitle?: string;

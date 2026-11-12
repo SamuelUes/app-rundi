@@ -6,11 +6,12 @@
 import client from './client';
 import type { Payment } from '../types/rideApi';
 
-/** Driver confirma pago en efectivo del viaje; 409 si no hay pago pendiente. */
-export async function confirmCashPayment(rideId: string): Promise<Payment> {
+/** Driver confirma pago en efectivo del viaje; 409 si no hay pago pendiente.
+ * `code` = código de 4 dígitos que el cliente lee de payments_live/private/cash. */
+export async function confirmCashPayment(rideId: string, code?: string): Promise<Payment> {
   const { data } = await client.post<{ payment: Payment; event: string }>(
     '/payments/confirm-cash',
-    { rideId },
+    { rideId, code },
   );
   return data.payment;
 }
@@ -24,9 +25,10 @@ export async function registerCashPayment(rideId: string, tip = 0): Promise<Paym
   return data.payment;
 }
 
-/** Driver genera el código de confirmación de 4 dígitos (flujo 'code'). */
-export async function generateCashCode(rideId: string): Promise<{ code: string }> {
-  const { data } = await client.post<{ code: string }>(
+/** Driver (re)genera el código de confirmación. No lo devuelve: se proyecta a
+ * payments_live/{liveId}/private/cash, legible solo por el cliente. */
+export async function generateCashCode(rideId: string): Promise<{ sent: boolean }> {
+  const { data } = await client.post<{ sent: boolean }>(
     '/payments/generate-cash-code',
     { rideId },
   );
@@ -45,6 +47,8 @@ export async function cancelCashPayment(rideId: string, reason?: string): Promis
 export interface PendingDebt {
   rideId: string;
   paymentId: string;
+  driverId: string;
+  paymentMethod: 'cash' | 'card';
   amount: number;
   tip: number;
   total: number;

@@ -2,6 +2,7 @@ package projections
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
@@ -76,5 +77,83 @@ func TestActiveVehicleProjection(t *testing.T) {
 	snap, err = ref.Get(ctx)
 	if err != nil || snap.Data()["vehicleId"] != nil {
 		t.Fatalf("vehículo no limpiado: %v, %v", snap.Data(), err)
+	}
+}
+
+func TestVehicleDocPremiumBadge(t *testing.T) {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" || os.Getenv("FIRESTORE_EMULATOR_HOST") == "" {
+		t.Skip("requiere TEST_DATABASE_URL y FIRESTORE_EMULATOR_HOST")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	client, err := firestore.NewClient(ctx, "demo-rundi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	uid := fmt.Sprintf("premium-vehicle-doc-%d", time.Now().UnixNano())
+	if _, err := pool.Exec(ctx, `INSERT INTO public.users(id, role) VALUES ($1, 'driver')`, uid); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM public.vehicles WHERE driver_id = (SELECT id FROM public.drivers WHERE user_id = $1)`, uid)
+		_, _ = pool.Exec(ctx, `DELETE FROM public.drivers WHERE user_id = $1`, uid)
+		_, _ = pool.Exec(ctx, `DELETE FROM public.users WHERE id = $1`, uid)
+	})
+	var driverID string
+	if err := pool.QueryRow(ctx, `INSERT INTO public.drivers(user_id) VALUES ($1) RETURNING id::text`, uid).Scan(&driverID); err != nil {
+		t.Fatal(err)
+	}
+	plate := fmt.Sprintf("V%09d", time.Now().UnixNano()%1_000_000_000)
+	var sedanID, motoID string
+	if err := pool.QueryRow(ctx, `INSERT INTO public.vehicles(driver_id, plate, type, is_active, registration_ocr_year)
+		VALUES ($1::uuid, $2, 'sedan', TRUE, 2024) RETURNING id::text`, driverID, plate+"1").Scan(&sedanID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO public.vehicles(driver_id, plate, type, is_active, registration_ocr_year)
+		VALUES ($1::uuid, $2, 'moto', FALSE, 2024) RETURNING id::text`, driverID, plate+"2").Scan(&motoID); err != nil {
+		t.Fatal(err)
+	}
+	sedanRef := client.Collection(fs.ColVehicles).Doc(sedanID)
+	motoRef := client.Collection(fs.ColVehicles).Doc(motoID)
+	t.Cleanup(func() { _, _ = sedanRef.Delete(ctx); _, _ = motoRef.Delete(ctx) })
+	_, _ = client.Collection(fs.ColDriversLive).Doc(uid).Collection("vehicles").Doc("active").Delete(ctx)
+	publishVehicle := func(id, vtype string, version int) {
+		t.Helper()
+		payload, _ := json.Marshal(map[string]any{
+			"version": version, "driverUid": uid, "plate": plate,
+			"type": vtype, "isActive": vtype == "sedan",
+		})
+		_, err := Publish(ctx, pool, client, Event{
+			EventID:       fmt.Sprintf("veh-%s-%d", id, version),
+			EventType:     "vehicle.updated",
+			AggregateType: "vehicle",
+			AggregateID:   id,
+			Payload:       payload,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	publishVehicle(sedanID, "sedan", 20)
+	data, err := sedanRef.Get(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data.Data()["premiumBadge"] != "premium" || data.Data()["ocrYear"] != int64(2024) {
+		t.Fatalf("sedan sin badge premium: %#v", data.Data())
+	}
+	publishVehicle(motoID, "moto", 21)
+	data, err = motoRef.Get(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data.Data()["premiumBadge"] != nil {
+		t.Fatalf("moto no debe tener badge premium: %#v", data.Data())
 	}
 }

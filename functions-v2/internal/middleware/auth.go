@@ -4,7 +4,6 @@ package middleware
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"strings"
 
@@ -94,16 +93,23 @@ func AppCheck(mode string, verify func(context.Context, string) error) func(http
 			switch mode {
 			case "enforce":
 				if token == "" {
+					recordAppCheck("missing")
 					http.Error(w, `{"error":"missing app check token"}`, http.StatusUnauthorized)
 					return
 				}
 				if verify == nil || verify(r.Context(), token) != nil {
+					recordAppCheck("invalid")
 					http.Error(w, `{"error":"invalid app check token"}`, http.StatusUnauthorized)
 					return
 				}
+				recordAppCheck("valid")
 			case "monitor":
 				if token == "" {
-					slog.WarnContext(r.Context(), "appcheck.missing", "path", r.URL.Path)
+					recordAppCheck("missing")
+				} else if verify == nil || verify(r.Context(), token) != nil {
+					recordAppCheck("invalid")
+				} else {
+					recordAppCheck("valid")
 				}
 			}
 			next.ServeHTTP(w, r)

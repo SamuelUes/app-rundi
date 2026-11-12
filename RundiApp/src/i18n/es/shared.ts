@@ -206,7 +206,7 @@ const shared = {
             dismiss: 'Cerrar aviso',
           },
           verificationCode: {
-            title: 'Tu código de verificación',
+            title: 'Código de verificación',
             body: 'Dile este código a tu conductor para que pueda iniciar el viaje.',
           },
             buttons: {
@@ -483,7 +483,7 @@ const shared = {
             unavailable: 'No disponible',
             selected: 'Activada',
             notSelected: 'Desactivada',
-            accessibilityOption: '{{name}}, {{impact}}, {{state}}',
+            accessibilityOption: '{{name}}, {{state}}',
           },
           photo: {
             hint: 'Foto del vehículo (obligatoria para conductor designado):',
@@ -512,6 +512,7 @@ const shared = {
             },
             surgeLabel: 'Tarifa dinámica',
             highDemand: 'Alta demanda',
+            peakHourNotice: 'Hora pico: en este horario el precio puede aumentar.',
           },
           payment: {
             cash: 'Efectivo',
@@ -578,10 +579,12 @@ const shared = {
               activeRideBody: 'Solo puedes tener un viaje a la vez. ¿Quieres cancelar el viaje actual y solicitar uno nuevo?',
               activeRideCancelButton: 'Cancelar actual',
               activeRideKeepButton: 'Ver viaje actual',
-              invalidRange: 'Escoge una hora entre 30 minutos y 10 días a partir de hoy.',
+              invalidRange: 'Escoge una hora entre 10 minutos y 10 días a partir de hoy.',
               modalTitle: 'Agendar viaje',
               dateLabel: 'Fecha',
               timeLabel: 'Hora',
+              dateTimeLabel: 'Fecha y hora',
+              scheduleHint: 'Puedes agendarlo desde 10 minutos hasta 10 días antes. Tendrás que confirmarlo cuando se acerque la hora.',
               modalCancel: 'Cancelar',
               modalConfirm: 'Confirmar',
               conflictTitle: 'Ya tienes un viaje agendado',
@@ -782,9 +785,10 @@ const shared = {
             more: '+{{count}} más',
           },
           buttons: {
+            useAsClient: 'Usar como cliente',
             retry: 'Reintentar',
             continueAsClient: 'Continuar como cliente',
-            useAsClient: 'Usar como cliente',
+          
           },
           alerts: {
             switchToClientError: 'No pudimos cambiar al modo cliente. Intenta nuevamente.',
@@ -1009,9 +1013,15 @@ const shared = {
           },
           status: {
             completed: 'Completado',
+            ratingCompleted: 'Completado',
+            ratingSkipped: 'Completado',
             canceled: 'Cancelado',
             inProgress: 'En progreso',
+            pendingPayment: 'Pendiente de pago',
             requested: 'Solicitado',
+            driverOffered: 'Oferta del conductor',
+            driverOnRoute: 'En camino',
+            driverArrived: 'Conductor llegó',
             accepted: 'Aceptado',
             default: '{{status}}',
           },
@@ -1037,7 +1047,7 @@ const shared = {
             yourRating: 'Tu calificación:',
           },
           actions: {
-            rateRide: '⭐ Calificar viaje',
+            rateRide: 'Calificar viaje',
           },
           empty: {
             title: 'Sin viajes',
@@ -1062,9 +1072,15 @@ const shared = {
           },
           status: {
             completed: 'Completado',
+            ratingCompleted: 'Completado',
+            ratingSkipped: 'Completado',
             canceled: 'Cancelado',
             inProgress: 'En progreso',
+            pendingPayment: 'Pendiente de pago',
             accepted: 'Aceptado',
+            driverOffered: 'Oferta del conductor',
+            driverOnRoute: 'En camino',
+            driverArrived: 'Conductor llegó',
             requested: 'Solicitado',
             default: '{{status}}',
           },

@@ -9,8 +9,6 @@ import {
   Text,
   StyleSheet,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -24,6 +22,7 @@ import registrationService from '../../services/auth/registrationService';
 import driversService from '../../services/driver/driversService';
 import vehiclesService from '../../services/driver/vehiclesService';
 import supabaseStorage from '../../services/media/storageService';
+import { submitVehicleDocument } from '../../api/compliance';
 import { setRegistrationUploadsInProgress } from '../../services/ride/proximityService';
 import { AuthStackParamList } from '../../navigation/types';
 import { useTranslation } from 'react-i18next';
@@ -154,6 +153,12 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
         uri: vehicleData.registrationPhotoBack,
       });
     }
+    if (isPreviewableUri(vehicleData.inspectionPhoto)) {
+      entries.push({ key: 'inspection', label: t('authScreens.driverData.photos.inspectionTitle'), uri: vehicleData.inspectionPhoto });
+    }
+    if (isPreviewableUri(vehicleData.emissionsPhoto)) {
+      entries.push({ key: 'emissions', label: t('authScreens.driverData.photos.emissionsTitle'), uri: vehicleData.emissionsPhoto });
+    }
     return entries;
   }, [vehicleData, role, t]);
 
@@ -253,16 +258,12 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
       // Docs periódicos sin foto (inspección/emisiones/rodante/revisado):
       // fechas capturadas en el formulario que van por compliance.
       const hasAnyPeriodicDoc = Boolean(
-        localVehicleData.inspectionDate ||
-          localVehicleData.inspectionValidUntil ||
-          localVehicleData.emissionsTestedAt ||
-          localVehicleData.emissionsValidUntil ||
-          localVehicleData.roadTaxPaidAt ||
+        localVehicleData.roadTaxPaidAt ||
           localVehicleData.roadTaxReceiptNumber ||
           localVehicleData.revisadoValidUntil,
       );
 
-      if (hasAnyVehiclePhotoToUpload || hasAnyPeriodicDoc) {
+      if (hasAnyVehiclePhotoToUpload || hasAnyPeriodicDoc || localVehicleData.inspectionPhoto || localVehicleData.emissionsPhoto) {
         let vehicles: any[] = [];
         for (let attempt = 1; attempt <= 3; attempt++) {
           try {
@@ -282,6 +283,23 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
         if (!vehicleId) {
           console.error('❌ [RegisterConfirm] VEHICLE_NOT_FOUND: no se encontró vehículo para guardar fotos');
           throw new Error('VEHICLE_NOT_FOUND');
+        }
+
+        for (const doc of [
+          { type: 'inspection' as const, uri: localVehicleData.inspectionPhoto, date: localVehicleData.inspectionDate, validUntil: localVehicleData.inspectionValidUntil },
+          { type: 'emissions' as const, uri: localVehicleData.emissionsPhoto, date: localVehicleData.emissionsTestedAt, validUntil: localVehicleData.emissionsValidUntil },
+        ]) {
+          if (!doc.uri || !doc.date || !doc.validUntil) throw new Error(t('authScreens.driverData.alerts.incomplete'));
+          const documentPath = shouldUploadUri(doc.uri)
+            ? await supabaseStorage.uploadImage(doc.uri, 'drivers', `vehicle-documents/${doc.type}/${userId}/${vehicleId}/${Date.now()}.jpg`)
+            : doc.uri;
+          await submitVehicleDocument({
+            vehicleId,
+            documentType: doc.type,
+            documentPath,
+            ...(doc.type === 'inspection' ? { inspectedAt: doc.date } : { testedAt: doc.date }),
+            validUntil: doc.validUntil,
+          });
         }
 
         if (
@@ -379,7 +397,11 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
         if (hasAnyPeriodicDoc) {
           try {
             console.log('📝 [RegisterConfirm] Enviando docs periódicos del vehículo:', vehicleId);
-            await vehiclesService.submitPeriodicDocuments(vehicleId, localVehicleData);
+            await vehiclesService.submitPeriodicDocuments(vehicleId, {
+              roadTaxPaidAt: localVehicleData.roadTaxPaidAt,
+              roadTaxReceiptNumber: localVehicleData.roadTaxReceiptNumber,
+              revisadoValidUntil: localVehicleData.revisadoValidUntil,
+            });
           } catch (error) {
             console.warn('⚠️ [RegisterConfirm] Error enviando docs periódicos:', error);
           }
@@ -420,7 +442,7 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
         ? (({ profilePhoto, licensePhotoFront, licensePhotoBack, ...rest }) => rest)(driverData)
         : undefined;
       const vehicleDataForApi = vehicleData
-        ? (({ insurancePhoto, registrationPhotoFront, registrationPhotoBack, vehiclePhoto, ...rest }) => rest)(
+        ? (({ insurancePhoto, registrationPhotoFront, registrationPhotoBack, vehiclePhoto, inspectionPhoto, emissionsPhoto, ...rest }) => rest)(
             vehicleData,
           )
         : undefined;
@@ -585,14 +607,11 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView
+      <ScrollView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
       >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>{t('authScreens.registerConfirm.header.title')}</Text>
@@ -636,8 +655,7 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
               accentColor={readableGold}
             />
           </AnimatedCard>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </ScrollView>
     </SafeAreaView>
   );
 }

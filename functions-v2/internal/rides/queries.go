@@ -17,24 +17,52 @@ import (
 
 // RideSummary — fila de historial (getMyRides/getClientRides/getDriverRides).
 type RideSummary struct {
-	ID             string     `json:"id"`
-	FirebaseRideID *string    `json:"firebaseRideId,omitempty"`
-	ClientID       string     `json:"clientId"`
-	DriverID       *string    `json:"driverId,omitempty"`
-	FollowerID     *string    `json:"followerDriverId,omitempty"`
-	Status         string     `json:"status"`
-	RideType       *string    `json:"rideType,omitempty"`
-	VehicleType    *string    `json:"vehicleType,omitempty"`
-	PaymentType    *string    `json:"paymentType,omitempty"`
-	EstimatedPrice *float64   `json:"estimatedPrice,omitempty"`
-	FinalFare      *float64   `json:"finalFare,omitempty"`
-	RequestedAt    time.Time  `json:"requestedAt"`
-	CompletedAt    *time.Time `json:"completedAt,omitempty"`
+	ID                 string     `json:"id"`
+	FirebaseRideID     *string    `json:"firebaseRideId,omitempty"`
+	ClientID           string     `json:"clientId"`
+	DriverID           *string    `json:"driverId,omitempty"`
+	FollowerID         *string    `json:"followerDriverId,omitempty"`
+	Status             string     `json:"status"`
+	RideType           *string    `json:"rideType,omitempty"`
+	VehicleType        *string    `json:"vehicleType,omitempty"`
+	PaymentType        *string    `json:"paymentType,omitempty"`
+	EstimatedPrice     *float64   `json:"estimatedPrice,omitempty"`
+	FinalFare          *float64   `json:"finalFare,omitempty"`
+	EstimatedDistance  *int       `json:"estimatedDistance,omitempty"`
+	Passengers         *int       `json:"passengers,omitempty"`
+	HasMultipleStops   bool       `json:"hasMultipleStops"`
+	WaypointsCount     *int       `json:"waypointsCount,omitempty"`
+	OriginAddress      *string    `json:"originAddress,omitempty"`
+	DestinationAddress *string    `json:"destinationAddress,omitempty"`
+	AllAddresses       []string   `json:"allAddresses,omitempty"`
+	ClientName         *string    `json:"clientName,omitempty"`
+	DriverName         *string    `json:"driverName,omitempty"`
+	DriverRating       *float64   `json:"driverRating,omitempty"`
+	MyRating           *int       `json:"rating,omitempty"`
+	RequestedAt        time.Time  `json:"requestedAt"`
+	CompletedAt        *time.Time `json:"completedAt,omitempty"`
 }
 
-const summaryCols = `id, firebase_ride_id, client_id, driver_id, follower_driver_id,
-	status::text, ride_type, vehicle_type, payment_type,
-	estimated_price, final_fare, requested_at, completed_at`
+const summaryCols = `r.id, r.firebase_ride_id, r.client_id, r.driver_id, r.follower_driver_id,
+	r.status::text, r.ride_type, r.vehicle_type, r.payment_type,
+	r.estimated_price, r.final_fare, r.estimated_distance, r.passengers,
+	r.has_multiple_stops, r.waypoints_count,
+	ol.address, dl.address,
+	(SELECT array_agg(l2.address ORDER BY l2.location_order)
+	   FROM public.ride_locations l2
+	  WHERE l2.ride_id = r.id AND NULLIF(l2.address, '') IS NOT NULL),
+	cu.name, du.name, d.average_rating,
+	(SELECT rt.rating FROM public.ratings rt
+	  WHERE rt.ride_id = r.id AND rt.from_user_id = $1
+	    AND rt.deleted_at IS NULL LIMIT 1),
+	r.requested_at, r.completed_at`
+
+const summaryJoins = `
+	LEFT JOIN public.ride_locations ol ON ol.id = r.origin_location_id
+	LEFT JOIN public.ride_locations dl ON dl.id = r.destination_location_id
+	LEFT JOIN public.users cu ON cu.id = r.client_id
+	LEFT JOIN public.drivers d ON d.user_id = r.driver_id
+	LEFT JOIN public.users du ON du.id = r.driver_id`
 
 // ListMyRides — historial del actor (client|driver|follower según ?role).
 func (s *Service) ListMyRides(ctx context.Context, uid, role, status string, limit int) ([]RideSummary, error) {
@@ -44,22 +72,22 @@ func (s *Service) ListMyRides(ctx context.Context, uid, role, status string, lim
 	var where string
 	switch role {
 	case "driver":
-		where = "driver_id = $1"
+		where = "r.driver_id = $1"
 	case "follower":
-		where = "follower_driver_id = $1"
+		where = "r.follower_driver_id = $1"
 	default:
 		role = "client"
-		where = "client_id = $1"
+		where = "r.client_id = $1"
 	}
-	q := `SELECT ` + summaryCols + ` FROM public.rides
-		WHERE ` + where + ` AND deleted_at IS NULL`
+	q := `SELECT ` + summaryCols + ` FROM public.rides r` + summaryJoins + `
+		WHERE ` + where + ` AND r.deleted_at IS NULL`
 	args := []any{uid}
 	if status != "" {
 		args = append(args, status)
-		q += fmt.Sprintf(` AND status = $%d::ride_status`, len(args))
+		q += fmt.Sprintf(` AND r.status = $%d::ride_status`, len(args))
 	}
 	args = append(args, limit)
-	q += fmt.Sprintf(` ORDER BY requested_at DESC LIMIT $%d`, len(args))
+	q += fmt.Sprintf(` ORDER BY r.requested_at DESC LIMIT $%d`, len(args))
 
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
@@ -69,18 +97,102 @@ func (s *Service) ListMyRides(ctx context.Context, uid, role, status string, lim
 	return scanSummaries(rows)
 }
 
-// GetRideDetail — detalle si el actor participa (o es admin).
-func (s *Service) GetRideDetail(ctx context.Context, rideID, uid, role string) (*RideSummary, error) {
-	row := s.pool.QueryRow(ctx, `
-		SELECT `+summaryCols+` FROM public.rides
-		WHERE id = $1::uuid AND deleted_at IS NULL`, rideID)
-	r, err := scanSummary(row)
+// RideDetailLocation — parada de la ruta contratada (ride_locations).
+type RideDetailLocation struct {
+	Type      string   `json:"type"`
+	Latitude  *float64 `json:"latitude,omitempty"`
+	Longitude *float64 `json:"longitude,omitempty"`
+	Address   *string  `json:"address,omitempty"`
+	Order     int      `json:"order"`
+}
+
+// RideDetailParticipant — cliente o conductor del viaje (datos públicos del otro).
+type RideDetailParticipant struct {
+	ID            string   `json:"id"`
+	Name          *string  `json:"name,omitempty"`
+	Email         *string  `json:"email,omitempty"`
+	Phone         *string  `json:"phone,omitempty"`
+	LicenseNumber *string  `json:"licenseNumber,omitempty"`
+	Rating        *float64 `json:"rating,omitempty"`
+}
+
+// RideDetailVehicle — vehículo activo del conductor asignado.
+type RideDetailVehicle struct {
+	Brand              *string `json:"brand,omitempty"`
+	Model              *string `json:"model,omitempty"`
+	Year               *int    `json:"year,omitempty"`
+	Color              *string `json:"color,omitempty"`
+	Plate              *string `json:"plate,omitempty"`
+	RegistrationNumber *string `json:"registrationNumber,omitempty"`
+}
+
+// RideDetailPayment — pago del viaje (más reciente primero).
+type RideDetailPayment struct {
+	ID            string     `json:"id"`
+	Status        string     `json:"status"`
+	Amount        *float64   `json:"amount,omitempty"`
+	Tip           *float64   `json:"tip,omitempty"`
+	Commission    *float64   `json:"commission,omitempty"`
+	Total         *float64   `json:"total,omitempty"`
+	FinalAmount   *float64   `json:"finalAmount,omitempty"`
+	PaymentMethod *string    `json:"paymentMethod,omitempty"`
+	PaidAt        *time.Time `json:"paidAt,omitempty"`
+}
+
+// RideDetail — detalle completo para la pantalla de historial.
+type RideDetail struct {
+	RideSummary
+	EstimatedDuration    *int                   `json:"estimatedDuration,omitempty"`
+	ActualDistance       *int                   `json:"actualDistance,omitempty"`
+	ActualDuration       *int                   `json:"actualDuration,omitempty"`
+	ClientSuggestedPrice *float64               `json:"clientSuggestedPrice,omitempty"`
+	DriverOfferedPrice   *float64               `json:"driverOfferedPrice,omitempty"`
+	Notes                *string                `json:"notes,omitempty"`
+	AcceptedAt           *time.Time             `json:"acceptedAt,omitempty"`
+	StartedAt            *time.Time             `json:"startedAt,omitempty"`
+	CanceledAt           *time.Time             `json:"canceledAt,omitempty"`
+	CancelReason         *string                `json:"cancelReason,omitempty"`
+	CanceledBy           *string                `json:"canceledBy,omitempty"`
+	Locations            []RideDetailLocation   `json:"locations"`
+	Client               *RideDetailParticipant `json:"client,omitempty"`
+	Driver               *RideDetailParticipant `json:"driver,omitempty"`
+	Vehicle              *RideDetailVehicle     `json:"vehicle,omitempty"`
+	Payment              *RideDetailPayment     `json:"payment,omitempty"`
+	Payments             []RideDetailPayment    `json:"payments,omitempty"`
+	PrimaryPayment       *RideDetailPayment     `json:"primaryPayment,omitempty"`
+}
+
+// GetRideDetail — detalle si el actor participa (o es admin). Devuelve la
+// fila completa + ruta contratada + participantes + vehículo + pagos. Un
+// conductor con oferta (aún no participante) ve ruta/precio pero no los
+// datos personales ni el pago.
+func (s *Service) GetRideDetail(ctx context.Context, rideID, uid, role string) (*RideDetail, error) {
+	var d RideDetail
+	err := s.pool.QueryRow(ctx, `
+		SELECT `+summaryCols+`,
+			r.estimated_duration, r.actual_distance, r.actual_duration,
+			r.client_suggested_price, r.driver_offered_price,
+			r.notes, r.accepted_at, r.started_at, r.canceled_at,
+			r.cancel_reason, r.canceled_by::text
+		FROM public.rides r`+summaryJoins+`
+		WHERE r.id = $2::uuid AND r.deleted_at IS NULL`, uid, rideID).
+		Scan(&d.ID, &d.FirebaseRideID, &d.ClientID, &d.DriverID, &d.FollowerID,
+			&d.Status, &d.RideType, &d.VehicleType, &d.PaymentType,
+			&d.EstimatedPrice, &d.FinalFare, &d.EstimatedDistance, &d.Passengers,
+			&d.HasMultipleStops, &d.WaypointsCount,
+			&d.OriginAddress, &d.DestinationAddress, &d.AllAddresses,
+			&d.ClientName, &d.DriverName, &d.DriverRating, &d.MyRating,
+			&d.RequestedAt, &d.CompletedAt,
+			&d.EstimatedDuration, &d.ActualDistance, &d.ActualDuration,
+			&d.ClientSuggestedPrice, &d.DriverOfferedPrice,
+			&d.Notes, &d.AcceptedAt, &d.StartedAt, &d.CanceledAt,
+			&d.CancelReason, &d.CanceledBy)
 	if err != nil {
 		return nil, apperr.New(404, "ride not found")
 	}
-	isParticipant := r.ClientID == uid ||
-		(r.DriverID != nil && *r.DriverID == uid) ||
-		(r.FollowerID != nil && *r.FollowerID == uid)
+	isParticipant := d.ClientID == uid ||
+		(d.DriverID != nil && *d.DriverID == uid) ||
+		(d.FollowerID != nil && *d.FollowerID == uid)
 	if !isParticipant && role != "admin" && role != "operator" {
 		// Un conductor con oferta pendiente/aceptada puede leer el detalle:
 		// es su única vía de ver la ruta/precio antes de aceptar.
@@ -89,7 +201,105 @@ func (s *Service) GetRideDetail(ctx context.Context, rideID, uid, role string) (
 			return nil, apperr.ErrForbidden
 		}
 	}
-	return r, nil
+
+	d.Locations = []RideDetailLocation{}
+	locRows, err := s.pool.Query(ctx, `
+		SELECT location_type, latitude, longitude, address, location_order
+		FROM public.ride_locations
+		WHERE ride_id = $1::uuid
+		ORDER BY location_order`, rideID)
+	if err != nil {
+		return nil, err
+	}
+	for locRows.Next() {
+		var loc RideDetailLocation
+		if err := locRows.Scan(&loc.Type, &loc.Latitude, &loc.Longitude, &loc.Address, &loc.Order); err != nil {
+			locRows.Close()
+			return nil, err
+		}
+		d.Locations = append(d.Locations, loc)
+	}
+	locRows.Close()
+	if err := locRows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Datos personales y pago solo para participantes (o admin/operator): un
+	// conductor con oferta sin asignar ve la ruta pero no contactos ni cobros.
+	if !isParticipant && role != "admin" && role != "operator" {
+		return &d, nil
+	}
+
+	var client RideDetailParticipant
+	if err := s.pool.QueryRow(ctx, `
+		SELECT id, name, email, phone FROM public.users WHERE id = $1`, d.ClientID).
+		Scan(&client.ID, &client.Name, &client.Email, &client.Phone); err == nil {
+		d.Client = &client
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+
+	if d.DriverID != nil && *d.DriverID != "" {
+		var drv RideDetailParticipant
+		var driverUUID *string
+		if err := s.pool.QueryRow(ctx, `
+			SELECT d.id::text, u.id, u.name, u.email, u.phone,
+			       d.license_number, d.average_rating
+			FROM public.drivers d
+			JOIN public.users u ON u.id = d.user_id
+			WHERE d.user_id = $1 AND d.deleted_at IS NULL`, *d.DriverID).
+			Scan(&driverUUID, &drv.ID, &drv.Name, &drv.Email, &drv.Phone,
+				&drv.LicenseNumber, &drv.Rating); err == nil {
+			d.Driver = &drv
+			if driverUUID != nil {
+				var v RideDetailVehicle
+				if err := s.pool.QueryRow(ctx, `
+					SELECT brand, model, year, color, plate, registration_number
+					FROM public.vehicles
+					WHERE driver_id = $1::uuid AND is_active = TRUE AND deleted_at IS NULL
+					ORDER BY updated_at DESC LIMIT 1`, *driverUUID).
+					Scan(&v.Brand, &v.Model, &v.Year, &v.Color, &v.Plate, &v.RegistrationNumber); err == nil {
+					d.Vehicle = &v
+				} else if !errors.Is(err, pgx.ErrNoRows) {
+					return nil, err
+				}
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+	}
+
+	d.Payments = []RideDetailPayment{}
+	payRows, err := s.pool.Query(ctx, `
+		SELECT id::text, status::text, amount, tip, commission, total,
+		       payment_method::text, paid_at
+		FROM public.payments
+		WHERE ride_id = $1::uuid
+		ORDER BY created_at DESC`, rideID)
+	if err != nil {
+		return nil, err
+	}
+	for payRows.Next() {
+		var p RideDetailPayment
+		if err := payRows.Scan(&p.ID, &p.Status, &p.Amount, &p.Tip, &p.Commission,
+			&p.Total, &p.PaymentMethod, &p.PaidAt); err != nil {
+			payRows.Close()
+			return nil, err
+		}
+		p.FinalAmount = p.Total
+		d.Payments = append(d.Payments, p)
+	}
+	payRows.Close()
+	if err := payRows.Err(); err != nil {
+		return nil, err
+	}
+	if len(d.Payments) > 0 {
+		primary := d.Payments[0]
+		d.PrimaryPayment = &primary
+		d.Payment = &primary
+	}
+
+	return &d, nil
 }
 
 // EarningsSummary — agregado de pagos confirmados del conductor.
@@ -167,7 +377,11 @@ func scanSummary(row pgx.Row) (*RideSummary, error) {
 	var r RideSummary
 	err := row.Scan(&r.ID, &r.FirebaseRideID, &r.ClientID, &r.DriverID, &r.FollowerID,
 		&r.Status, &r.RideType, &r.VehicleType, &r.PaymentType,
-		&r.EstimatedPrice, &r.FinalFare, &r.RequestedAt, &r.CompletedAt)
+		&r.EstimatedPrice, &r.FinalFare, &r.EstimatedDistance, &r.Passengers,
+		&r.HasMultipleStops, &r.WaypointsCount,
+		&r.OriginAddress, &r.DestinationAddress, &r.AllAddresses,
+		&r.ClientName, &r.DriverName, &r.DriverRating, &r.MyRating,
+		&r.RequestedAt, &r.CompletedAt)
 	return &r, err
 }
 
@@ -364,12 +578,27 @@ func (s *Service) NotifyProximity(ctx context.Context, rideID, driverUID string)
 		return apperr.New(409, "tipo de vehículo incompatible")
 	}
 
-	// featureCodes requeridos ⊆ grants del conductor (driver+vehicle).
+	// featureCodes requeridos ⊆ grants del conductor (driver+vehicle). Solo los
+	// features con elegibilidad (senior/premium/pet_friendly) exigen grant:
+	// los de ajuste temporal (p.ej. 'night') son de pricing, no del conductor.
 	if snapshotRaw != nil {
 		var snap struct {
 			FeatureCodes []string `json:"featureCodes"`
 		}
 		if json.Unmarshal([]byte(*snapshotRaw), &snap) == nil && len(snap.FeatureCodes) > 0 {
+			required := map[string]bool{}
+			reqRows, err := s.pool.Query(ctx, `
+				SELECT code FROM public.features
+				WHERE code = ANY($1) AND eligibility_subject <> 'none'`, snap.FeatureCodes)
+			if err != nil {
+				return err
+			}
+			for reqRows.Next() {
+				var c string
+				_ = reqRows.Scan(&c)
+				required[c] = true
+			}
+			reqRows.Close()
 			rows, err := s.pool.Query(ctx, `
 				SELECT f.code FROM public.features f WHERE f.id IN (
 					SELECT a.feature_id FROM public.driver_feature_assignments a
@@ -399,7 +628,7 @@ func (s *Service) NotifyProximity(ctx context.Context, rideID, driverUID string)
 				granted[c] = true
 			}
 			rows.Close()
-			for _, need := range snap.FeatureCodes {
+			for need := range required {
 				if !granted[need] {
 					return apperr.New(409, "features del viaje no cubiertos por el conductor")
 				}

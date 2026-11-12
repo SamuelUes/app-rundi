@@ -41,6 +41,7 @@ import { usePendingActions } from '../../hooks/client/HomeScreen/usePendingActio
 import { useUpcomingProgrammedRide } from '../../hooks/client/HomeScreen/useUpcomingProgrammedRide';
 import { useMapPinInteraction } from '../../hooks/client/HomeScreen/useMapPinInteraction';
 import DynamicMap from '../../components/map/DynamicMap';
+import { PinInfoBubble } from '../../components/map/mapMarkers/MarkerContent';
 import { MAP_ICONS } from '../../constants/mapIcons';
 import { HomeScreenHeader } from '../../components/client/HomeScreen/HomeScreenHeader';
 import { HomeScreenLocationStatus } from '../../components/client/HomeScreen/HomeScreenLocationStatus';
@@ -48,12 +49,14 @@ import { HomeScreenBottomActions } from '../../components/client/HomeScreen/Home
 import { ClientRecurringRidesChips } from '../../components/client/HomeScreen/ClientRecurringRidesChips';
 import { useRecurringRides } from '../../hooks/client/useRecurringRides';
 import type { RecurringRide } from '../../types/recurringRide';
+import { useRideFlowTransition } from '../../hooks/client/useRideFlowTransition';
 
 // Importaciones para Firebase
 
 const { USER_LOCATION_LIGHT, USER_LOCATION_DARK, USER_LOCATION_HOLDING_LIGHT, USER_LOCATION_HOLDING_DARK } = MAP_ICONS;
 
 export default function HomeScreen({ navigation }: any) {
+  const rideTransition = useRideFlowTransition();
   const { user } = useAuth();
   const { colors, isDark } = useTheme();
   const { t } = useTranslation();
@@ -98,11 +101,15 @@ export default function HomeScreen({ navigation }: any) {
   }, []);
 
   const {
-    isOutsideSupportedArea,
-    regionStatus,
+    regionStatus: selectedRegionStatus,
     serviceAreaId,
-    updateRegionForCoords,
+    checkRegionForCoords,
+    setRegionStatus,
   } = useRegionAvailability(initialRegion ?? null);
+  const [gpsRegionStatus, setGpsRegionStatus] = useState(selectedRegionStatus);
+  const gpsRegionRef = useRef(gpsRegionStatus);
+  const isOutsideSupportedArea = gpsRegionStatus.checked && !gpsRegionStatus.allowed;
+  const regionStatus = isOutsideSupportedArea ? gpsRegionStatus : selectedRegionStatus;
 
   const {
     clientLocationData,
@@ -278,9 +285,10 @@ export default function HomeScreen({ navigation }: any) {
     hasPendingPayments,
     handleViewActiveRide,
     handleViewPendingPayments,
-  } = usePendingActions(user?.id, activeRide, upcomingProgrammedRide, navigation, t);
+  } = usePendingActions(user?.id, activeRide, activeRidesData, upcomingProgrammedRide, navigation, t);
 
   const { rides: recurringRides } = useRecurringRides(user?.id);
+  const [gpsCameraTarget, setGpsCameraTarget] = useState<{ latitude: number; longitude: number } | null>(null);
 
   // Recordatorio in-app: viaje programado a >30min pero el mismo día.
   const scheduledRideNotice = useMemo(() => {
@@ -305,7 +313,6 @@ export default function HomeScreen({ navigation }: any) {
 
   const {
     mapCenter,
-    pendingAddress,
     hasPendingManualSelection,
     isResolvingAddress,
     isSavingLocation,
@@ -316,6 +323,7 @@ export default function HomeScreen({ navigation }: any) {
     markerBounce,
     handleRegionChangeCenter,
     handleRegionChangeCompleteCenter,
+    handlePanDrag,
     handleMarkerPress,
   } = useMapPinInteraction(
     committedCoords,
@@ -323,10 +331,62 @@ export default function HomeScreen({ navigation }: any) {
     clientLocationData,
     savedAddress,
     saveClientLocation,
-    updateRegionForCoords,
+    checkRegionForCoords,
+    setRegionStatus,
     resolveAddressText,
     t,
+    isOutsideSupportedArea,
+    setGpsCameraTarget,
   );
+
+  const homeControlsVisibility = useRef(new Animated.Value(1)).current;
+  const showHomeControls = !isHoldingPin || isOutsideSupportedArea;
+  const selectionStateRef = useRef({ manualOverride, hasPendingManualSelection, selectedRegionStatus });
+  selectionStateRef.current = { manualOverride, hasPendingManualSelection, selectedRegionStatus };
+
+  useEffect(() => {
+    const animation = Animated.timing(homeControlsVisibility, {
+      toValue: showHomeControls ? 1 : 0,
+      duration: 320,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [homeControlsVisibility, showHomeControls]);
+
+  useEffect(() => {
+    if (!coords) return;
+    let active = true;
+    checkRegionForCoords(coords.latitude, coords.longitude).then((result) => {
+      if (!active) return;
+      const wasOutside = gpsRegionRef.current.checked && !gpsRegionRef.current.allowed;
+      if (!result.allowed || !wasOutside) {
+        gpsRegionRef.current = result;
+        setGpsRegionStatus(result);
+      }
+      if (result.allowed && !wasOutside) {
+        const selection = selectionStateRef.current;
+        if (!selection.manualOverride?.active && !selection.hasPendingManualSelection && !selection.selectedRegionStatus.checked) {
+          setRegionStatus(result);
+        }
+        return;
+      }
+      setGpsCameraTarget({ latitude: coords.latitude, longitude: coords.longitude });
+      saveClientLocation(
+        { latitude: coords.latitude, longitude: coords.longitude },
+        resolveAddressText(coords.latitude, coords.longitude),
+        { source: 'gps', manualOverride: { active: false, updatedAt: new Date().toISOString() } },
+      ).then(() => {
+        if (active) {
+          gpsRegionRef.current = result;
+          setGpsRegionStatus(result);
+          setRegionStatus(result);
+        }
+      }).catch((error) => console.error('❌ Error sincronizando ubicación GPS:', error));
+    }).catch((error) => console.error('❌ Error verificando ubicación GPS:', error));
+    return () => { active = false; };
+  }, [coords?.latitude, coords?.longitude, coords?.timestamp, checkRegionForCoords, saveClientLocation, setRegionStatus]);
 
   // Pin animations
   useEffect(() => {
@@ -405,6 +465,7 @@ export default function HomeScreen({ navigation }: any) {
   }, [refreshLocation]);
 
   const handleRequestRide = useCallback(() => {
+    if (hasPendingManualSelection || isResolvingAddress || isSavingLocation) return;
     if (isOutsideSupportedArea) {
       alertService.showInfoAlert(
         t('client.home.alerts.regionUnavailableTitle'),
@@ -418,8 +479,8 @@ export default function HomeScreen({ navigation }: any) {
       return;
     }
 
-    navigation.navigate('SearchRide');
-  }, [handleViewPendingPayments, hasPendingPayments, isOutsideSupportedArea, navigation, regionStatus.message]);
+    rideTransition.exit(() => navigation.navigate('SearchRide'));
+  }, [handleViewPendingPayments, hasPendingPayments, hasPendingManualSelection, isResolvingAddress, isSavingLocation, isOutsideSupportedArea, navigation, regionStatus.message, rideTransition.exit]);
 
   const handleAddRecurringRide = useCallback(() => {
     navigation.navigate('RecurringRideForm');
@@ -427,9 +488,9 @@ export default function HomeScreen({ navigation }: any) {
 
   const handlePressRecurringRide = useCallback(
     (ride: RecurringRide) => {
-      navigation.navigate('SearchRide', { recurringRide: ride });
+      rideTransition.exit(() => navigation.navigate('SearchRide', { recurringRide: ride }));
     },
-    [navigation],
+    [navigation, rideTransition.exit],
   );
 
   const handleManageRecurringRides = useCallback(() => {
@@ -492,7 +553,9 @@ export default function HomeScreen({ navigation }: any) {
     );
   }
 
-  const locationStatusHint = isPinLocked
+  const locationStatusHint = !isHoldingPin && (isResolvingAddress || isSavingLocation || hasPendingManualSelection)
+    ? t('client.home.locationStatus.updating')
+    : isPinLocked
     ? t('client.home.locationStatus.locked')
     : hasPendingManualSelection
     ? isSavingLocation
@@ -519,10 +582,20 @@ export default function HomeScreen({ navigation }: any) {
         markerType="manual_origin"
         nearbyDrivers={availableDrivers}
         disableMarkerPress={isSavingLocation}
+        scrollEnabled={!isSavingLocation}
+        zoomEnabled={!isSavingLocation}
         onMarkerPress={handleMarkerPress}
+        onPanDrag={() => {
+          setGpsCameraTarget(null);
+          handlePanDrag();
+        }}
+        cameraTarget={gpsCameraTarget}
         onRegionChangeCenter={handleRegionChangeCenter}
         onRegionChangeCompleteCenter={handleRegionChangeCompleteCenter}
-        showPinBubbles={false}
+        showPinBubbles
+        originLabel={t('client.home.map.yourLocation')}
+        originBubbleCompact
+        originBubbleDark={isDark}
         userLocationLightIcon={USER_LOCATION_LIGHT}
         userLocationDarkIcon={USER_LOCATION_DARK}
         userLocationHoldingLightIcon={USER_LOCATION_HOLDING_LIGHT}
@@ -537,6 +610,9 @@ export default function HomeScreen({ navigation }: any) {
 
       {showCenterPinOverlay && (
         <View pointerEvents="none" style={styles.centerPinOverlay}>
+          <View style={styles.centerPinBubble}>
+            <PinInfoBubble text={t('client.home.map.yourLocation')} compact isDark={isDark} />
+          </View>
           <Animated.Image
             source={markerHoldIcon}
             style={[styles.centerPinImage, { transform: [{ translateY: centerPinTranslateY }] }]}
@@ -545,6 +621,23 @@ export default function HomeScreen({ navigation }: any) {
         </View>
       )}
 
+      <Animated.View
+        pointerEvents={showHomeControls ? 'box-none' : 'none'}
+        accessibilityElementsHidden={!showHomeControls}
+        importantForAccessibility={showHomeControls ? 'auto' : 'no-hide-descendants'}
+        style={[
+          styles.controlsOverlay,
+          {
+            opacity: Animated.multiply(homeControlsVisibility, rideTransition.progress),
+            transform: [{
+              translateY: Animated.add(
+                homeControlsVisibility.interpolate({ inputRange: [0, 1], outputRange: [-160, 0] }),
+                rideTransition.progress.interpolate({ inputRange: [0, 1], outputRange: [-60, 0] }),
+              ),
+            }],
+          },
+        ]}
+      >
       <HomeScreenLocationStatus
         locationStatusHint={locationStatusHint}
         isSavingLocation={isSavingLocation}
@@ -562,10 +655,29 @@ export default function HomeScreen({ navigation }: any) {
         styles={styles}
         t={t}
       />
+      </Animated.View>
 
+      <Animated.View
+        pointerEvents={showHomeControls ? 'box-none' : 'none'}
+        accessibilityElementsHidden={!showHomeControls}
+        importantForAccessibility={showHomeControls ? 'auto' : 'no-hide-descendants'}
+        style={[
+          styles.controlsOverlay,
+          {
+            opacity: Animated.multiply(homeControlsVisibility, rideTransition.progress),
+            transform: [{
+              translateY: Animated.add(
+                homeControlsVisibility.interpolate({ inputRange: [0, 1], outputRange: [180, 0] }),
+                rideTransition.progress.interpolate({ inputRange: [0, 1], outputRange: [100, 0] }),
+              ),
+            }],
+          },
+        ]}
+      >
       <HomeScreenBottomActions
         pendingAction={pendingAction}
         isOutsideSupportedArea={isOutsideSupportedArea}
+        isLocationUpdating={hasPendingManualSelection || isResolvingAddress || isSavingLocation}
         regionStatus={regionStatus}
         scheduledRideNotice={scheduledRideNotice}
         onRequestRide={handleRequestRide}
@@ -582,6 +694,7 @@ export default function HomeScreen({ navigation }: any) {
         styles={styles}
         t={t}
       />
+      </Animated.View>
     </View>
   );
 }
@@ -599,6 +712,14 @@ const createStyles = (
   map: {
     flex: 1,
   },
+  controlsOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 20,
+  },
   centerPinOverlay: {
     position: 'absolute',
     top: '50%',
@@ -612,6 +733,13 @@ const createStyles = (
   centerPinImage: {
     width: 64,
     height: 64,
+  },
+  centerPinBubble: {
+    position: 'absolute',
+    bottom: 64,
+    left: -68,
+    width: 200,
+    alignItems: 'center',
   },
 
   // Location status card (pin hint)

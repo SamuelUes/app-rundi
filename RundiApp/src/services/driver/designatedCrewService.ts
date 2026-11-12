@@ -4,6 +4,7 @@ import { FS_COL } from '../../constants/firestore';
 import * as crewApi from '../../api/crew';
 import { searchCrewCandidates } from '../../api/drivers';
 import { submitArrivalPhoto } from '../../live/pendingEvents';
+import client from '../../api/client';
 import { uploadImage } from '../media/storageService';
 import type { CrewCandidate, CrewInvite, CrewMembership, DriverCrew } from '../../types/designatedCrew';
 
@@ -47,8 +48,12 @@ export const designatedCrewService = {
     return { success: true, expiresAt: 0 };
   },
   respondInvite: async (accept: boolean) => {
-    // El backend v2 no expone "decline": la invitación expira sola (expiresAt).
-    if (accept) await crewApi.acceptCrewInvite();
+    if (accept) {
+      await crewApi.acceptCrewInvite();
+    } else {
+      // Decline borra el doc y el pendingInvite del capitán → su chip se libera.
+      await crewApi.declineCrewInvite();
+    }
     return { success: true, paired: accept };
   },
   leaveCrew: async () => {
@@ -74,14 +79,12 @@ export const designatedCrewService = {
     const path = `rides-inspection/designated-arrival/${uid}/${Date.now()}.jpg`;
     const objectPath = await uploadImage(localUri, 'rides-documents', path);
     if (rideId) {
-      // Batch atómico: doc efímero + pending event → persiste en SQL (doc §5.2).
+      // Comando atómico: doc efímero + pending event → persiste en SQL (doc §5.2).
       await submitArrivalPhoto({ uid, rideId, path: objectPath });
     } else {
       // Sin rideId conocido solo queda el doc efímero (12h); el pending event
       // lo emite el caller cuando tenga contexto del viaje.
-      const db = await getFirebaseFirestore();
-      const { setDoc, serverTimestamp } = await import('firebase/firestore');
-      await setDoc(doc(db, FS_COL.arrivalPhotos, uid), { path: objectPath, takenAt: serverTimestamp() });
+      await client.post('/client-events/arrival-photo', { path: objectPath });
     }
     return objectPath;
   },

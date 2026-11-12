@@ -152,6 +152,7 @@ export function useAuthInit() {
                   name: userData.name,
                   role,
                   phone: userData.phone,
+                  profilePhoto: userData.profilePhoto || userData.profile_photo || userData.photoURL || userData.photoUrl,
                 });
 
                 const isStartupRestore = !firstAuthEventHandled;

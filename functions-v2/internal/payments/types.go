@@ -6,6 +6,8 @@ import "time"
 type Payment struct {
 	ID                    string     `json:"id"`
 	RideID                string     `json:"rideId"`
+	ClientID              string     `json:"clientId,omitempty"`
+	DriverID              string     `json:"driverId,omitempty"`
 	Amount                float64    `json:"amount"`
 	Tip                   float64    `json:"tip"`
 	Commission            float64    `json:"commission"`
@@ -20,4 +22,5 @@ type Payment struct {
 
 type ConfirmCashRequest struct {
 	RideID string `json:"rideId"`
+	Code   string `json:"code,omitempty"`
 }

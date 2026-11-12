@@ -1,8 +1,18 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, Platform } from 'react-native';
+import React, { useEffect, useMemo, useRef } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  Modal,
+  Platform,
+  KeyboardAvoidingView,
+  Animated,
+} from 'react-native';
 import { Picker as RNPicker } from '@react-native-picker/picker';
-import { DatePickerField } from '../../ui/DatePickerField';
-import { getScheduleBounds } from '../../../utils/format/schedule';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TimerEditIcon } from '../../ui/TimerEditIcon';
 type TrFunction = (path: string, options?: Record<string, any>) => string;
 
 interface ScheduleOption {
@@ -29,12 +39,8 @@ interface SearchRideScheduleModalProps {
   tr: TrFunction;
 }
 
-const toDmy = (date: Date): string =>
-  `${String(date.getDate()).padStart(2, '0')}-${String(date.getMonth() + 1).padStart(2, '0')}-${date.getFullYear()}`;
-
 export function SearchRideScheduleModal({
   visible,
-  isDark,
   colors,
   scheduleDayIndex,
   scheduleDayOptions,
@@ -50,123 +56,177 @@ export function SearchRideScheduleModal({
   styles,
   tr,
 }: SearchRideScheduleModalProps) {
-  const [dateText, setDateText] = useState('');
-  const scheduleBounds = useMemo(() => getScheduleBounds(), [visible]);
+  const insets = useSafeAreaInsets();
+  const sheetAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const day = scheduleDayOptions[scheduleDayIndex]?.date;
-    if (day) setDateText(toDmy(day));
-  }, [scheduleDayIndex, scheduleDayOptions]);
+    if (visible) {
+      Animated.spring(sheetAnim, {
+        toValue: 1,
+        damping: 26,
+        stiffness: 300,
+        mass: 1,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(sheetAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [visible, sheetAnim]);
 
-  const handleDateTextChange = useCallback(
-    (text: string) => {
-      setDateText(text);
-      const match = /^(\d{2})-(\d{2})-(\d{4})$/.exec(text.trim());
-      if (!match) return;
-      const picked = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
-      if (Number.isNaN(picked.getTime())) return;
-      const idx = scheduleDayOptions.findIndex(
-        (opt) =>
-          opt.date &&
-          opt.date.getFullYear() === picked.getFullYear() &&
-          opt.date.getMonth() === picked.getMonth() &&
-          opt.date.getDate() === picked.getDate(),
-      );
-      if (idx >= 0) {
-        onSetScheduleDayIndex(idx);
-        return;
-      }
-      const first = scheduleDayOptions[0]?.date;
-      const last = scheduleDayOptions[scheduleDayOptions.length - 1]?.date;
-      if (first && picked.getTime() < first.getTime()) onSetScheduleDayIndex(0);
-      else if (last && picked.getTime() > last.getTime()) onSetScheduleDayIndex(scheduleDayOptions.length - 1);
-    },
-    [scheduleDayOptions, onSetScheduleDayIndex],
-  );
+  const sheetAnimatedStyle = {
+    transform: [
+      {
+        translateY: sheetAnim.interpolate({
+          inputRange: [0, 1],
+          outputRange: [340, 0],
+        }),
+      },
+    ],
+    opacity: sheetAnim,
+  };
+
+  const selectionPreview = useMemo(() => {
+    const day = scheduleDayOptions[scheduleDayIndex]?.date;
+    if (!day) return '';
+    const preview = new Date(day);
+    preview.setHours(scheduleHour, scheduleMinute, 0, 0);
+    return tr('scheduling.scheduledLabel', { date: preview.toLocaleString() });
+  }, [scheduleDayOptions, scheduleDayIndex, scheduleHour, scheduleMinute, tr]);
+
+  const accentColor = colors.primary || '#b38737';
+  const pickerWheelStyle = [styles.schedulePickerWheel, { color: colors.text }];
 
   return (
     <Modal
       visible={visible}
       transparent
       animationType="fade"
+      statusBarTranslucent
+      navigationBarTranslucent={Platform.OS === 'android'}
       onRequestClose={onClose}
     >
-      <View style={styles.scheduleOverlay}>
-        <View style={[styles.scheduleCard, { backgroundColor: isDark ? '#1f1f1f' : colors.card }]}>
-          <Text style={[styles.scheduleTitle, { color: colors.text }]}>{tr('scheduling.modalTitle')}</Text>
+      <KeyboardAvoidingView
+        style={styles.scheduleModalRoot}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <TouchableWithoutFeedback onPress={onClose}>
+          <View style={styles.scheduleBackdrop} />
+        </TouchableWithoutFeedback>
 
-          <Text style={[styles.scheduleLabel, { color: colors.text }]}>{tr('scheduling.dateLabel')}</Text>
-          <View
+        <View style={styles.scheduleSheetDock} pointerEvents="box-none">
+          <Animated.View
             style={[
-              styles.pickerBox,
-              {
-                borderColor: colors.border || (isDark ? '#444' : '#ddd'),
-                paddingHorizontal: 12,
-                paddingVertical: Platform.select({ ios: 10, android: 4, default: 6 }),
-                justifyContent: 'center',
-              },
+              styles.scheduleSheet,
+              { paddingBottom: Math.max(insets.bottom, 12) + 8 },
+              sheetAnimatedStyle,
             ]}
           >
-            <DatePickerField
-              value={dateText}
-              onChangeText={handleDateTextChange}
-              valueFormat="dmy"
-              mode="weeks"
-              minDate={scheduleBounds.minDate}
-              maxDate={scheduleBounds.maxDate}
-              placeholder="DD-MM-YYYY"
-              placeholderTextColor={colors.textSecondary}
-            />
-          </View>
-
-          <Text style={[styles.scheduleLabel, { color: colors.text }]}>{tr('scheduling.timeLabel')}</Text>
-          <View style={styles.timeRow}>
-            <View
-              style={[
-                styles.pickerBox,
-                styles.timePicker,
-                { borderColor: colors.border || (isDark ? '#444' : '#ddd') },
-              ]}
-            >
-              <RNPicker selectedValue={scheduleHour} onValueChange={(value) => onSetScheduleHour(Number(value))}>
-                {scheduleHourOptions.map((h) => (
-                  <RNPicker.Item key={`hour-${h}`} label={String(h).padStart(2, '0')} value={h} />
-                ))}
-              </RNPicker>
+            <View style={styles.scheduleHandleZone}>
+              <View style={styles.scheduleHandle} />
             </View>
-            <Text style={[styles.timeSeparator, { color: colors.text }]}>:</Text>
-            <View
-              style={[
-                styles.pickerBox,
-                styles.timePicker,
-                { borderColor: colors.border || (isDark ? '#444' : '#ddd') },
-              ]}
-            >
-              <RNPicker selectedValue={scheduleMinute} onValueChange={(value) => onSetScheduleMinute(Number(value))}>
-                {scheduleMinuteOptionsForHour.map((m) => (
-                  <RNPicker.Item key={`min-${m}`} label={String(m).padStart(2, '0')} value={m} />
-                ))}
-              </RNPicker>
-            </View>
-          </View>
 
-          <View style={styles.scheduleButtonsRow}>
+            <View style={styles.scheduleHeaderRow}>
+              <View style={styles.scheduleTitleIcon}>
+                <TimerEditIcon size={18} color={accentColor} />
+              </View>
+              <Text style={styles.scheduleTitle} numberOfLines={1}>
+                {tr('scheduling.modalTitle')}
+              </Text>
+              <TouchableOpacity
+                style={styles.scheduleCloseBtn}
+                onPress={onClose}
+                accessibilityRole="button"
+                accessibilityLabel={tr('scheduling.modalCancel')}
+              >
+                <MaterialIcons name="close" size={20} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.scheduleSectionLabel}>{tr('scheduling.dateTimeLabel')}</Text>
+            <View style={styles.schedulePickerTrack}>
+              <View style={styles.scheduleDayPickerCol}>
+                <RNPicker
+                  selectedValue={scheduleDayIndex}
+                  onValueChange={(value) => onSetScheduleDayIndex(Number(value))}
+                  style={pickerWheelStyle}
+                  dropdownIconColor={colors.textSecondary}
+                >
+                  {scheduleDayOptions.map((opt, i) => (
+                    <RNPicker.Item
+                      key={`day-${i}`}
+                      label={opt.label}
+                      value={i}
+                      color={colors.text}
+                    />
+                  ))}
+                </RNPicker>
+              </View>
+              <View style={styles.scheduleTimePickerCol}>
+                <RNPicker
+                  selectedValue={scheduleHour}
+                  onValueChange={(value) => onSetScheduleHour(Number(value))}
+                  style={pickerWheelStyle}
+                  dropdownIconColor={colors.textSecondary}
+                >
+                  {scheduleHourOptions.map((h) => (
+                    <RNPicker.Item
+                      key={`hour-${h}`}
+                      label={String(h).padStart(2, '0')}
+                      value={h}
+                      color={colors.text}
+                    />
+                  ))}
+                </RNPicker>
+              </View>
+              <View style={styles.scheduleTimePickerCol}>
+                <RNPicker
+                  selectedValue={scheduleMinute}
+                  onValueChange={(value) => onSetScheduleMinute(Number(value))}
+                  style={pickerWheelStyle}
+                  dropdownIconColor={colors.textSecondary}
+                >
+                  {scheduleMinuteOptionsForHour.map((m) => (
+                    <RNPicker.Item
+                      key={`min-${m}`}
+                      label={String(m).padStart(2, '0')}
+                      value={m}
+                      color={colors.text}
+                    />
+                  ))}
+                </RNPicker>
+              </View>
+            </View>
+
+            {selectionPreview ? (
+              <Text style={styles.schedulePreview}>{selectionPreview}</Text>
+            ) : null}
+
             <TouchableOpacity
-              style={[
-                styles.scheduleButton,
-                styles.scheduleCancelButton,
-                { borderColor: colors.border || (isDark ? '#444' : '#ddd') },
-              ]}
-              onPress={onClose}
+              style={styles.scheduleConfirmBtn}
+              onPress={onConfirm}
+              accessibilityRole="button"
             >
-              <Text style={[styles.scheduleButtonText, { color: colors.text }]}>{tr('scheduling.modalCancel')}</Text>
+              <Text style={styles.scheduleConfirmText}>{tr('scheduling.modalConfirm')}</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.scheduleButton, { backgroundColor: colors.primary || '#b38737' }]} onPress={onConfirm}>
-              <Text style={styles.scheduleButtonTextPrimary}>{tr('scheduling.modalConfirm')}</Text>
+            <TouchableOpacity
+              style={styles.scheduleCancelBtn}
+              onPress={onClose}
+              accessibilityRole="button"
+            >
+              <Text style={styles.scheduleCancelText}>{tr('scheduling.modalCancel')}</Text>
             </TouchableOpacity>
-          </View>
+
+            <View style={styles.scheduleHintRow}>
+              <MaterialIcons name="info-outline" size={14} color={colors.textSecondary} />
+              <Text style={styles.scheduleHintText}>{tr('scheduling.scheduleHint')}</Text>
+            </View>
+          </Animated.View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

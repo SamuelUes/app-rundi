@@ -35,11 +35,13 @@ func TestNegotiatePrice_ClientBranch(t *testing.T) {
 		RETURNING id`).Scan(&driverUID); err != nil {
 		t.Fatalf("driver user fixture: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `
+	var driverID string
+	if err := pool.QueryRow(ctx, `
 		INSERT INTO public.drivers (user_id, account_status)
-		VALUES ($1, 'active')`, driverUID); err != nil {
+		VALUES ($1, 'active') RETURNING id::text`, driverUID).Scan(&driverID); err != nil {
 		t.Fatalf("driver fixture: %v", err)
 	}
+	openTestDriverSession(t, ctx, pool, driverID)
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO public.users (id, role) VALUES (gen_random_uuid()::text, 'client')
 		RETURNING id`).Scan(&strangerUID); err != nil {

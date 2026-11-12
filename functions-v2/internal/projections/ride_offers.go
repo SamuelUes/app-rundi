@@ -25,10 +25,65 @@ func counterOfferStatus(rideStatus string, assignedDriver *string, driverID, off
 	return "canceled"
 }
 
+// Update existing dispatch documents without creating offers or changing their status.
+// eventType marca quién movió el precio por última vez (ride.price_suggested
+// = cliente): el doc de despacho nunca registra oferta del conductor.
+func projectDispatchOfferPrices(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, rideID, eventType string) error {
+	rows, err := pool.Query(ctx, `
+		SELECT o.driver_id, r.client_suggested_price, r.version
+		FROM public.ride_offers o
+		JOIN public.rides r ON r.id = o.ride_id
+		WHERE o.ride_id = $1::uuid AND o.kind = 'offer' AND o.status = 'sent'
+		  AND NOT EXISTS (
+		    SELECT 1 FROM public.ride_offers counter
+		    WHERE counter.ride_id = o.ride_id AND counter.driver_id = o.driver_id
+		      AND counter.kind = 'counter_offer'
+		  )`, rideID)
+	if err != nil {
+		return fmt.Errorf("query dispatch offers: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var driverID string
+		var price *float64
+		var version int64
+		if err := rows.Scan(&driverID, &price, &version); err != nil {
+			return err
+		}
+		if price == nil {
+			continue
+		}
+		ref := c.Collection(fs.ColDriverOffers).Doc(rideID + "_" + driverID)
+		if err := c.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+			snap, err := tx.Get(ref)
+			if status.Code(err) == codes.NotFound {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if previous, ok := snap.Data()["offerProjectionVersion"].(int64); ok && previous >= version {
+				return nil
+			}
+			updates := []firestore.Update{
+				{Path: "clientSuggestedPrice", Value: *price},
+				{Path: "offerProjectionVersion", Value: version},
+			}
+			if eventType == "ride.price_suggested" {
+				updates = append(updates, firestore.Update{Path: "lastOfferBy", Value: "client"})
+			}
+			return tx.Update(ref, updates)
+		}); err != nil {
+			return fmt.Errorf("project dispatch offer price: %w", err)
+		}
+	}
+	return rows.Err()
+}
+
 // Read current SQL state rather than replaying stale offer event payloads.
 // The offer doc carries the ride context the driver needs while negotiating:
 // trips_live stays unreadable to them until the client assigns the ride.
-func projectCounterOffers(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, rideID string) error {
+func projectCounterOffers(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, rideID, eventType string) error {
 	rows, err := pool.Query(ctx, `
 		SELECT DISTINCT ON (o.driver_id)
 		       o.driver_id, r.client_id, o.offered_price, o.status::text,
@@ -111,6 +166,14 @@ func projectCounterOffers(ctx context.Context, pool *pgxpool.Pool, c *firestore.
 			if fc, ok := snap["featureCodes"]; ok {
 				data["featureCodes"] = fc
 			}
+		}
+		// Quién ofertó último: el banner del conductor distingue "tu oferta
+		// esperando al cliente" de "el cliente propuso, espera tu respuesta".
+		switch eventType {
+		case "ride.price_offered":
+			data["lastOfferBy"] = "driver"
+		case "ride.price_suggested":
+			data["lastOfferBy"] = "client"
 		}
 		if err := c.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 			snap, err := tx.Get(ref)

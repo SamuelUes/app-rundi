@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text } from 'react-native';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import type { TFunction } from 'i18next';
 
 interface CommissionCategory {
@@ -48,7 +48,7 @@ export function EarningsCommissionBreakdown({
     return (
       <View style={styles.commissionSection}>
         <View style={styles.commissionHeader}>
-          <MaterialIcons name={icon as any} size={24} color={colors.textSecondary} />
+          <Ionicons name={icon as any} size={24} color={colors.textSecondary} />
           <Text style={styles.commissionLabel}>{label}</Text>
         </View>
 
@@ -96,14 +96,14 @@ export function EarningsCommissionBreakdown({
 
       {renderCategory(
         commissionBreakdown.cash,
-        'payments',
+        'cash-outline',
         t('driver.earnings.commission.cashLabel'),
         t('driver.earnings.commission.subtotalCash'),
       )}
 
       {renderCategory(
         commissionBreakdown.card,
-        'credit-card',
+        'card-outline',
         t('driver.earnings.commission.cardLabel'),
         t('driver.earnings.commission.subtotalCard'),
       )}

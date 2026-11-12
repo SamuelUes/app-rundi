@@ -34,6 +34,7 @@ import alertService from '../../services/notification/alertService';
 import { HomeScreenOffersOfferCard } from '../../components/client/HomeScreenOffers/HomeScreenOffersOfferCard';
 import { HomeScreenOffersBottomSheet } from '../../components/client/HomeScreenOffers/HomeScreenOffersBottomSheet';
 import { HomeScreenOffersHint } from '../../components/client/HomeScreenOffers/HomeScreenOffersHint';
+import { useRideFlowTransition } from '../../hooks/client/useRideFlowTransition';
 
 const { USER_LOCATION_LIGHT, USER_LOCATION_DARK } = MAP_ICONS;
 const MAX_DRIVER_RADIUS_KM = typeof RIDES_RADIUS_KM === 'number' ? RIDES_RADIUS_KM : 6;
@@ -52,6 +53,7 @@ interface Props {
 }
 
 export default function HomeScreenOffers({ navigation, route }: Props) {
+  const rideTransition = useRideFlowTransition();
   const { t } = useTranslation();
   const driverFallbackName = t('common.roles.driver');
   const { user } = useAuth();
@@ -598,16 +600,15 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     // 'accepted' del doc de oferta = cliente confirmó (backend solo proyecta
     // 'accepted' tras asignación). Contraoferta al precio exacto del cliente
     // = el conductor aceptó su oferta — pendiente de confirmación.
-    const clientOfferPrice = firstPositivePrice(
-      item.clientSuggestedPrice,
-      rideSnapshot?.clientSuggestedPrice,
-      rideSnapshot?.negotiation?.clientSuggestedPrice,
-    );
+    // Se compara contra clientPrice (con fallback al estimado): cuando el
+    // cliente nunca sugirió precio, el doc de oferta omite
+    // clientSuggestedPrice y el conductor que acepta el estimado debe verse
+    // igualmente como "aceptó tu oferta".
     const driverAcceptedMyPrice =
       item.status !== 'accepted' &&
       driverPrice != null &&
-      clientOfferPrice != null &&
-      driverPrice === clientOfferPrice;
+      clientPrice != null &&
+      Math.abs(driverPrice - clientPrice) < 0.01;
     const info = driversInfo?.[item.driverId] || {};
     const raw = driversRaw?.[item.driverId] || {};
     const vehicleType = extractVehicleTypeFromInfo(info) || extractVehicleTypeFromInfo(raw);
@@ -640,6 +641,8 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
         driverPriceLabel={driverPriceLabel}
         hasDriverPrice={driverPrice != null}
         negotiationLabel={negotiationLabel}
+        driverAcceptedMyPrice={driverAcceptedMyPrice}
+        confirming={isConfirming}
         displayName={displayName}
         vehicleType={vehicleType}
         ratingLabel={ratingLabel}
@@ -648,6 +651,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
         onSelect={() => handleSelectFromList(item.driverId)}
         onMessageDriver={() => handleMessageDriver(item)}
         onOpenNegotiation={openNegotiation}
+        onConfirmDriver={confirmSelectedDriver}
         styles={styles}
         t={t}
       />
@@ -677,6 +681,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
         />
       </View>
 
+      <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, rideTransition.topStyle]}>
       {!showOffersError && (
         <HomeScreenOffersHint
           hasOffers={visibleOffers.length > 0}
@@ -686,7 +691,9 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           t={t}
         />
       )}
+      </Animated.View>
 
+      <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, rideTransition.bottomStyle]}>
       <HomeScreenOffersBottomSheet
         loading={loading}
         error={showOffersError}
@@ -709,6 +716,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
         styles={styles}
         t={t}
       />
+      </Animated.View>
 
       {/* Modal de Negociación */}
       <PriceNegotiationModal
@@ -1039,7 +1047,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     flex: 1,
     minHeight: 50,
     borderRadius: 14,
-    borderWidth: 1,
+    borderWidth: 0.4,
     flexDirection: 'row',
     gap: 7,
     justifyContent: 'center',

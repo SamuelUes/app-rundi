@@ -280,8 +280,9 @@ func (h *Handler) earnings(w http.ResponseWriter, r *http.Request) {
 }
 
 type transitionBody struct {
-	From RideStatus `json:"from"`
-	To   RideStatus `json:"to"`
+	From       RideStatus `json:"from"`
+	To         RideStatus `json:"to"`
+	PickupCode string     `json:"pickupCode"`
 }
 
 // POST /v1/rides/{rideId}/transition — transiciones de estado validadas.
@@ -299,7 +300,7 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request) {
 		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
 		return
 	}
-	ride, err := h.svc.TransitionRide(r.Context(), rideID, uid, body.From, body.To, reqID)
+	ride, err := h.svc.TransitionRide(r.Context(), rideID, uid, body.From, body.To, body.PickupCode, reqID)
 	if err != nil {
 		apperr.Write(w, err)
 		return

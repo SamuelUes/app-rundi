@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
+	"cloud.google.com/go/firestore"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/rundi/functions-v2/internal/apperr"
+	"github.com/rundi/functions-v2/internal/fs"
 	"github.com/rundi/functions-v2/internal/outbox"
 )
 
@@ -217,45 +221,122 @@ func (s *Service) ListForAdmin(ctx context.Context, status string, limit, offset
 
 // ---------- crew candidates (searchDesignatedCrewCandidates v1) ----------
 
+// CrewCandidate — contrato CrewMemberSnapshot + status de v1: el modal de
+// búsqueda usa driverId como key y muestra licenseNumber/status directo.
 type CrewCandidate struct {
-	UserID       string  `json:"userId"`
-	Name         string  `json:"name"`
-	Rating       float64 `json:"rating"`
-	Department   string  `json:"department"`
-	ProfilePhoto *string `json:"profilePhoto,omitempty"`
+	DriverID      string  `json:"driverId"`
+	Name          string  `json:"name"`
+	Rating        float64 `json:"rating"`
+	LicenseNumber string  `json:"licenseNumber"`
+	Department    string  `json:"department"`
+	PhotoURL      *string `json:"photoURL,omitempty"`
+	Status        string  `json:"status"`
 }
 
+var nonAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)
+
 // SearchCrewCandidates — drivers elegibles designados (verified + active)
-// filtrables por nombre; excluye al propio capitán.
+// filtrables por nombre (ILIKE) o licencia exacta normalizada (>=4 chars,
+// misma regla que find_designated_drivers_by_license); excluye al capitán.
 func (s *Service) SearchCrewCandidates(ctx context.Context, uid, q string, limit int) ([]CrewCandidate, error) {
 	if limit <= 0 || limit > 50 {
 		limit = 20
 	}
+	var licenseNorm any
+	if n := strings.ToUpper(nonAlnum.ReplaceAllString(q, "")); len(n) >= 4 {
+		licenseNorm = n
+	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT d.user_id, COALESCE(u.name, ''), COALESCE(d.average_rating, 0),
-		       COALESCE(d.department, ''), d.profile_photo
+		       COALESCE(dl.license_number, d.license_number, ''),
+		       COALESCE(d.department, ''), COALESCE(d.profile_photo, u.profile_photo)
 		FROM public.drivers d
 		LEFT JOIN public.users u ON u.id = d.user_id
+		LEFT JOIN public.driver_licenses dl
+		  ON dl.driver_id = d.id AND dl.is_current = TRUE AND dl.deleted_at IS NULL
 		WHERE d.designated_role_status = 'verified'
 		  AND d.account_status = 'active'
 		  AND d.user_id <> $1
 		  AND d.deleted_at IS NULL
-		  AND ($2 = '' OR u.name ILIKE '%' || $2 || '%')
+		  AND ($2 = '' OR u.name ILIKE '%' || $2 || '%'
+		       OR ($3::text IS NOT NULL
+		           AND (regexp_replace(upper(COALESCE(d.license_number, '')), '[^A-Z0-9]', '', 'g') = $3
+		            OR regexp_replace(upper(COALESCE(dl.license_number, '')), '[^A-Z0-9]', '', 'g') = $3)))
 		ORDER BY d.average_rating DESC NULLS LAST
-		LIMIT $3`, uid, q, limit)
+		LIMIT $4`, uid, q, licenseNorm, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []CrewCandidate{}
+	seen := map[string]bool{}
 	for rows.Next() {
 		var c CrewCandidate
-		if err := rows.Scan(&c.UserID, &c.Name, &c.Rating, &c.Department, &c.ProfilePhoto); err != nil {
+		if err := rows.Scan(&c.DriverID, &c.Name, &c.Rating, &c.LicenseNumber, &c.Department, &c.PhotoURL); err != nil {
 			return nil, err
 		}
+		if seen[c.DriverID] {
+			continue
+		}
+		seen[c.DriverID] = true
 		out = append(out, c)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	s.resolveCandidateStatuses(ctx, out)
+	return out, nil
+}
+
+// resolveCandidateStatuses — prioridad: paired (membresía con partnerId) >
+// invited (crew_invites vigente) > busy (on_ride/busy en drivers_live) >
+// available > offline. La membresía puede existir solo con pendingInvite
+// (invitación emitida por el candidato) — eso NO es paired.
+func (s *Service) resolveCandidateStatuses(ctx context.Context, cands []CrewCandidate) {
+	for i := range cands {
+		cands[i].Status = "offline"
+	}
+	if s.fs == nil || len(cands) == 0 {
+		return
+	}
+	refs := make([]*firestore.DocumentRef, 0, len(cands)*3)
+	for _, c := range cands {
+		refs = append(refs, s.fs.Collection(fs.ColCrewMembership).Doc(c.DriverID))
+	}
+	for _, c := range cands {
+		refs = append(refs, s.fs.Collection(fs.ColCrewInvites).Doc(c.DriverID))
+	}
+	for _, c := range cands {
+		refs = append(refs, s.fs.Collection(fs.ColDriversLive).Doc(c.DriverID))
+	}
+	snaps, err := s.fs.GetAll(ctx, refs)
+	if err != nil {
+		return
+	}
+	nowMs := time.Now().UnixMilli()
+	for i := range cands {
+		membership, invites := snaps[i], snaps[len(cands)+i]
+		live := snaps[2*len(cands)+i]
+		if membership.Exists() {
+			if p, _ := membership.Data()["partnerId"].(string); p != "" {
+				cands[i].Status = "paired"
+				continue
+			}
+		}
+		if invites.Exists() {
+			if exp, _ := invites.Data()["expiresAt"].(int64); exp > nowMs {
+				cands[i].Status = "invited"
+				continue
+			}
+		}
+		liveStatus, _ := live.Data()["status"].(string)
+		switch liveStatus {
+		case "on_ride", "busy":
+			cands[i].Status = "busy"
+		case "online", "available":
+			cands[i].Status = "available"
+		}
+	}
 }
 
 // ---------- feature grants (admin) ----------
@@ -719,7 +800,7 @@ func (s *Service) ListDrivers(ctx context.Context, minRating float64, department
 		limit = 50
 	}
 	q := `SELECT d.user_id, COALESCE(u.name,''), COALESCE(d.average_rating,0),
-		d.total_rides, d.department, d.municipality, d.profile_photo
+		d.total_rides, d.department, d.municipality, COALESCE(d.profile_photo, u.profile_photo)
 		FROM public.drivers d
 		LEFT JOIN public.users u ON u.id = d.user_id
 		WHERE d.deleted_at IS NULL AND d.account_status = 'active'`

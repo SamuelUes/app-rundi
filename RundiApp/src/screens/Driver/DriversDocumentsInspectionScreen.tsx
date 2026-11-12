@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -9,7 +9,7 @@ import {
   Platform,
   TextInput
 } from 'react-native';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { DatePickerField } from '../../components/ui/DatePickerField';
@@ -22,6 +22,11 @@ import StorageImage from '../../components/shared/StorageImage';
 import supabaseStorage from '../../services/media/storageService';
 import driversService from '../../services/driver/driversService';
 import complianceService from '../../services/driver/complianceService';
+import {
+  extractFieldsFromDocument,
+  isOcrAvailable,
+  type ExtractedDocumentFields,
+} from '../../services/media/ocr/documentOcrService';
 
 interface DriversDocumentsInspectionProps {
   route: any;
@@ -45,6 +50,21 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
 
   const [uploadProgress, setUploadProgress] = useState(0);
   const { user } = useAuth();
+
+  // OCR on-device: rellena campos vacíos o campos que el propio OCR llenó
+  // antes; nunca pisa un valor editado a mano.
+  const [ocrReading, setOcrReading] = useState(false);
+  const [ocrMessage, setOcrMessage] = useState<string | null>(null);
+  const ocrFilledRef = useRef<Set<keyof ExtractedDocumentFields>>(new Set());
+  const pendingOcr = useRef(0);
+  // Datos cargados del perfil — cualquier cambio reabre el submit y el doc
+  // vuelve a 'pending' para revisión (el backend crea versión pendiente).
+  const loadedDataRef = useRef<{
+    front: string | null;
+    back: string | null;
+    number: string;
+    expiry: string;
+  } | null>(null);
   
   // Solicitar permisos para la cámara
   useEffect(() => {
@@ -85,35 +105,91 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
         }
 
         // Cargar datos existentes en los estados (con fallback a snake_case)
-        if (profile.licenseNumber || profile.license_number) {
-          setLicenseNumber(profile.licenseNumber || profile.license_number);
-        }
-        if (profile.licenseExpiry || profile.license_expiry) {
-          setLicenseExpiry(profile.licenseExpiry || profile.license_expiry);
-        }
-        if (profile.license_photo_front || profile.licensePhotoFront) {
-          setLicensePhotoFront(profile.license_photo_front || profile.licensePhotoFront);
-        }
-        if (profile.license_photo_back || profile.licensePhotoBack) {
-          setLicensePhotoBack(profile.license_photo_back || profile.licensePhotoBack);
-        }
+        const loaded = {
+          number: profile.licenseNumber || profile.license_number || '',
+          expiry: profile.licenseExpiry || profile.license_expiry || '',
+          front: profile.license_photo_front || profile.licensePhotoFront || null,
+          back: profile.license_photo_back || profile.licensePhotoBack || null,
+        };
+        setLicenseNumber(loaded.number);
+        setLicenseExpiry(loaded.expiry);
+        setLicensePhotoFront(loaded.front);
+        setLicensePhotoBack(loaded.back);
+        loadedDataRef.current = loaded;
       }
     } catch (error) {
       console.error('Error al cargar datos del conductor:', error);
     }
   };
 
+  // Corre OCR sobre la foto de la licencia y llena campos vacíos (o los que
+  // el propio OCR llenó). Nunca pisa un valor escrito o corregido a mano.
+  const runLicenseOcr = async (imageUri: string) => {
+    if (!isOcrAvailable()) {
+      return;
+    }
+    pendingOcr.current += 1;
+    setOcrReading(true);
+    setOcrMessage(null);
+    try {
+      const { fields } = await extractFieldsFromDocument(imageUri, 'license');
+      const applied: string[] = [];
+      const filledByOcr = ocrFilledRef.current;
+
+      const fill = (
+        current: string,
+        detected: string | undefined,
+        setter: (v: string) => void,
+        fieldKey: keyof ExtractedDocumentFields,
+      ) => {
+        if (!detected) return;
+        if (current && !filledByOcr.has(fieldKey)) return; // valor manual
+        setter(detected);
+        filledByOcr.add(fieldKey);
+        applied.push(t(`${diNS}.ocr.fields.${fieldKey}`));
+      };
+
+      fill(licenseNumber, fields.licenseNumber, setLicenseNumber, 'licenseNumber');
+      fill(licenseExpiry, fields.licenseExpiry, setLicenseExpiry, 'licenseExpiry');
+
+      setOcrMessage(
+        applied.length > 0
+          ? t(`${diNS}.ocr.detected`, { fields: applied.join(', ') })
+          : t(`${diNS}.ocr.notDetected`),
+      );
+    } catch (err) {
+      console.warn('⚠️ OCR de licencia falló:', err);
+      setOcrMessage(t(`${diNS}.ocr.notDetected`));
+    } finally {
+      pendingOcr.current -= 1;
+      setOcrReading(pendingOcr.current > 0);
+    }
+  };
+
+  // Edición manual: saca el campo del set "llenado por OCR" para que una
+  // nueva foto no sobreescriba la corrección del usuario.
+  const manualEdit =
+    (key: keyof ExtractedDocumentFields, setter: (v: string) => void) =>
+    (v: string) => {
+      ocrFilledRef.current.delete(key);
+      setter(v);
+    };
+
   // Tomar foto con la cámara
-  const takePhoto = async (setPhotoFunction: (uri: string) => void) => {
+  const takePhoto = async (setPhotoFunction: (uri: string) => void, withOcr = false) => {
     try {
       const result = await launchCameraSafely({
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.7,
+        quality: 0.9,
       });
 
       if (result && !result.canceled && result.assets && result.assets.length > 0) {
-        setPhotoFunction(result.assets[0].uri);
+        const uri = result.assets[0].uri;
+        setPhotoFunction(uri);
+        if (withOcr) {
+          void runLicenseOcr(uri);
+        }
       }
     } catch (error) {
       Alert.alert(
@@ -125,7 +201,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
   };
 
   // Seleccionar foto de la galería
-  const pickFromGallery = async (setPhotoFunction: (uri: string) => void) => {
+  const pickFromGallery = async (setPhotoFunction: (uri: string) => void, withOcr = false) => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
@@ -140,11 +216,15 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
         mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.7,
+        quality: 0.9,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setPhotoFunction(result.assets[0].uri);
+        const uri = result.assets[0].uri;
+        setPhotoFunction(uri);
+        if (withOcr) {
+          void runLicenseOcr(uri);
+        }
       }
     } catch (error) {
       Alert.alert(
@@ -219,9 +299,12 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
       });
 
       setLoading(false);
+      setDocumentsStatus('pending');
       Alert.alert(
-        t(`${diNS}.alerts.successTitle`), 
-        t(`${diNS}.alerts.successMessage`),
+        t(`${diNS}.alerts.successTitle`),
+        documentsVerified
+          ? t(`${diNS}.alerts.successPendingMessage`)
+          : t(`${diNS}.alerts.successMessage`),
         [{ 
           text: t(`${diNS}.alerts.successButton`), 
           onPress: () => {
@@ -244,6 +327,16 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
   const allDataProvided = licensePhotoFront && licensePhotoBack && licenseNumber && licenseExpiry;
   const documentsStatusNormalized = (documentsStatus || '').toLowerCase();
   const documentsVerified = documentsStatusNormalized === 'verified' || documentsStatusNormalized === 'active';
+  // Documento verificado: solo reabre el submit si cambió algo; al reenviar
+  // el backend crea versión 'pending' (el sello vuelve a revisión).
+  const loaded = loadedDataRef.current;
+  const hasChanges = !loaded
+    ? true
+    : licensePhotoFront !== loaded.front ||
+      licensePhotoBack !== loaded.back ||
+      licenseNumber !== loaded.number ||
+      licenseExpiry !== loaded.expiry;
+  const showVerifiedNotice = documentsVerified && !hasChanges;
 
   return (
     <ScrollView
@@ -254,7 +347,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={styles.headerTopRow}>
           <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <MaterialIcons name="arrow-back" size={22} color={colors.text} />
+            <Ionicons name="chevron-back" size={22} color={colors.text} />
           </TouchableOpacity>
           <Text style={styles.title}>{t(`${diNS}.header.title`)}</Text>
           <View style={styles.headerSpacer} />
@@ -273,7 +366,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
           autoCorrect={false}
           placeholder={t(`${diNS}.licenseSection.numberPlaceholder`)}
           value={licenseNumber}
-          onChangeText={setLicenseNumber}
+          onChangeText={manualEdit('licenseNumber', setLicenseNumber)}
           placeholderTextColor={colors.textSecondary}
         />
 
@@ -282,7 +375,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
           style={styles.input}
           placeholder={t(`${diNS}.licenseSection.expiryPlaceholder`)}
           value={licenseExpiry}
-          onChangeText={setLicenseExpiry}
+          onChangeText={manualEdit('licenseExpiry', setLicenseExpiry)}
           placeholderTextColor={colors.textSecondary}
         />
       </View>
@@ -293,12 +386,23 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
           <Text style={styles.sectionTitle}>{t(`${diNS}.photosSection.title`)}</Text>
           <Text style={styles.photoProgress}>{photosCompleted}/2</Text>
         </View>
+
+        <Text style={styles.ocrHint}>{t(`${diNS}.ocr.hint`)}</Text>
+        {ocrReading && (
+          <View style={styles.ocrStatusRow}>
+            <LoadingIcon size={14} color={colors.primary} />
+            <Text style={styles.ocrStatusText}>{t(`${diNS}.ocr.reading`)}</Text>
+          </View>
+        )}
+        {!ocrReading && ocrMessage && (
+          <Text style={styles.ocrStatusText}>{ocrMessage}</Text>
+        )}
         
         {/* Foto Frontal */}
         <View style={styles.photoContainer}>
           <View style={styles.photoTitleRow}>
             <Text style={styles.photoTitle}>{t(`${diNS}.photosSection.frontTitle`)}</Text>
-            {licensePhotoFront && <MaterialIcons name="check-circle" size={20} color={colors.success} />}
+            {licensePhotoFront && <Ionicons name="checkmark-circle" size={20} color={colors.success} />}
           </View>
           {licensePhotoFront && (
             <StorageImage uri={licensePhotoFront} style={styles.photoPreview} />
@@ -306,9 +410,9 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
           <View style={styles.photoActionsRow}>
             <TouchableOpacity
               style={[styles.photoActionButton, styles.photoActionButtonPrimary]}
-              onPress={() => takePhoto(setLicensePhotoFront)}
+              onPress={() => takePhoto(setLicensePhotoFront, true)}
             >
-              <MaterialIcons name="photo-camera" size={18} color="#fff" />
+              <Ionicons name="camera" size={18} color="#fff" />
               <Text style={styles.photoActionButtonPrimaryText}>
                 {licensePhotoFront
                   ? t(`${diNS}.photosSection.retakePhoto`)
@@ -317,9 +421,9 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.photoActionButton, styles.photoActionButtonSecondary]}
-              onPress={() => pickFromGallery(setLicensePhotoFront)}
+              onPress={() => pickFromGallery(setLicensePhotoFront, true)}
             >
-              <MaterialIcons name="photo-library" size={18} color={colors.primary} />
+              <Ionicons name="images" size={18} color={colors.primary} />
               <Text style={styles.photoActionButtonSecondaryText}>
                 {t(`${diNS}.photosSection.chooseFromGallery`)}
               </Text>
@@ -331,7 +435,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
         <View style={styles.photoContainer}>
           <View style={styles.photoTitleRow}>
             <Text style={styles.photoTitle}>{t(`${diNS}.photosSection.backTitle`)}</Text>
-            {licensePhotoBack && <MaterialIcons name="check-circle" size={20} color={colors.success} />}
+            {licensePhotoBack && <Ionicons name="checkmark-circle" size={20} color={colors.success} />}
           </View>
           {licensePhotoBack && (
             <StorageImage uri={licensePhotoBack} style={styles.photoPreview} />
@@ -339,9 +443,9 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
           <View style={styles.photoActionsRow}>
             <TouchableOpacity
               style={[styles.photoActionButton, styles.photoActionButtonPrimary]}
-              onPress={() => takePhoto(setLicensePhotoBack)}
+              onPress={() => takePhoto(setLicensePhotoBack, true)}
             >
-              <MaterialIcons name="photo-camera" size={18} color="#fff" />
+              <Ionicons name="camera" size={18} color="#fff" />
               <Text style={styles.photoActionButtonPrimaryText}>
                 {licensePhotoBack
                   ? t(`${diNS}.photosSection.retakePhoto`)
@@ -350,9 +454,9 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.photoActionButton, styles.photoActionButtonSecondary]}
-              onPress={() => pickFromGallery(setLicensePhotoBack)}
+              onPress={() => pickFromGallery(setLicensePhotoBack, true)}
             >
-              <MaterialIcons name="photo-library" size={18} color={colors.primary} />
+              <Ionicons name="images" size={18} color={colors.primary} />
               <Text style={styles.photoActionButtonSecondaryText}>
                 {t(`${diNS}.photosSection.chooseFromGallery`)}
               </Text>
@@ -374,23 +478,30 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
             {t(`${diNS}.loading.uploading`, { progress: Math.round(uploadProgress * 100) })}
           </Text>
         </View>
-      ) : documentsVerified ? (
+      ) : showVerifiedNotice ? (
         <View style={styles.verifiedNotice}>
           <Text style={styles.verifiedNoticeText}>{t(`${diNS}.verified.title`)}</Text>
           <Text style={styles.verifiedNoticeSubtitle}>{t(`${diNS}.verified.subtitle`)}</Text>
         </View>
       ) : (
-        <TouchableOpacity 
-          style={[styles.submitButton, !allDataProvided && styles.submitButtonDisabled]}
-          onPress={uploadDocumentsAndContinue}
-          disabled={!allDataProvided}
-        >
-          <Text style={[styles.submitButtonText, !allDataProvided && styles.submitButtonTextDisabled]}>
-            {allDataProvided
-              ? t(`${diNS}.buttons.save`)
-              : t(`${diNS}.buttons.missingData`)}
-          </Text>
-        </TouchableOpacity>
+        <>
+          {documentsVerified && hasChanges && (
+            <View style={styles.noticeContainer}>
+              <Text style={styles.noticeText}>{t(`${diNS}.verified.resubmitHint`)}</Text>
+            </View>
+          )}
+          <TouchableOpacity 
+            style={[styles.submitButton, !allDataProvided && styles.submitButtonDisabled]}
+            onPress={uploadDocumentsAndContinue}
+            disabled={!allDataProvided}
+          >
+            <Text style={[styles.submitButtonText, !allDataProvided && styles.submitButtonTextDisabled]}>
+              {allDataProvided
+                ? t(`${diNS}.buttons.save`)
+                : t(`${diNS}.buttons.missingData`)}
+            </Text>
+          </TouchableOpacity>
+        </>
       )}
       
       <View style={{ height: 12 }} />
@@ -409,7 +520,6 @@ const createStyles = (colors: any) => StyleSheet.create({
   header: {
     paddingHorizontal: 20,
     paddingBottom: 20,
-    backgroundColor: colors.card,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
@@ -450,7 +560,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     padding: 18,
     backgroundColor: colors.card,
     borderRadius: 16,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
   },
   sectionTitle: {
@@ -474,12 +584,30 @@ const createStyles = (colors: any) => StyleSheet.create({
     paddingVertical: 12,
     fontSize: 15,
     color: colors.text,
-    borderWidth: 1,
+    borderWidth: 0.5,
     borderColor: colors.border,
   },
   photoSection: {
     paddingHorizontal: 16,
     paddingBottom: 8,
+  },
+  ocrHint: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
+    marginBottom: 10,
+  },
+  ocrStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+  },
+  ocrStatusText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
+    marginBottom: 10,
   },
   photoSectionHeader: {
     flexDirection: 'row',
@@ -581,7 +709,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   submitButtonDisabled: {
     backgroundColor: colors.surface,
-    borderWidth: 1,
+    borderWidth: 0.5,
     borderColor: colors.border,
   },
   submitButtonText: {
@@ -604,21 +732,19 @@ const createStyles = (colors: any) => StyleSheet.create({
   verifiedNotice: {
     padding: 18,
     marginHorizontal: 16,
-    backgroundColor: colors.surface,
+    backgroundColor: 'rgba(127, 221, 130, 0.4)',
     borderRadius: 12,
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: colors.success,
   },
   verifiedNoticeText: {
-    color: colors.success,
+    color: colors.text,
     fontSize: 16,
     fontWeight: '700',
     marginBottom: 8,
     textAlign: 'center',
   },
   verifiedNoticeSubtitle: {
-    color: colors.textSecondary,
+    color: colors.text,
     fontSize: 13,
     textAlign: 'center',
     lineHeight: 18,

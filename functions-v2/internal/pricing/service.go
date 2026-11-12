@@ -3,6 +3,7 @@ package pricing
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"sync"
 	"time"
@@ -44,6 +45,8 @@ type Snapshot struct {
 	BaseFare           float64          `json:"baseFare"`
 	FareBeforeSurge    float64          `json:"fareBeforeSurge"`
 	SurgeMultiplier    float64          `json:"surgeMultiplier"`
+	PeakHourMultiplier float64          `json:"peakHourMultiplier"`
+	IsPeakHour         bool             `json:"isPeakHour"`
 	DemandSupplyRatio  *float64         `json:"demandSupplyRatio"`
 	CommissionRate     float64          `json:"commissionRate"`
 	CommissionAmount   float64          `json:"commissionAmount"`
@@ -52,20 +55,22 @@ type Snapshot struct {
 }
 
 type Result struct {
-	DistanceKm      float64  `json:"distanceKm"`
-	DurationMinutes int      `json:"durationMinutes"`
-	Multiplier      float64  `json:"multiplier"`
-	FinalPrice      float64  `json:"finalPrice"`
-	CommissionRate  float64  `json:"commissionRate"`
-	Commission      float64  `json:"commission"`
-	ServiceCode     string   `json:"serviceCode"`
-	ServiceID       string   `json:"serviceId,omitempty"`
-	ExtraStops      float64  `json:"extraStopsCharge"`
-	BaseFare        float64  `json:"baseFare"`
-	FeatureCodes    []string `json:"featureCodes"`
-	SurgeMultiplier float64  `json:"surgeMultiplier"`
-	IsFallback      bool     `json:"isFallback"`
-	Snapshot        Snapshot `json:"pricingSnapshot"`
+	DistanceKm         float64  `json:"distanceKm"`
+	DurationMinutes    int      `json:"durationMinutes"`
+	Multiplier         float64  `json:"multiplier"`
+	FinalPrice         float64  `json:"finalPrice"`
+	CommissionRate     float64  `json:"commissionRate"`
+	Commission         float64  `json:"commission"`
+	ServiceCode        string   `json:"serviceCode"`
+	ServiceID          string   `json:"serviceId,omitempty"`
+	ExtraStops         float64  `json:"extraStopsCharge"`
+	BaseFare           float64  `json:"baseFare"`
+	FeatureCodes       []string `json:"featureCodes"`
+	SurgeMultiplier    float64  `json:"surgeMultiplier"`
+	PeakHourMultiplier float64  `json:"peakHourMultiplier"`
+	IsPeakHour         bool     `json:"isPeakHour"`
+	IsFallback         bool     `json:"isFallback"`
+	Snapshot           Snapshot `json:"pricingSnapshot"`
 }
 
 type Service struct {
@@ -150,6 +155,7 @@ func (s *Service) Calculate(ctx context.Context, distanceMeters, durationSeconds
 	minFare := math.Max(svc.MinimumFare, svc.BasePrice)
 	baseFare := math.Max(svc.BasePrice+distanceComponent+timePrice+stops, minFare)
 
+	// Tarifa del servicio normal de referencia: conductor designado = ×2.6.
 	if rideType == "designated_driver" {
 		if normal, err := s.serviceConfig(ctx, "normal"); err == nil && normal != nil {
 			nm := normal.PricePerKm
@@ -161,8 +167,12 @@ func (s *Service) Calculate(ctx context.Context, distanceMeters, durationSeconds
 					math.Max(float64(durationMin), 0)*math.Max(normal.PricePerMinute, 0)+stops,
 				math.Max(normal.MinimumFare, normal.BasePrice),
 			)
-			baseFare = math.Max(baseFare, nf*2)
+			baseFare = math.Max(baseFare, nf*DesignatedDriverFareMult)
 		}
+	}
+	// Moto (viaje normal): su propia fórmula menos el 25%.
+	if rideType != "designated_driver" && serviceCode == "motorcycle" {
+		baseFare *= MotorcycleFareMult
 	}
 
 	feats, err := s.serviceFeatures(ctx, svc.ID)
@@ -198,7 +208,25 @@ func (s *Service) Calculate(ctx context.Context, distanceMeters, durationSeconds
 			surge = ResolveSurgeMultiplier(ratio, DefaultSurgeRules)
 		}
 	}
-	finalFare := RoundFareToNearestFive(fareBeforeSurge * surge)
+	isPeak := IsPeakHourAt(at)
+	peakMult := 1.0
+	if isPeak && !opts.SkipSurge {
+		peakMult = PeakHourMult
+	}
+	// Tarifa exacta entera (sin redondeo a múltiplos de 5).
+	finalFare := RoundFare(fareBeforeSurge * surge * peakMult)
+	if peakMult > 1 {
+		if loc, err := time.LoadLocation(defaultTZ); err == nil {
+			slog.InfoContext(ctx, "pricing: peak hour multiplier applied",
+				"serviceCode", serviceCode,
+				"calculationAt", at.In(loc).Format(time.RFC3339),
+				"peakMultiplier", peakMult,
+				"surgeMultiplier", surge,
+				"fareBeforeSurge", fareBeforeSurge,
+				"finalFare", finalFare,
+				"selectedFeatures", selected)
+		}
+	}
 
 	rate := svc.CommissionRate
 	if opts.DriverID != nil && *opts.DriverID != "" {
@@ -211,18 +239,20 @@ func (s *Service) Calculate(ctx context.Context, distanceMeters, durationSeconds
 	commission := CommissionAmount(finalFare, rate)
 
 	return &Result{
-		DistanceKm:      math.Round(distanceKm*100) / 100,
-		DurationMinutes: durationMin,
-		Multiplier:      multiplier,
-		FinalPrice:      finalFare,
-		CommissionRate:  rate,
-		Commission:      commission,
-		ServiceCode:     serviceCode,
-		ServiceID:       svc.ID,
-		ExtraStops:      stops,
-		BaseFare:        math.Round(baseFare*100) / 100,
-		FeatureCodes:    selected,
-		SurgeMultiplier: surge,
+		DistanceKm:         math.Round(distanceKm*100) / 100,
+		DurationMinutes:    durationMin,
+		Multiplier:         multiplier,
+		FinalPrice:         finalFare,
+		CommissionRate:     rate,
+		Commission:         commission,
+		ServiceCode:        serviceCode,
+		ServiceID:          svc.ID,
+		ExtraStops:         stops,
+		BaseFare:           math.Round(baseFare*100) / 100,
+		FeatureCodes:       selected,
+		SurgeMultiplier:    surge,
+		PeakHourMultiplier: peakMult,
+		IsPeakHour:         isPeak,
 		Snapshot: Snapshot{
 			ServiceCode:        serviceCode,
 			FeatureCodes:       selected,
@@ -230,11 +260,13 @@ func (s *Service) Calculate(ctx context.Context, distanceMeters, durationSeconds
 			BaseFare:           math.Round(baseFare*100) / 100,
 			FareBeforeSurge:    math.Round(fareBeforeSurge*100) / 100,
 			SurgeMultiplier:    surge,
+			PeakHourMultiplier: peakMult,
+			IsPeakHour:         isPeak,
 			DemandSupplyRatio:  ratio,
 			CommissionRate:     rate,
 			CommissionAmount:   commission,
 			FinalFare:          finalFare,
-			DynamicMinimumFare: DynamicMinimumFare(fareBeforeSurge, finalFare, surge),
+			DynamicMinimumFare: DynamicMinimumFare(fareBeforeSurge, finalFare, surge*peakMult),
 		},
 	}, nil
 }
@@ -248,24 +280,25 @@ func (s *Service) legacy(distanceKm float64, durationMin int, vehicleType, rideT
 	}
 	dist := math.Max(distanceKm, 0) * mult
 	bf := math.Max(dist+StopFee*float64(extraStops)+base, 50)
-	final := RoundFareToNearestFive(bf)
+	final := RoundFare(bf)
 	rate := FallbackCommissionRate(serviceCode)
 	comm := CommissionAmount(final, rate)
 	return &Result{
-		DistanceKm:      math.Round(distanceKm*100) / 100,
-		DurationMinutes: durationMin,
-		Multiplier:      mult,
-		FinalPrice:      final,
-		CommissionRate:  rate,
-		Commission:      comm,
-		ServiceCode:     serviceCode,
-		ExtraStops:      StopFee * float64(extraStops),
-		BaseFare:        bf,
-		IsFallback:      true,
-		SurgeMultiplier: 1,
+		DistanceKm:         math.Round(distanceKm*100) / 100,
+		DurationMinutes:    durationMin,
+		Multiplier:         mult,
+		FinalPrice:         final,
+		CommissionRate:     rate,
+		Commission:         comm,
+		ServiceCode:        serviceCode,
+		ExtraStops:         StopFee * float64(extraStops),
+		BaseFare:           bf,
+		IsFallback:         true,
+		SurgeMultiplier:    1,
+		PeakHourMultiplier: 1,
 		Snapshot: Snapshot{
 			ServiceCode: serviceCode, BaseFare: bf, FareBeforeSurge: bf,
-			SurgeMultiplier: 1, CommissionRate: rate, CommissionAmount: comm,
+			SurgeMultiplier: 1, PeakHourMultiplier: 1, CommissionRate: rate, CommissionAmount: comm,
 			FinalFare: final, DynamicMinimumFare: DynamicMinimumFare(bf, final, 1),
 		},
 	}

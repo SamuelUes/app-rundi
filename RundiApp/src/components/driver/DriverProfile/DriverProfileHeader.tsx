@@ -2,8 +2,8 @@ import React from 'react';
 import { View, Text, TouchableOpacity, Image } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '../../hooks/shared/theme/useTheme';
-import { LoadingIcon } from '../ui/LoadingIcon';
+import { useTheme } from '../../../hooks/shared/theme/useTheme';
+import { LoadingIcon } from '../../ui/LoadingIcon';
 import type { TFunction } from 'i18next';
 
 interface DriverProfileHeaderProps {
@@ -68,30 +68,30 @@ export function DriverProfileHeader({
             </View>
           )}
           <View style={styles.cameraIcon}>
-            <Text style={styles.cameraIconText}>📷</Text>
+            <Ionicons name="camera-outline" size={17} color={colors.text} />
           </View>
         </TouchableOpacity>
 
         <View style={styles.headerContent}>
-          <Text style={styles.driverName} numberOfLines={2}>{displayName}</Text>
-          {displayEmail && <Text style={styles.driverEmail} numberOfLines={1}>{displayEmail}</Text>}
-          <Text style={styles.memberId} numberOfLines={2} ellipsizeMode="middle">
+          <Text style={styles.driverName}>{displayName}</Text>
+          {displayEmail && <Text style={styles.driverEmail}>{displayEmail}</Text>}
+          <Text style={styles.memberId} numberOfLines={1} ellipsizeMode="middle">
             {t('driver.profile.header.memberId', { id: userId ?? '' })}
           </Text>
-
-          <View style={styles.headerBottomRow}>
-            {accountStatusBadge}
-            <View style={styles.ratingBadge}>
-              <Text style={styles.ratingStars}>⭐</Text>
-              <Text style={styles.ratingText}>{(typeof averageRating === 'number' ? averageRating : 5.0).toFixed(1)}</Text>
-            </View>
-          </View>
-
-          <TouchableOpacity style={styles.editProfileBadge} onPress={onEditProfile}>
-            <Text style={styles.editProfileText}>{t('driver.profile.header.edit')}</Text>
-          </TouchableOpacity>
         </View>
       </View>
+
+      <View style={styles.headerBottomRow}>
+        {accountStatusBadge}
+        <View style={styles.ratingBadge}>
+          <Ionicons name="star" size={14} color="#FFE6A3" />
+          <Text style={styles.ratingText}>{(typeof averageRating === 'number' ? averageRating : 5.0).toFixed(1)}</Text>
+        </View>
+      </View>
+
+      <TouchableOpacity style={styles.editProfileBadge} onPress={onEditProfile}>
+        <Text style={styles.editProfileText}>{t('driver.profile.header.edit')}</Text>
+      </TouchableOpacity>
     </View>
   );
 }

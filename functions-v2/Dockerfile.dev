@@ -1,0 +1,26 @@
+# Variante local del stack Docker (docker-compose.local-v2.yml).
+# Misma fuente que Dockerfile de prod, pero compila los 4 binarios y expone
+# /out/{api,consumer,scheduler,taskemulator}: el emulador de tasks ejecuta los
+# jobs como equivalentes locales de Cloud Run Jobs. /data va pre-owneada por
+# nonroot para que el named-volume de tasks-data herede permisos de escritura.
+# Prod NUNCA usa este archivo — cloudbuild.yaml apunta a Dockerfile.
+FROM golang:1.26 AS build
+ARG SERVICE=taskemulator
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN mkdir -p /out /data && \
+    CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/api ./cmd/api && \
+    CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/consumer ./cmd/consumer && \
+    CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/scheduler ./cmd/scheduler && \
+    CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/taskemulator ./cmd/taskemulator && \
+    cp "/out/${SERVICE}" /bin/app && \
+    chown -R 65532:65532 /data
+
+FROM gcr.io/distroless/static-debian12
+USER nonroot:nonroot
+COPY --from=build /bin/app /app
+COPY --from=build /out /out
+COPY --from=build --chown=nonroot:nonroot /data /data
+ENTRYPOINT ["/app"]

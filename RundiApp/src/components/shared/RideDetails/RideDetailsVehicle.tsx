@@ -1,7 +1,7 @@
 import React from 'react';
-import { View, Text } from 'react-native';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { View, Text, Image } from 'react-native';
 import type { TFunction } from 'i18next';
+import { ensureVehicleIconSource } from '../../../utils/driver/vehicleIcons';
 
 interface RideDetailsVehicleProps {
   ride: any;
@@ -20,13 +20,17 @@ export function RideDetailsVehicle({
 }: RideDetailsVehicleProps) {
   if (!ride.vehicle || typeof ride.vehicle !== 'object') return null;
 
+  const vehicleIconSource = ensureVehicleIconSource(
+    ride.vehicle.type ?? ride.designatedDriverVehicle ?? ride.vehicleType,
+  );
+
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{t('shared.rideDetail.sections.vehicle.title')}</Text>
       <View style={styles.card}>
         <View style={styles.vehicleRow}>
           <View style={styles.vehicleTile}>
-            <MaterialIcons name="directions-car" size={22} color={colors.primary} />
+            <Image source={vehicleIconSource} style={styles.vehicleIconImage} resizeMode="contain" />
           </View>
           <View style={styles.vehicleBody}>
             <Text style={styles.vehicleName}>

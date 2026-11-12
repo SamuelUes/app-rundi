@@ -414,7 +414,7 @@ export function buildActionsFromPreflightData(
     actions.push(buildProgrammedRideAction(t, preflightData.programmedRide));
   }
 
-  if (role === 'driver' && preflightData.pendingPayments && preflightData.pendingPayments.count > 0) {
+  if (preflightData.pendingPayments && preflightData.pendingPayments.count > 0) {
     actions.push(buildPendingPaymentAction(t, preflightData.pendingPayments, pendingPaymentsRoute));
   }
 

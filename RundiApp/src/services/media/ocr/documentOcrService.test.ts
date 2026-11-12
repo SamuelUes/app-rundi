@@ -11,6 +11,25 @@ const {
 } = __testing;
 
 describe('documentOcrService parsers', () => {
+  describe('periodic certificates', () => {
+    it('extracts labelled inspection dates', () => {
+      expect(__testing.extractPeriodicFields('Fecha de inspección: 05/11/2025\nVigente hasta: 05/11/2026', 'inspection')).toEqual({
+        inspectionDate: '2025-11-05',
+        inspectionValidUntil: '2026-11-05',
+      });
+    });
+
+    it('extracts labelled emissions dates without guessing unlabelled dates', () => {
+      expect(__testing.extractPeriodicFields('Fecha de prueba: 05/11/2025\nVence: 05/11/2026', 'emissions')).toEqual({
+        emissionsTestedAt: '2025-11-05',
+        emissionsValidUntil: '2026-11-05',
+      });
+      expect(__testing.extractPeriodicFields('05/11/2025', 'emissions')).toEqual({
+        emissionsTestedAt: undefined,
+        emissionsValidUntil: undefined,
+      });
+    });
+  });
   describe('license (licencia de conducir NI)', () => {
     const licenseText = `
       REPÚBLICA DE NICARAGUA

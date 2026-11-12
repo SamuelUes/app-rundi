@@ -18,6 +18,7 @@ interface SearchRideSummaryProps {
   rideComment: string;
   checkingDrivers: boolean;
   driversAvailable: boolean | null;
+  isPeakHour?: boolean;
   colors: any;
   onSetPaymentMethod: (method: PaymentMethod) => void;
   onSetPriceSuggestion: (value: string) => void;
@@ -39,6 +40,7 @@ export function SearchRideSummary({
   rideComment,
   checkingDrivers,
   driversAvailable,
+  isPeakHour = false,
   colors,
   onSetPaymentMethod,
   onSetPriceSuggestion,
@@ -107,6 +109,18 @@ export function SearchRideSummary({
           <Text style={styles.summaryPriceValue}>C${Math.round(estimatedPrice)}</Text>
         )}
       </View>
+
+      {isPeakHour ? (
+        <View style={styles.summaryAvailabilityRow}>
+          <RideIcon iconSet={iconSet} name="schedule" size={14} color={colors.warning || '#ffa726'} />
+          <Text
+            style={[styles.summaryAvailabilityText, { color: colors.warning || '#ffa726' }]}
+            numberOfLines={2}
+          >
+            {tr('summary.peakHourNotice')}
+          </Text>
+        </View>
+      ) : null}
 
       <View style={styles.summaryRow}>
         <RideIcon iconSet={iconSet} name="sell" size={20} color={metaColor} />

@@ -6,6 +6,7 @@ import type { TFunction } from 'i18next';
 
 interface RidePreviewNegotiationProps {
   negotiationStatus: string | null | undefined;
+  lastOfferBy: string | null | undefined;
   driverOfferedPrice: number | null | undefined;
   clientSuggestedPrice: number | null | undefined;
   estimatedPrice: number;
@@ -33,6 +34,7 @@ interface RidePreviewNegotiationProps {
 
 export function RidePreviewNegotiation({
   negotiationStatus,
+  lastOfferBy,
   driverOfferedPrice,
   clientSuggestedPrice,
   estimatedPrice,
@@ -63,15 +65,33 @@ export function RidePreviewNegotiation({
   const clientSuggested =
     typeof clientSuggestedPrice === 'number' && !Number.isNaN(clientSuggestedPrice);
 
+  // Quién ofertó último: el doc de la oferta proyecta lastOfferBy
+  // (ride.price_offered → 'driver', ride.price_suggested → 'client'). Sin él,
+  // cae al estado de negociación conocido.
+  const offerer: 'driver' | 'client' | null =
+    lastOfferBy === 'driver' || lastOfferBy === 'client'
+      ? lastOfferBy
+      : status === 'driver_offered' && driverSuggested
+        ? 'driver'
+        : clientSuggested
+          ? 'client'
+          : null;
+
   const renderNegotiationBanner = () => {
-    const statusText = t(`driver.ridePreview.negotiation.status.${status}`, {
+    const driverStatuses = ['driver_offered', 'driver_accepted'];
+    const clientStatuses = ['client_suggested', 'client_accepted'];
+    const subtitleKey =
+      offerer === 'driver'
+        ? driverStatuses.includes(status) ? status : 'driver_offered'
+        : clientStatuses.includes(status) ? status : 'client_suggested';
+    const statusText = t(`driver.ridePreview.negotiation.status.${subtitleKey}`, {
       defaultValue:
-        status === 'driver_offered'
+        offerer === 'driver'
           ? t('driver.ridePreview.negotiation.status.defaultDriver')
           : t('driver.ridePreview.negotiation.status.defaultClient'),
     });
 
-    if (status === 'driver_offered' && driverSuggested) {
+    if (offerer === 'driver' && driverSuggested) {
       const accent = isDark ? '#90CAF9' : '#1565C0';
       return (
         <View
@@ -105,7 +125,7 @@ export function RidePreviewNegotiation({
       );
     }
 
-    if (clientSuggested) {
+    if (offerer === 'client' && clientSuggested) {
       const accent = isDark ? '#A5D6A7' : '#2E7D32';
       return (
         <View

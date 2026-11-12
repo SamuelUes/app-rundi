@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { View, Text, Image } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Easing, View, Text, Image } from 'react-native';
 import StorageImage from '../../shared/StorageImage';
 import { Marker } from 'react-native-maps';
 import { MarkerBubble, markerStyles } from './MarkerContent';
@@ -67,17 +67,50 @@ function clusterDrivers(drivers: DriverMarker[], zoom: number): Array<{ type: 's
   return results;
 }
 
+const FADE_IN_MS = 220;
+const FADE_OUT_MS = 280;
+
+function useMarkerFadeOpacity(fadeOut: boolean, onFadeOutEnd?: () => void): number {
+  const animated = useRef(new Animated.Value(fadeOut ? 1 : 0)).current;
+  const [opacity, setOpacity] = useState(() => (fadeOut ? 1 : 0));
+
+  useEffect(() => {
+    const subscription = animated.addListener(({ value }) => setOpacity(value));
+    const animation = Animated.timing(animated, {
+      toValue: fadeOut ? 0 : 1,
+      duration: fadeOut ? FADE_OUT_MS : FADE_IN_MS,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: false,
+    });
+    animation.start(({ finished }) => {
+      if (finished && fadeOut) onFadeOutEnd?.();
+    });
+    return () => {
+      animation.stop();
+      animated.removeListener(subscription);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return opacity;
+}
+
 const DriverPinMarker = React.memo(function DriverPinMarker({
   driver,
   heading,
   iconSize,
   onPress,
+  fadeOut = false,
+  onFadeOutEnd,
 }: {
   driver: DriverMarker;
   heading: number;
   iconSize: number;
   onPress?: () => void;
+  fadeOut?: boolean;
+  onFadeOutEnd?: () => void;
 }) {
+  const opacity = useMarkerFadeOpacity(fadeOut, onFadeOutEnd);
   const tracking = useTracksViewChanges([
     driver.isSelected,
     driver.vehicleIconSource,
@@ -93,6 +126,7 @@ const DriverPinMarker = React.memo(function DriverPinMarker({
       tracksViewChanges={tracking.tracksViewChanges}
       anchor={{ x: 0.5, y: 0.5 }}
       zIndex={driver.isSelected ? 8 : 6}
+      opacity={opacity}
       onPress={onPress}
       flat
     >
@@ -152,8 +186,43 @@ export default React.memo(function NearbyDriversLayer({
     [nearbyDrivers, currentZoom],
   );
 
+  // Drivers removed from the range stay mounted briefly to fade out.
+  const [leavingDrivers, setLeavingDrivers] = useState<DriverMarker[]>([]);
+  const prevDriversRef = useRef<Map<string, DriverMarker>>(new Map());
+
+  useEffect(() => {
+    const current = new Map(nearbyDrivers.map((driver) => [driver.id, driver]));
+    const leaving: DriverMarker[] = [];
+    prevDriversRef.current.forEach((driver, id) => {
+      if (!current.has(id)) leaving.push(driver);
+    });
+    prevDriversRef.current = current;
+    setLeavingDrivers((prev) => {
+      const stillLeaving = prev.filter((driver) => !current.has(driver.id));
+      const additions = leaving.filter(
+        (driver) => !stillLeaving.some((existing) => existing.id === driver.id),
+      );
+      const merged = [...stillLeaving, ...additions];
+      return merged.length === 0 && prev.length === 0 ? prev : merged;
+    });
+  }, [nearbyDrivers]);
+
+  const handleFadeOutEnd = (driverId: string) => {
+    setLeavingDrivers((prev) => prev.filter((driver) => driver.id !== driverId));
+  };
+
   return (
     <>
+      {leavingDrivers.map((driver) => (
+        <DriverPinMarker
+          key={`leaving-${driver.id}`}
+          driver={driver}
+          heading={resolveDriverHeading(driver)}
+          iconSize={VEHICLE_ICON_BASE_SIZE}
+          fadeOut
+          onFadeOutEnd={() => handleFadeOutEnd(driver.id)}
+        />
+      ))}
       {clustered.map((item, index) => {
         if (item.type === 'cluster') {
           const { cluster } = item;

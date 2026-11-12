@@ -93,8 +93,8 @@ export interface MapCameraApi {
 export function useMapCamera(
   latitude: number,
   longitude: number,
-  onRegionChangeCenter?: (center: { latitude: number; longitude: number; altitude?: number }) => void,
-  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number; altitude?: number }) => void,
+  onRegionChangeCenter?: (center: { latitude: number; longitude: number; altitude?: number; isGesture?: boolean }) => void,
+  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number; altitude?: number; isGesture?: boolean }) => void,
 ): MapCameraApi {
   const mapRef = useRef<MapView>(null);
   const [isMapReady, setIsMapReady] = useState(false);
@@ -188,21 +188,21 @@ export function useMapCamera(
   );
 
   const handleRegionChange = useCallback(
-    (region: Region) => {
+    (region: Region, details?: { isGesture?: boolean }) => {
       markGestureActive();
       if (onRegionChangeCenter) {
-        onRegionChangeCenter({ latitude: region.latitude, longitude: region.longitude, altitude: lastCameraAltitudeRef.current });
+        onRegionChangeCenter({ latitude: region.latitude, longitude: region.longitude, altitude: lastCameraAltitudeRef.current, isGesture: details?.isGesture });
       }
     },
     [markGestureActive, onRegionChangeCenter],
   );
 
   const handleRegionChangeComplete = useCallback(
-    async (region: Region) => {
+    async (region: Region, details?: { isGesture?: boolean }) => {
       markGestureActive();
       const altitude = (await updateAltitudeFromCamera()) ?? lastCameraAltitudeRef.current;
       if (onRegionChangeCompleteCenter) {
-        onRegionChangeCompleteCenter({ latitude: region.latitude, longitude: region.longitude, altitude });
+        onRegionChangeCompleteCenter({ latitude: region.latitude, longitude: region.longitude, altitude, isGesture: details?.isGesture });
       }
     },
     [markGestureActive, updateAltitudeFromCamera, onRegionChangeCompleteCenter],

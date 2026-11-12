@@ -34,7 +34,7 @@ func TestSeniorPreferenceAndPetDefault(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM public.drivers WHERE user_id = $1`, uid)
 		_, _ = pool.Exec(ctx, `DELETE FROM public.users WHERE id = $1`, uid)
 	})
-	svc := NewService(pool, nil)
+	svc := NewService(pool, nil, nil)
 	check := func(wantSenior bool) {
 		t.Helper()
 		codes, err := svc.MyFeatureCapabilities(ctx, uid)

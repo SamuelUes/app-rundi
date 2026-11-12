@@ -58,8 +58,12 @@ func main() {
 	}
 	fcmSender, err := fcm.NewSender(ctx, app)
 	if err != nil {
-		slog.Error("fcm", "err", err)
-		os.Exit(1)
+		if os.Getenv("ALLOW_NO_FCM") != "true" {
+			slog.Error("fcm", "err", err)
+			os.Exit(1)
+		}
+		slog.Warn("fcm disabled", "err", err)
+		fcmSender = nil
 	}
 	notify := notifications.NewCenter(fsClient, fcmSender)
 
@@ -319,8 +323,8 @@ func writeProjectionStatus(ctx context.Context, c *firestore.Client, ev pendingE
 
 // ==========================================================================
 // SYSTEM_pending_events — eventos Firestore-operacionales que requieren
-// durabilidad SQL (doc §5.2). El cliente escribe el doc operacional + el
-// pending event en un batch atómico; el consumidor lo persiste en SQL de
+// durabilidad SQL (doc §5.2). El backend escribe el doc operacional + el
+// pending event en una operación atómica; el consumidor lo persiste en SQL de
 // forma idempotente y registra SYSTEM_processed_events/{eventId}.
 // ==========================================================================
 
@@ -346,6 +350,15 @@ func processPendingEventsWithHandler(ctx context.Context, c *firestore.Client, a
 		snaps, err := query.Documents(ctx).GetAll()
 		if err != nil {
 			return processed, err
+		}
+		if page == 0 {
+			oldestAge := int64(-1)
+			if len(snaps) > 0 {
+				if createdAt, ok := snaps[0].Data()["createdAt"].(time.Time); ok {
+					oldestAge = max(int64(0), int64(time.Since(createdAt).Seconds()))
+				}
+			}
+			slog.Info("pending_events.backlog", "count_lower_bound", len(snaps), "oldest_age_seconds", oldestAge)
 		}
 		for _, s := range snaps {
 			claim, err := claimPendingEvent(ctx, c, s.Ref)
@@ -423,12 +436,14 @@ func applyPendingEvent(ctx context.Context, pool *pgxpool.Pool, c *firestore.Cli
 			return "", err
 		}
 		if notify != nil && callee != "" {
-			_ = notify.Notify(ctx, callee, "", notifications.RideCall, notifications.NotifyOpts{
+			if err := notify.Notify(ctx, callee, "", notifications.RideCall, notifications.NotifyOpts{
 				Key: "call-" + callID,
 				ExtraData: map[string]string{
 					"type": "call", "callId": callID,
 				},
-			})
+			}); err != nil {
+				return "", fmt.Errorf("notify call participant: %w", err)
+			}
 		}
 		if apnsSender != nil && callee != "" {
 			calls.SendVoipCallPush(ctx, c, apnsSender, callID, uid, callee)
@@ -966,8 +981,10 @@ func publishReservedOffer(ctx context.Context, pool *pgxpool.Pool, c *firestore.
 	var rideStatus, offerStatus string
 	var assignedDriver *string
 	var expiresAt *time.Time
-	err = tx.QueryRow(ctx, `SELECT status::text, driver_id FROM public.rides WHERE id=$1::uuid FOR NO KEY UPDATE`, rideID).
-		Scan(&rideStatus, &assignedDriver)
+	var clientPrice *float64
+	var rideVersion int64
+	err = tx.QueryRow(ctx, `SELECT status::text, driver_id, client_suggested_price, version FROM public.rides WHERE id=$1::uuid FOR NO KEY UPDATE`, rideID).
+		Scan(&rideStatus, &assignedDriver, &clientPrice, &rideVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -990,6 +1007,13 @@ func publishReservedOffer(ctx context.Context, pool *pgxpool.Pool, c *firestore.
 	if offerStatus != "sent" || expiresAt == nil || !expiresAt.After(time.Now()) {
 		return false, tx.Commit(ctx)
 	}
+	// Dispatch may have started before a newer client price was committed.
+	if clientPrice != nil {
+		data["clientSuggestedPrice"] = *clientPrice
+	} else {
+		delete(data, "clientSuggestedPrice")
+	}
+	data["offerProjectionVersion"] = rideVersion
 	created, err := createOfferOnce(func() error {
 		_, err := c.Collection(fs.ColDriverOffers).Doc(rideID+"_"+driverID).Create(ctx, data)
 		return err

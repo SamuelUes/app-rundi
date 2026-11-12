@@ -595,7 +595,16 @@ ON CONFLICT (vehicle_type, service_code) DO UPDATE SET
   confirmed_by_source = EXCLUDED.confirmed_by_source,
   legal_source = EXCLUDED.legal_source,
   notes = EXCLUDED.notes,
-  updated_at = NOW();
+  updated_at = NOW()
+-- Sin cambio real no se escribe: un UPDATE no-op dispara
+-- compliance_signals_catrules (rules:global) e invalida las sesiones
+-- driver_sessions vivas (ErrSessionSignalsStale → 409).
+WHERE (license_category_rules.required_categories, license_category_rules.severity,
+       license_category_rules.confirmed_by_source, license_category_rules.legal_source,
+       license_category_rules.notes)
+  IS DISTINCT FROM
+      (EXCLUDED.required_categories, EXCLUDED.severity,
+       EXCLUDED.confirmed_by_source, EXCLUDED.legal_source, EXCLUDED.notes);
 
 -- Reglas del compliance engine (leídas por functions-v2/internal/compliance)
 INSERT INTO public.compliance_rules
@@ -652,7 +661,14 @@ ON CONFLICT (code) DO UPDATE SET
   legal_basis = EXCLUDED.legal_basis,
   description = EXCLUDED.description,
   params = EXCLUDED.params,
-  updated_at = NOW();
+  updated_at = NOW()
+-- Misma guarda que el seed de arriba: sin diff no se bumpea rules:global.
+WHERE (compliance_rules.entity_scope, compliance_rules.severity, compliance_rules.blocking,
+       compliance_rules.warning_days, compliance_rules.legal_basis, compliance_rules.description,
+       compliance_rules.params)
+  IS DISTINCT FROM
+      (EXCLUDED.entity_scope, EXCLUDED.severity, EXCLUDED.blocking,
+       EXCLUDED.warning_days, EXCLUDED.legal_basis, EXCLUDED.description, EXCLUDED.params);
 
 COMMIT;
 

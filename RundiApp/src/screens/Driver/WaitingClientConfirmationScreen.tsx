@@ -9,7 +9,7 @@ import {
   Animated,
   Easing,
 } from 'react-native';
-import { liveTripDocId } from '../../live/tripIds';
+import { liveTripDocId, sqlRideIdForTrip } from '../../live/tripIds';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTranslation } from 'react-i18next';
@@ -400,24 +400,53 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
     (async () => {
       const db = await getFirebaseFirestore();
       if (cancelled) return;
-      unsubs.push(
-        onSnapshot(doc(db, FS_COL.tripsLive, await liveTripDocId(rideId)), (snap) => {
-          handleRideData(snap.data());
-        }, (err) => {
-          // trips_live es ilegible para el oferente mientras negocia
-          // (no participante): el doc de mi oferta cubre esa ventana.
-          console.warn('[WaitingClientConfirmation] trips_live listener:', err);
-        }),
-      );
-      // Mi oferta (legible siempre): cubre aceptación, rechazo y cierre
-      // mientras trips_live sigue denegado durante la negociación.
+      // Mi oferta PRIMERO (legible siempre y la única vía confiable
+      // pre-asignación): cubre aceptación, rechazo y cierre mientras
+      // trips_live sigue denegado durante la negociación. Debe suscribirse
+      // antes del await de liveTripDocId — si esa resolución lanza (REST
+      // getRideDetail caído/denegado) el listener de oferta no puede morir
+      // con ella o la pantalla espera para siempre.
+      // OJO: el doc de oferta se indexa por el UUID SQL ({sqlId}_{uid}) pero
+      // route.params.rideId puede llegar como firebaseRideId — resolver antes
+      // de suscribir o el listener apunta a un doc inexistente.
       if (user?.id) {
+        let offerRideId = rideId;
+        try {
+          offerRideId = await sqlRideIdForTrip(rideId);
+        } catch {
+          // si la resolución falla, igual se suscribe con el id crudo
+        }
+        if (cancelled) return;
+        const offerDocIds = new Set([`${rideId}_${user.id}`, `${offerRideId}_${user.id}`]);
+        offerDocIds.forEach((offerDocId) => {
+          unsubs.push(
+            onSnapshot(doc(db, FS_COL.driverOffers, offerDocId), (snap) => {
+              const offer = snap.data();
+              if (offer) handleTerminalOffer(String(offer.status));
+            }),
+          );
+        });
+      }
+      try {
+        const liveId = await liveTripDocId(rideId);
+        if (cancelled) return;
         unsubs.push(
-          onSnapshot(doc(db, FS_COL.driverOffers, `${rideId}_${user.id}`), (snap) => {
-            const offer = snap.data();
-            if (offer) handleTerminalOffer(String(offer.status));
+          onSnapshot(doc(db, FS_COL.tripsLive, liveId), (snap) => {
+            handleRideData(snap.data());
+          }, (err: any) => {
+            // trips_live es ilegible para el oferente mientras negocia (no
+            // participante): el doc de mi oferta cubre esa ventana. onSnapshot
+            // no reintenta tras el deny — la navegación sale del listener de
+            // driver_offers, este solo acelera el caso ya-participante.
+            if (String(err?.code || '').includes('permission-denied')) {
+              console.log('[WaitingClientConfirmation] trips_live denegado (esperado pre-asignación)');
+            } else {
+              console.warn('[WaitingClientConfirmation] trips_live listener:', err);
+            }
           }),
         );
+      } catch (err) {
+        console.warn('[WaitingClientConfirmation] liveTripDocId falló; sigo solo con la oferta:', err);
       }
     })();
 
@@ -435,7 +464,7 @@ export default function WaitingClientConfirmationScreen({ route, navigation }: W
         navigationTimeoutRef.current = null;
       }
     };
-  }, [rideId]);
+  }, [rideId, user?.id]);
 
   // TTL de la oferta: si el cliente no responde en OFFER_WAIT_TIMEOUT_S, se retira sola
   useEffect(() => {

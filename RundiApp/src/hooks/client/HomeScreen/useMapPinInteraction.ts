@@ -4,8 +4,9 @@ import mapsService from '../../../services/map/mapsService';
 import alertService from '../../../services/notification/alertService';
 import type { TFunction } from 'i18next';
 import type { ManualOverrideState } from './useClientLocation';
+import type { RegionStatus } from './useRegionAvailability';
 
-const COORDS_EPSILON = 0.0002;
+const COORDS_EPSILON = 0.00002;
 const REGION_IDLE_DELAY_MS = 900;
 
 const areCoordsEqual = (
@@ -35,9 +36,12 @@ export function useMapPinInteraction(
     address: string,
     options?: { source?: 'manual' | 'gps'; manualOverride?: { active: boolean; updatedAt?: string } },
   ) => Promise<void>,
-  updateRegionForCoords: (lat: number, lng: number) => Promise<void>,
+  checkRegionForCoords: (lat: number, lng: number) => Promise<RegionStatus>,
+  setRegionStatus: (status: RegionStatus) => void,
   resolveAddressText: (lat: number, lng: number, fallback?: string) => string,
   t: TFunction,
+  selectionDisabled: boolean,
+  onRestoreLocation: (location: CommittedCoords) => void,
 ) {
   const [mapCenter, setMapCenter] = useState<{ latitude: number; longitude: number } | null>(null);
   const [pendingAddress, setPendingAddress] = useState(() => t('client.home.map.loadingAddress'));
@@ -47,19 +51,17 @@ export function useMapPinInteraction(
   const [isHoldingPin, setIsHoldingPin] = useState(false);
   const [isPinLocked, setIsPinLocked] = useState(true);
 
-  const ignoreNextRegionChangeRef = useRef(false);
   const mapGestureActiveRef = useRef(false);
   const lastCommittedCoordsRef = useRef<CommittedCoords | null>(null);
   const regionIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectionGenerationRef = useRef(0);
+  const savingRef = useRef(false);
   const centerPinBounce = useRef(new Animated.Value(0)).current;
   const markerBounce = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    ignoreNextRegionChangeRef.current = true;
-  }, []);
-
-  useEffect(() => {
     return () => {
+      selectionGenerationRef.current += 1;
       if (regionIdleTimeoutRef.current) {
         clearTimeout(regionIdleTimeoutRef.current);
         regionIdleTimeoutRef.current = null;
@@ -83,7 +85,6 @@ export function useMapPinInteraction(
     if (isSavingLocation || hasPendingManualSelection) return;
 
     if (!mapCenter || !areCoordsEqual(mapCenter, committedCoords)) {
-      ignoreNextRegionChangeRef.current = true;
       setMapCenter(committedCoords);
     }
 
@@ -106,96 +107,118 @@ export function useMapPinInteraction(
     isSavingLocation,
   ]);
 
-  const persistManualLocation = useCallback(
-    async (coordsToSave: { latitude: number; longitude: number } | null, preferredAddress?: string | null) => {
-      if (!coordsToSave || isSavingLocation) return;
+  const restoreCommitted = useCallback(() => {
+    setMapCenter(lastCommittedCoordsRef.current);
+    if (lastCommittedCoordsRef.current) onRestoreLocation(lastCommittedCoordsRef.current);
+    setHasPendingManualSelection(false);
+    setIsResolvingAddress(false);
+    setIsPinLocked(true);
+  }, [onRestoreLocation]);
 
-      setIsSavingLocation(true);
-
-      try {
-        let addressToSave = preferredAddress;
-        if (!addressToSave || addressToSave === t('client.home.map.loadingAddress')) {
-          addressToSave =
-            (await mapsService.reverseGeocode({
-              latitude: coordsToSave.latitude,
-              longitude: coordsToSave.longitude,
-            })) || resolveAddressText(coordsToSave.latitude, coordsToSave.longitude, savedAddress);
-        }
-
-        await saveClientLocation(coordsToSave, addressToSave, {
-          source: 'manual',
-          manualOverride: { active: true, updatedAt: new Date().toISOString() },
-        });
-
-        ignoreNextRegionChangeRef.current = true;
-        lastCommittedCoordsRef.current = coordsToSave;
-
-        setManualOverrideLocal({
-          active: true,
-          coords: coordsToSave,
-          address: addressToSave,
-          updatedAt: Date.now(),
-          source: 'local',
-        });
-        setPendingAddress(addressToSave);
-        setHasPendingManualSelection(false);
-        setIsPinLocked(true);
-
-        alertService.showSuccessAlert(
-          t('client.home.alerts.locationSavedTitle'),
-          t('client.home.alerts.locationSavedMessage'),
+  const confirmSelection = useCallback(async (location: CommittedCoords, generation: number) => {
+    const isCurrent = () => generation === selectionGenerationRef.current;
+    if (!isCurrent() || savingRef.current) return;
+    let startedSaving = false;
+    setIsResolvingAddress(true);
+    try {
+      const [region, address] = await Promise.all([
+        checkRegionForCoords(location.latitude, location.longitude),
+        mapsService.reverseGeocode(location).catch(() => null),
+      ]);
+      if (!isCurrent()) return;
+      if (!region.allowed) {
+        restoreCommitted();
+        alertService.showInfoAlert(
+          t('client.home.alerts.regionUnavailableTitle'),
+          t('client.home.alerts.regionUnavailableMessage'),
         );
-      } catch (error) {
-        console.error('❌ [useMapPinInteraction] Error guardando nueva ubicación:', error);
-        alertService.showErrorAlert(t('client.home.alerts.locationSaveError'));
-      } finally {
-        setIsHoldingPin(false);
+        return;
+      }
+
+      const finalAddress = address || resolveAddressText(location.latitude, location.longitude);
+      savingRef.current = true;
+      startedSaving = true;
+      setIsSavingLocation(true);
+      await saveClientLocation(location, finalAddress, {
+        source: 'manual',
+        manualOverride: { active: true, updatedAt: new Date().toISOString() },
+      });
+      if (!isCurrent()) return;
+      lastCommittedCoordsRef.current = location;
+      setRegionStatus(region);
+      setPendingAddress(finalAddress);
+      setHasPendingManualSelection(false);
+      setIsPinLocked(true);
+    } catch (error) {
+      if (!isCurrent()) return;
+      console.error('[useMapPinInteraction] Error confirming location:', error);
+      alertService.showConfirmAlert(
+        t('client.home.alerts.locationRetryTitle'),
+        t('client.home.alerts.locationRetryMessage'),
+        () => {
+          if (!isCurrent()) return;
+          setMapCenter(location);
+          onRestoreLocation(location);
+          setHasPendingManualSelection(true);
+          setIsPinLocked(false);
+          void confirmSelection(location, generation);
+        },
+        () => { if (isCurrent()) restoreCommitted(); },
+        t('client.home.errors.retry'),
+        t('client.home.alerts.locationRetryCancel'),
+      );
+    } finally {
+      if (startedSaving) savingRef.current = false;
+      if (isCurrent()) {
+        setIsResolvingAddress(false);
         setIsSavingLocation(false);
       }
-    },
-    [isSavingLocation, saveClientLocation, resolveAddressText, savedAddress, t],
-  );
-
-  // We need setManualOverride from useClientLocation, but we don't want to create a circular dep.
-  // Instead, we accept it as a parameter via a setter callback.
-  const [manualOverrideLocal, setManualOverrideLocal] = useState<ManualOverrideState | null>(null);
-
-  const handleRegionChangeCenter = useCallback((center?: { latitude: number; longitude: number }) => {
-    if (!center) return;
-
-    if (ignoreNextRegionChangeRef.current) {
-      ignoreNextRegionChangeRef.current = false;
-      return;
     }
+  }, [checkRegionForCoords, onRestoreLocation, resolveAddressText, restoreCommitted, saveClientLocation, setRegionStatus, t]);
 
+  const beginGesture = useCallback(() => {
+    if (selectionDisabled || savingRef.current) return;
+    if (mapGestureActiveRef.current) return;
+    selectionGenerationRef.current += 1;
     clearRegionIdleTimeout();
+    mapGestureActiveRef.current = true;
+    setIsPinLocked(false);
+    setIsHoldingPin(true);
+    setHasPendingManualSelection(true);
+    setIsResolvingAddress(false);
+  }, [clearRegionIdleTimeout, selectionDisabled]);
 
-    if (isPinLocked) return;
+  const handlePanDrag = useCallback(() => {
+    beginGesture();
+  }, [beginGesture]);
 
-    if (!mapGestureActiveRef.current) {
-      mapGestureActiveRef.current = true;
-      setIsHoldingPin(true);
-      setHasPendingManualSelection(true);
-    }
-
-    setMapCenter({ latitude: center.latitude, longitude: center.longitude });
-  }, [clearRegionIdleTimeout, isPinLocked]);
-
-  const handleRegionChangeCompleteCenter = useCallback((center?: { latitude: number; longitude: number }) => {
-    if (!center) return;
-
+  useEffect(() => {
+    if (!selectionDisabled) return;
+    selectionGenerationRef.current += 1;
+    clearRegionIdleTimeout();
     mapGestureActiveRef.current = false;
     setIsHoldingPin(false);
+    setIsPinLocked(true);
+    setHasPendingManualSelection(false);
+    setIsResolvingAddress(false);
+    setIsSavingLocation(false);
+  }, [clearRegionIdleTimeout, selectionDisabled]);
 
-    if (ignoreNextRegionChangeRef.current) {
-      ignoreNextRegionChangeRef.current = false;
-      return;
-    }
+  const handleRegionChangeCenter = useCallback((center?: { latitude: number; longitude: number; isGesture?: boolean }) => {
+    if (!center) return;
+    if (center.isGesture === false) return;
+    if (center.isGesture) beginGesture();
 
-    if (isPinLocked) {
-      clearRegionIdleTimeout();
-      return;
-    }
+    if (!mapGestureActiveRef.current || selectionDisabled) return;
+    setMapCenter({ latitude: center.latitude, longitude: center.longitude });
+  }, [beginGesture, selectionDisabled]);
+
+  const handleRegionChangeCompleteCenter = useCallback((center?: { latitude: number; longitude: number; isGesture?: boolean }) => {
+    if (!center) return;
+
+    if (!mapGestureActiveRef.current || selectionDisabled) return;
+    mapGestureActiveRef.current = false;
+    setIsHoldingPin(false);
 
     const normalizedCenter = { latitude: center.latitude, longitude: center.longitude };
 
@@ -213,6 +236,7 @@ export function useMapPinInteraction(
       );
       setIsResolvingAddress(false);
       setIsHoldingPin(false);
+      setIsPinLocked(true);
       clearRegionIdleTimeout();
       return;
     }
@@ -220,48 +244,22 @@ export function useMapPinInteraction(
     setHasPendingManualSelection(true);
 
     clearRegionIdleTimeout();
+    const generation = selectionGenerationRef.current;
     regionIdleTimeoutRef.current = setTimeout(() => {
-      (async () => {
-        setIsResolvingAddress(true);
-        let resolvedAddress: string | null = null;
-
-        try {
-          resolvedAddress = await mapsService.reverseGeocode({
-            latitude: normalizedCenter.latitude,
-            longitude: normalizedCenter.longitude,
-          });
-        } catch (error) {
-          console.error('❌ [useMapPinInteraction] Error resolviendo dirección:', error);
-        }
-
-        const finalAddress =
-          resolvedAddress || resolveAddressText(normalizedCenter.latitude, normalizedCenter.longitude, savedAddress);
-        setPendingAddress(finalAddress);
-        setIsResolvingAddress(false);
-
-        await updateRegionForCoords(normalizedCenter.latitude, normalizedCenter.longitude);
-
-        await persistManualLocation(normalizedCenter, finalAddress);
-      })()
-        .catch((error) => {
-          console.error('❌ [useMapPinInteraction] Error completando selección manual:', error);
-        })
-        .finally(() => {
-          regionIdleTimeoutRef.current = null;
-        });
+      regionIdleTimeoutRef.current = null;
+      void confirmSelection(normalizedCenter, generation);
     }, REGION_IDLE_DELAY_MS);
   }, [
     clearRegionIdleTimeout,
-    isPinLocked,
-    persistManualLocation,
+    selectionDisabled,
+    confirmSelection,
     resolveAddressText,
     savedAddress,
-    updateRegionForCoords,
     t,
   ]);
 
   const handleMarkerPress = useCallback(async () => {
-    if (!mapCenter || isSavingLocation) return;
+    if (!mapCenter || isSavingLocation || selectionDisabled) return;
 
     if (isPinLocked) {
       setIsPinLocked(false);
@@ -270,8 +268,13 @@ export function useMapPinInteraction(
 
     if (isHoldingPin) return;
 
-    await persistManualLocation(mapCenter, pendingAddress);
-  }, [mapCenter, isHoldingPin, isPinLocked, isSavingLocation, pendingAddress, persistManualLocation]);
+    if (!hasPendingManualSelection) {
+      setIsPinLocked(true);
+      return;
+    }
+    clearRegionIdleTimeout();
+    await confirmSelection(mapCenter, ++selectionGenerationRef.current);
+  }, [mapCenter, isHoldingPin, isPinLocked, isSavingLocation, hasPendingManualSelection, clearRegionIdleTimeout, confirmSelection, selectionDisabled]);
 
   return {
     mapCenter,
@@ -286,7 +289,7 @@ export function useMapPinInteraction(
     markerBounce,
     handleRegionChangeCenter,
     handleRegionChangeCompleteCenter,
+    handlePanDrag,
     handleMarkerPress,
-    persistManualLocation,
   };
 }

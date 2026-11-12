@@ -100,7 +100,7 @@ const driver = {
               totalToday: 'Total hoy',
             },
             cta: {
-              viewRequests: 'Ver solicitudes',
+              viewRequests: 'Solicitudes',
             },
             status: {
               online: 'En línea',
@@ -132,7 +132,7 @@ const driver = {
             rideFeatures: {
               title: 'Servicios especiales',
               seniorTitle: 'Viajes para personas mayores',
-              seniorDescription: 'Activa esta opción para recibir solicitudes para personas de la tercera edad.',
+              seniorDescription: 'Activa esta opción para recibir solicitudes para personas de la tercera edad. Al habilitar este servicio, queda previsto el transporte de silla de ruedas y demas objetos que la persona de tercera edad pueda llegar a utilizar.',
               error: 'No pudimos actualizar esta preferencia.',
             },
             loading: {
@@ -800,8 +800,8 @@ const driver = {
   navigation: {
     title: 'Navegar con GPS',
     subtitle: 'Elige tu app de navegación preferida',
-    googleMaps: '🗺️ Google Maps',
-    waze: '🚗 Waze',
+    googleMaps: 'Google Maps',
+    waze: 'Waze',
     cancel: 'Cancelar',
     button: 'Navegar',
      },
@@ -824,6 +824,7 @@ const driver = {
     },
            crew: {
           addColleague: 'Agregar colega',
+          requestSent: 'Solicitud enviada',
           following: 'Siguiendo a {{name}}',
           colleague: 'Colega: {{name}}',
           unpair: 'Desemparejar',
@@ -851,11 +852,12 @@ const driver = {
               offline: 'Desconectado',
               not_eligible: 'No es conductor designado verificado',
               self: 'Eres tú',
+              invited: 'Invitación enviada',
             },
           },
           invite: {
             title: 'Invitación de colega',
-            body: '{{name}} quiere que seas su seguidor en viajes de conductor designado.',
+            body: 'quiere que seas su seguidor en viajes de conductor designado.',
             license: 'Licencia {{license}}',
             accept: 'Aceptar',
             reject: 'Rechazar',
@@ -882,6 +884,7 @@ const driver = {
           errors: {
             generic: 'No se pudo completar la acción. Intenta de nuevo.',
             followerCannotAccept: 'Estás emparejado como seguidor y no puedes aceptar viajes propios.',
+            pendingInvite: 'Ya tienes una invitación pendiente. Espera a que la respondan o expire.',
           },
         },
            earnings: {
@@ -1107,7 +1110,7 @@ const driver = {
             title: 'No se puede cambiar el método de pago',
             subtitle: 'El cliente ya confirmó el pago',
           },
-          codeLabel: 'Código de confirmación: {{code}}',
+          codeLabel: 'Pídele al cliente su código de 4 dígitos',
           support: {
             title: 'Ayuda con la confirmación de pago',
             label: '¿Problemas con este cobro?',
@@ -1145,6 +1148,8 @@ const driver = {
             codeSuccessTitle: 'Código verificado',
             codeSuccessMessage: 'El código es correcto. Ya puedes confirmar el pago.',
             codeErrorMessage: 'Código incorrecto',
+            codeSentTitle: 'Código enviado',
+            codeSentMessage: 'El código ya está en la pantalla del cliente. Pídeselo e ingrésalo.',
           },
           methodNames: {
             cash: 'Efectivo',
@@ -1246,12 +1251,25 @@ const driver = {
           notice: {
             text: '⚠️ Asegúrate de que las fotos sean claras y legibles. Nuestro equipo verificará estos documentos.',
           },
+          ocr: {
+            hint: 'Toma la foto de frente, con buena luz y sin reflejos del laminado. Autocompletamos los campos por ti.',
+            reading: 'Leyendo documento…',
+            detected: 'Autocompletamos: {{fields}}. Verifica los datos.',
+            notDetected:
+              'No pudimos leer datos de la foto — retómala más cerca y nítida, o completa los campos manualmente.',
+            fields: {
+              licenseNumber: 'número de licencia',
+              licenseExpiry: 'vencimiento de licencia',
+            },
+          },
           loading: {
             uploading: 'Subiendo documentos... {{progress}}%',
           },
           verified: {
-            title: 'Documentos verificados ✅',
+            title: 'Documentos verificados',
             subtitle: 'Si necesitas actualizar tu información, contacta soporte.',
+            resubmitHint:
+              'Cambiaste datos o fotos de un documento verificado. Al guardar pasará nuevamente a revisión.',
           },
           buttons: {
             save: 'Guardar documentos',
@@ -1269,6 +1287,8 @@ const driver = {
             missingDataMessage: 'Completa todos los campos y fotos para continuar.',
             successTitle: 'Éxito',
             successMessage: 'Documentos del conductor actualizados correctamente.',
+            successPendingMessage:
+              'Documentos actualizados. Pasaron nuevamente a revisión (pendiente).',
             successButton: 'OK',
             uploadErrorTitle: 'Error',
             uploadErrorMessage: 'No pudimos subir los documentos. Intenta nuevamente.',
@@ -1385,6 +1405,29 @@ const driver = {
             insuranceExpiryLabel: 'Vencimiento del seguro (YYYY-MM-DD) *',
             insuranceExpiryPlaceholder: 'Ej: 2030-02-12',
           },
+          periodic: {
+            title: 'Documentos periódicos',
+            subtitle:
+              'Obligatorios para operar: inspección técnica (ITM), certificado de emisiones, impuesto municipal de rodamiento y calcomanía de revisado. Completa los que ya tengas — el sistema te avisa si falta alguno.',
+            inspectionName: 'Inspección técnica (ITM)',
+            emissionsName: 'Certificado de emisiones',
+            inspectionDateLabel: 'Fecha de inspección ITM (YYYY-MM-DD)',
+            inspectionDatePlaceholder: 'Ej: 2025-11-05',
+            inspectionValidUntilLabel: 'ITM vigente hasta (YYYY-MM-DD)',
+            inspectionValidUntilPlaceholder: 'Ej: 2026-11-05',
+            emissionsTestedAtLabel: 'Fecha de prueba de emisiones (YYYY-MM-DD)',
+            emissionsTestedAtPlaceholder: 'Ej: 2025-11-05',
+            emissionsValidUntilLabel: 'Emisiones vigentes hasta (YYYY-MM-DD)',
+            emissionsValidUntilPlaceholder: 'Ej: 2026-11-05',
+            roadTaxPaidAtLabel: 'Fecha de pago del rodamiento (YYYY-MM-DD)',
+            roadTaxPaidAtPlaceholder: 'Ej: 2026-01-15',
+            revisadoValidUntilLabel: 'Revisado vigente hasta (YYYY-MM-DD)',
+            revisadoValidUntilPlaceholder: 'Ej: 2026-12-31',
+            photoInspection: 'Foto del certificado ITM (opcional)',
+            photoEmissions: 'Foto del certificado de emisiones (opcional)',
+            photoRoadTax: 'Foto del recibo de rodamiento (opcional)',
+            photoRevisado: 'Foto de la calcomanía de revisado (opcional)',
+          },
           photos: {
             title: 'Fotos del vehículo',
             vehicleTitle: '1. Foto general del vehículo',
@@ -1398,12 +1441,34 @@ const driver = {
           notice: {
             text: '⚠️ Asegúrate de que cada foto sea clara y legible. Nuestro equipo revisará estos documentos.',
           },
+          ocr: {
+            hint: 'Toma cada foto de frente, con buena luz y sin reflejos. Autocompletamos los campos por ti.',
+            reading: 'Leyendo documento…',
+            detected: 'Autocompletamos: {{fields}}. Verifica los datos.',
+            notDetected:
+              'No pudimos leer datos de la foto — retómala más cerca y nítida, o completa los campos manualmente.',
+            fields: {
+              registrationNumber: 'número de circulación',
+              registrationExpiry: 'vencimiento de circulación',
+              insuranceNumber: 'número de póliza',
+              insuranceCompany: 'aseguradora',
+              insuranceExpiry: 'vencimiento del seguro',
+            },
+          },
           loading: {
             verifying: 'Verificando vehículo... {{progress}}%',
           },
           buttons: {
             submit: 'Verificar vehículo',
+            update: 'Actualizar documentos',
             incomplete: 'Completa toda la información y fotos',
+          },
+          verified: {
+            title: 'Vehículo verificado ✅',
+            subtitle:
+              'Tu documentación está aprobada. Si modificas un campo o una foto, podrás actualizarla y volverá a revisión.',
+            resubmitHint:
+              'Cambiaste datos o fotos de un documento verificado. Al guardar pasará nuevamente a revisión.',
           },
           alerts: {
             permissionTitle: 'Permisos requeridos',

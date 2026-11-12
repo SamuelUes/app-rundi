@@ -1,9 +1,11 @@
 import { useCallback, useState } from 'react';
 import { Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ExpoImagePicker from 'expo-image-picker';
 import driversService from '../../../services/driver/driversService';
 import firebaseStorage from '../../../services/media/storageService';
 import { updateMyProfile } from '../../../api/users';
+import { useAuthStore } from '../../../stores/authStore';
 import type { TFunction } from 'i18next';
 
 export function useDriverPhoto(
@@ -45,9 +47,16 @@ export function useDriverPhoto(
               throw new Error(t('driver.profile.alerts.upload.errorBody'));
             }
 
-            await updateMyProfile({ profilePhoto: photoUrl });
+            await updateMyProfile({ profilePhoto: photoPath });
             await driversService.updateDriver({ profile_photo: photoUrl });
             setProfilePhoto(photoUrl);
+
+            const { user, setUser } = useAuthStore.getState();
+            if (user) {
+              const nextUser = { ...user, profilePhoto: photoPath };
+              setUser(nextUser);
+              await AsyncStorage.setItem('user', JSON.stringify(nextUser));
+            }
 
             Alert.alert(
               t('driver.profile.alerts.upload.successTitle'),

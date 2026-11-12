@@ -192,7 +192,7 @@ export function AvailableRidesItem({
   const renderChip = (icon: keyof typeof MaterialIcons.glyphMap, label: string, tone: 'gold' | 'neutral' | 'feature' = 'neutral') => {
     const { backgroundColor, color } = chipTone(tone);
     return (
-      <View style={[styles.metaChip, { backgroundColor }]}>
+      <View key={`${icon}-${label}`} style={[styles.metaChip, { backgroundColor }]}>
         <MaterialIcons name={icon} size={11} color={color} />
         <Text style={[styles.metaChipText, { color }]} numberOfLines={1}>
           {label}

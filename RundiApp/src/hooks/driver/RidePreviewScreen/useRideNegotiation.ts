@@ -111,6 +111,7 @@ export function useRideNegotiation(
           driverOfferedPrice: value,
           negotiationStatus: 'driver_offered',
           driverOfferStatus: 'pending',
+          lastOfferBy: 'driver',
         }));
         setManualOfferLock(true);
         await cacheCurrentOffer({

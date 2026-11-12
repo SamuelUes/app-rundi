@@ -12,7 +12,6 @@ import {
   TextInput,
   TouchableOpacity,
   Alert,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
 } from 'react-native';
@@ -43,8 +42,8 @@ import { RegisterPhoneSubmit } from '../../components/auth/Register/RegisterPhon
 
 export default function RegisterScreen() {
   const navigation = useNavigation<any>();
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const { t } = useTranslation();
 
   // Estados principales
@@ -382,18 +381,14 @@ export default function RegisterScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+        showsVerticalScrollIndicator={false}
       >
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
-          showsVerticalScrollIndicator={false}
-        >
         <View style={styles.card}>
           <TouchableOpacity
             style={styles.backButton}
@@ -473,14 +468,13 @@ export default function RegisterScreen() {
             </Text>
           </View>
         </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 // ==================== ESTILOS ====================
-const createStyles = (colors: any) =>
+const createStyles = (colors: any, isDark: boolean) =>
   StyleSheet.create({
     container: {
       flex: 1,
@@ -501,7 +495,7 @@ const createStyles = (colors: any) =>
       borderRadius: 28,
       paddingVertical: 32,
       paddingHorizontal: 24,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: colors.border,
       gap: 20,
       shadowColor: '#000',
@@ -526,9 +520,9 @@ const createStyles = (colors: any) =>
     methodSwitcher: {
       flexDirection: 'row',
       alignSelf: 'center',
-      backgroundColor: colors.background,
+      backgroundColor: isDark ? colors.background : 'rgba(244, 245, 245, 0.5)',
       borderRadius: 999,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: colors.border,
       padding: 4,
       gap: 6,
@@ -591,28 +585,28 @@ const createStyles = (colors: any) =>
       color: colors.text,
     },
     input: {
-      backgroundColor: colors.background,
+      backgroundColor: isDark ? colors.background : 'rgba(246, 246, 246, 0.8)',
       borderRadius: 12,
       paddingVertical: 12,
       paddingHorizontal: 14,
       fontSize: 15,
       color: colors.text,
-      borderWidth: 1.5,
+      borderWidth: 0.1,
       borderColor: colors.border,
     },
     inputWithIcon: {
       position: 'relative',
     },
     inputFlex: {
-      backgroundColor: colors.background,
+      backgroundColor: isDark ? colors.background : 'rgba(246, 246, 246, 0.8)',
       borderRadius: 12,
       paddingVertical: 12,
       paddingHorizontal: 14,
       paddingRight: 44,
       fontSize: 15,
       color: colors.text,
-      borderWidth: 1.5,
-      borderColor: colors.border,
+      borderWidth: 0.7,
+      borderColor: isDark ? colors.background : 'rgba(246, 246, 246, 0.8)',
     },
     eyeButton: {
       position: 'absolute',
@@ -648,7 +642,7 @@ const createStyles = (colors: any) =>
     primaryButton: {
       backgroundColor: 'rgba(172, 127, 44, 1)',
       paddingVertical: 14,
-      borderRadius: 999,
+      borderRadius: 14,
       alignItems: 'center',
       marginTop: 8,
       shadowColor: 'rgba(214, 182, 122, 1)',

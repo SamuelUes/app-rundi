@@ -19,6 +19,7 @@ import (
 	"github.com/rundi/functions-v2/internal/calls"
 	"github.com/rundi/functions-v2/internal/catalog"
 	"github.com/rundi/functions-v2/internal/chats"
+	"github.com/rundi/functions-v2/internal/clientevents"
 	"github.com/rundi/functions-v2/internal/compliance"
 	"github.com/rundi/functions-v2/internal/config"
 	"github.com/rundi/functions-v2/internal/crew"
@@ -34,6 +35,7 @@ import (
 	"github.com/rundi/functions-v2/internal/platform"
 	"github.com/rundi/functions-v2/internal/pricing"
 	"github.com/rundi/functions-v2/internal/programmed"
+	"github.com/rundi/functions-v2/internal/ratelimit"
 	"github.com/rundi/functions-v2/internal/ratings"
 	"github.com/rundi/functions-v2/internal/rides"
 	rstorage "github.com/rundi/functions-v2/internal/storage"
@@ -49,6 +51,11 @@ func main() {
 		slog.Error("config", "err", err)
 		os.Exit(1)
 	}
+	var slogLevel slog.Level
+	if err := slogLevel.UnmarshalText([]byte(cfg.LogLevel)); err == nil && slogLevel != slog.LevelInfo {
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slogLevel})))
+	}
+	middleware.StartSecurityMetrics(ctx)
 
 	app, err := firebase.NewApp(ctx, nil)
 	if err != nil {
@@ -56,7 +63,7 @@ func main() {
 		os.Exit(1)
 	}
 	var verifyAppCheck func(context.Context, string) error
-	if cfg.AppCheckEnforce == "enforce" {
+	if cfg.AppCheckEnforce != "off" {
 		check, err := app.AppCheck(ctx)
 		if err != nil {
 			slog.Error("firebase app check", "err", err)
@@ -91,6 +98,7 @@ func main() {
 	}
 
 	r := chi.NewRouter()
+	rateStore := ratelimit.NewStore(pool)
 	r.Use(middleware.RequestID)
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.Write([]byte("ok"))
@@ -111,6 +119,7 @@ func main() {
 	usersH := users.NewHandler(users.NewService(pool, fsClient, app))
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.AppCheck(cfg.AppCheckEnforce, verifyAppCheck))
+		r.Use(middleware.RateLimit(rateStore, cfg.RateLimitPublicMode, true, cfg.RateLimitLimits))
 		r.Get("/v1/users/availability", usersH.Availability)
 	})
 
@@ -118,6 +127,7 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.AppCheck(cfg.AppCheckEnforce, verifyAppCheck))
 		r.Use(middleware.Auth(app))
+		r.Use(middleware.RateLimit(rateStore, cfg.RateLimitMode, false, cfg.RateLimitLimits))
 		if taskProducer != nil {
 			r.Use(middleware.WakeConsumerOnMutation(taskProducer.WakeConsumer))
 		}
@@ -128,8 +138,18 @@ func main() {
 			}
 			r.Mount("/", ridesHandler.Routes())
 		})
+		// Compliance documental (driver self-service). Push/signer son
+		// best-effort: el servicio funciona sin ellos (devuelve paths).
+		compSvc := complianceService(ctx, app, pool, fsClient, cfg)
+		dailyStore := compliance.NewDailyStore(fsClient)
+		compHandler := compliance.NewHandler(compSvc, dailyStore)
+		if taskProducer != nil {
+			compHandler.SetConsumerWakeup(taskProducer.WakeConsumer)
+		}
 		r.Route("/v1/payments", func(r chi.Router) {
-			r.Mount("/", payments.NewHandler(payments.NewService(pool, fsClient), fsClient).Routes())
+			paymentsH := payments.NewHandler(payments.NewService(pool, fsClient), fsClient)
+			paymentsH.SetDriverReactivation(compSvc, dailyStore)
+			r.Mount("/", paymentsH.Routes())
 		})
 		r.Route("/v1/crew", func(r chi.Router) {
 			r.Mount("/", crew.NewHandler(crew.NewService(pool, fsClient)).Routes())
@@ -144,21 +164,16 @@ func main() {
 			r.Mount("/", usersH.Routes())
 		})
 		r.Route("/v1/drivers", func(r chi.Router) {
-			r.Mount("/", drivers.NewHandler(drivers.NewService(pool, app)).Routes())
+			r.Mount("/", drivers.NewHandler(drivers.NewService(pool, app, fsClient)).Routes())
 		})
-		// Compliance documental (driver self-service). Push/signer son
-		// best-effort: el servicio funciona sin ellos (devuelve paths).
-		compSvc := complianceService(ctx, app, pool, fsClient, cfg)
-		dailyStore := compliance.NewDailyStore(fsClient)
-		compHandler := compliance.NewHandler(compSvc, dailyStore)
-		if taskProducer != nil {
-			compHandler.SetConsumerWakeup(taskProducer.WakeConsumer)
-		}
 		r.Route("/v1/compliance", func(r chi.Router) {
 			r.Mount("/", compHandler.Routes())
 		})
 		r.Route("/v1/chats", func(r chi.Router) {
 			r.Mount("/", chats.NewHandler(chats.NewService(pool, fsClient)).Routes())
+		})
+		r.Route("/v1/client-events", func(r chi.Router) {
+			r.Mount("/", clientevents.NewHandler(pool, fsClient).Routes())
 		})
 		r.Route("/v1/calls", func(r chi.Router) {
 			r.Mount("/", callsH.Routes())
@@ -175,12 +190,9 @@ func main() {
 			}
 			r.Mount("/", programmed.NewHandler(progSvc).Routes())
 		})
-		// Poke de pending events: el cliente avisa tras un WriteBatch con
-		// SYSTEM_pending_events (chat, call-end, foto de llegada) para que el
-		// middleware despierte al consumer sin esperar el tick. No-ops: 204.
-		r.Post("/v1/events/poke", func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusNoContent)
-		})
+		// Los comandos de eventos escriben y despiertan al consumer por el
+		// middleware de mutaciones; los ticks programados siguen de respaldo.
+		// Las apps anteriores deben actualizarse antes del corte de reglas.
 		r.Route("/v1/emergency-calls", func(r chi.Router) {
 			r.Mount("/", emergency.NewHandler(emergency.NewService(pool)).Routes())
 		})
@@ -196,7 +208,7 @@ func main() {
 			r.Use(middleware.RequireRole("admin", "operator"))
 			r.Mount("/catalog", catalog.NewHandler(catalog.NewService(pool)).Routes())
 			r.Mount("/compliance", compHandler.AdminRoutes())
-			drivers.NewHandler(drivers.NewService(pool, app)).AdminRoutes(r)
+			drivers.NewHandler(drivers.NewService(pool, app, fsClient)).AdminRoutes(r)
 			users.NewHandler(users.NewService(pool, fsClient, app)).AdminRoutes(r)
 			rides.NewHandler(rides.NewService(pool, fsClient)).AdminRoutes(r)
 			if sender, err := fcm.NewSender(ctx, app); err == nil {
@@ -209,7 +221,11 @@ func main() {
 	// Task targets de Cloud Tasks — OIDC verificado (firma Google + email del
 	// SA de la cola). Sin middleware Auth: el token OIDC es la autorización.
 	r.Route("/tasks", func(r chi.Router) {
-		r.Use(middleware.RequireTasksOIDC(cfg.CloudTasksSAEmail, cfg.CloudTasksAudience))
+		if cfg.CloudTasksLocalAuth {
+			r.Use(middleware.RequireLocalTasks(cfg.CloudTasksLocalToken))
+		} else {
+			r.Use(middleware.RequireTasksOIDC(cfg.CloudTasksSAEmail, cfg.CloudTasksAudience))
+		}
 		r.Post("/delayed-ride-status",
 			tasks.NewDelayedRideStatusHandler(pool).ServeHTTP)
 	})
@@ -254,6 +270,7 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
+	middleware.FlushSecurityMetrics()
 }
 
 // complianceService — arma el servicio de compliance con dependencias

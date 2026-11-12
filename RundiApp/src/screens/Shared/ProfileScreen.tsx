@@ -232,6 +232,7 @@ export default function ProfileScreen({ navigation }: any) {
         roleLabel={roleLabel}
         userName={user.name}
         userEmail={user.email}
+        userPhotoUri={user.profilePhoto}
         onBack={() => {
           if (navigation.canGoBack && navigation.canGoBack()) {
             navigation.goBack();

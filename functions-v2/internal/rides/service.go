@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -14,7 +15,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/rundi/functions-v2/internal/apperr"
+	"github.com/rundi/functions-v2/internal/cashcode"
 	"github.com/rundi/functions-v2/internal/compliance"
+	"github.com/rundi/functions-v2/internal/fs"
 	"github.com/rundi/functions-v2/internal/outbox"
 	"github.com/rundi/functions-v2/internal/projections"
 )
@@ -142,8 +145,10 @@ func cancelOtherOffers(ctx context.Context, tx pgx.Tx, rideID, driverID string) 
 
 // TransitionRide — patrón para transiciones siguientes (startRide, completeRide...):
 // valida máquina de estados + versión esperada + outbox, en una TX.
-func (s *Service) TransitionRide(ctx context.Context, rideID, actorUID string, from, to RideStatus, requestID string) (*Ride, error) {
-	if !CanTransition(from, to) {
+func (s *Service) TransitionRide(ctx context.Context, rideID, actorUID string, from, to RideStatus, pickupCode, requestID string) (*Ride, error) {
+	if !CanTransition(from, to) || !((from == StatusAccepted && to == StatusDriverOnRoute) ||
+		(from == StatusDriverOnRoute && to == StatusDriverArrived) ||
+		(from == StatusDriverArrived && to == StatusInProgress)) {
 		return nil, apperr.New(409, fmt.Sprintf("invalid transition %s→%s", from, to))
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
@@ -152,10 +157,72 @@ func (s *Service) TransitionRide(ctx context.Context, rideID, actorUID string, f
 	}
 	defer tx.Rollback(ctx)
 
+	var driverID *string
+	var currentStatus RideStatus
+	var rideType *string
+	err = tx.QueryRow(ctx, `SELECT driver_id, status::text, ride_type::text FROM public.rides WHERE id=$1::uuid FOR UPDATE`, rideID).
+		Scan(&driverID, &currentStatus, &rideType)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, apperr.New(404, "ride not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if driverID == nil || *driverID != actorUID {
+		return nil, apperr.ErrForbidden
+	}
+	if currentStatus != from {
+		return nil, apperr.New(409, "conflicting state")
+	}
+	if to == StatusInProgress {
+		var expected string
+		var lockedUntil *time.Time
+		err = tx.QueryRow(ctx, `SELECT code, locked_until FROM public.ride_pickup_codes WHERE ride_id=$1::uuid FOR UPDATE`, rideID).
+			Scan(&expected, &lockedUntil)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperr.New(409, "pickup code unavailable")
+		}
+		if err != nil {
+			return nil, err
+		}
+		if lockedUntil != nil && lockedUntil.After(time.Now()) {
+			return nil, apperr.New(429, "pickup code temporarily locked")
+		}
+		if pickupCode != expected {
+			if _, err := tx.Exec(ctx, `
+				UPDATE public.ride_pickup_codes
+				SET failed_attempts = CASE WHEN locked_until <= NOW() THEN 1 ELSE failed_attempts + 1 END,
+				    locked_until = CASE WHEN (CASE WHEN locked_until <= NOW() THEN 1 ELSE failed_attempts + 1 END) >= 5
+				                        THEN NOW() + interval '5 minutes' ELSE NULL END
+				WHERE ride_id=$1::uuid`, rideID); err != nil {
+				return nil, err
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return nil, err
+			}
+			return nil, apperr.New(400, "incorrect pickup code")
+		}
+		if rideType != nil && *rideType == "designated_driver" {
+			var evidence bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS (
+				SELECT 1 FROM public.designated_driver_inspections
+				WHERE ride_id=$1::uuid AND driver_id=$2 AND status='completed'
+				  AND vehicle_front_photo IS NOT NULL AND vehicle_rear_photo IS NOT NULL
+				  AND interior_front_photo IS NOT NULL AND interior_rear_photo IS NOT NULL
+			)`, rideID, actorUID).Scan(&evidence); err != nil {
+				return nil, err
+			}
+			if !evidence {
+				return nil, apperr.New(409, "designated ride evidence required")
+			}
+		}
+	}
+
 	var r Ride
 	err = tx.QueryRow(ctx, `
 		UPDATE public.rides
-		SET status = $3, version = version + 1
+		SET status = $3::public.ride_status, version = version + 1,
+		    started_at = CASE WHEN $3::public.ride_status = 'in_progress' THEN NOW() ELSE started_at END
 		WHERE id = $1 AND status = $2
 		RETURNING id, firebase_ride_id, client_id, driver_id, status, version,
 		          estimated_price, final_fare, requested_at, accepted_at`,
@@ -559,6 +626,13 @@ func (s *Service) driverOfferTx(ctx context.Context, tx pgx.Tx, rideID, driverUI
 		return nil, "", nil, fmt.Errorf("negotiate: %w", err)
 	}
 
+	// Viaje designado — paridad isRideVehicleCompatible v1: rol designado
+	// verificado + clase de vehículo + toggle vivo drivers_live.designatedMode
+	// (matching ya lo filtra; esto cubre ofertas que llegaron antes del flag).
+	if err := s.requireDesignatedMode(ctx, tx, rideID, driverUID); err != nil {
+		return nil, "", nil, err
+	}
+
 	// Historial de negociación: cada contraoferta del driver es append libre.
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO public.ride_offers
@@ -584,6 +658,60 @@ func (s *Service) driverOfferTx(ctx context.Context, tx pgx.Tx, rideID, driverUI
 		return nil, "", nil, err
 	}
 	return r, evID, payload, nil
+}
+
+// requireDesignatedMode — gate dentro de la tx de aceptación/negociación para
+// ride_type='designated_driver': designated_role_status verificado + clase de
+// vehículo (moto↔moto, misma regla que NotifyProximity) + drivers_live
+// .designatedMode=true (el toggle vivo, equivalente a
+// driversInfo.isDesignatedDriverMode de v1). Un fallo aborta la tx — el
+// UPDATE de driverOfferTx no llega a commit.
+func (s *Service) requireDesignatedMode(ctx context.Context, tx pgx.Tx, rideID, driverUID string) error {
+	var rideType string
+	var desigVeh *string
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(ride_type::text, 'normal'), designated_driver_vehicle::text
+		FROM public.rides WHERE id = $1::uuid`, rideID).Scan(&rideType, &desigVeh); err != nil {
+		return err
+	}
+	if rideType != "designated_driver" {
+		return nil
+	}
+	var desStatus, driverVeh string
+	err := tx.QueryRow(ctx, `
+		SELECT d.designated_role_status::text,
+		       COALESCE((SELECT v.type FROM public.vehicles v
+		                 WHERE v.driver_id = d.id AND v.is_active = TRUE
+		                   AND v.deleted_at IS NULL LIMIT 1), 'auto')
+		FROM public.drivers d
+		WHERE d.user_id = $1 AND d.deleted_at IS NULL AND d.account_status = 'active'`,
+		driverUID).Scan(&desStatus, &driverVeh)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return apperr.New(403, "driver no elegible")
+	}
+	if err != nil {
+		return err
+	}
+	if desStatus != "verified" {
+		return apperr.New(409, "ride requiere conductor designado verificado")
+	}
+	wantVeh := "auto"
+	if desigVeh != nil && *desigVeh != "" {
+		wantVeh = *desigVeh
+	}
+	if strings.Contains(strings.ToLower(wantVeh), "moto") !=
+		strings.Contains(strings.ToLower(driverVeh), "moto") {
+		return apperr.New(409, "tipo de vehículo incompatible")
+	}
+	if s.fs == nil {
+		return nil
+	}
+	snap, err := s.fs.Collection(fs.ColDriversLive).Doc(driverUID).Get(ctx)
+	mode := err == nil && snap.Exists() && snap.Data()["designatedMode"] == true
+	if !mode {
+		return apperr.New(409, "activa el modo conductor designado para tomar este viaje")
+	}
+	return nil
 }
 
 // CompleteRide — conductor completa: tarifa final + snapshot de comisión +
@@ -638,15 +766,22 @@ func (s *Service) CompleteRide(ctx context.Context, rideID, driverUID string, in
 			payment_method, payment_provider, status, commission_status
 		)
 		SELECT $1, $2, $3, $4, $5,
-		       CASE WHEN r.payment_type = 'card_local' THEN 'card' ELSE 'cash' END,
-		       CASE WHEN r.payment_type = 'card_local' THEN 'local' ELSE 'cash' END,
-		       'pending', 'pending'
+		       CASE WHEN r.payment_type = 'card_local' THEN 'card'::public.payment_method ELSE 'cash'::public.payment_method END,
+		       CASE WHEN r.payment_type = 'card_local' THEN 'local'::public.payment_provider ELSE 'cash'::public.payment_provider END,
+		       'pending'::public.payment_status, 'pending'::public.commission_status
 		FROM public.rides r WHERE r.id = $1
 		RETURNING id`,
 		rideID, in.FinalFare, in.Tip, commission, rate,
 	).Scan(&paymentID)
 	if err != nil {
 		return nil, fmt.Errorf("payment insert: %w", err)
+	}
+
+	// Código de confirmación de efectivo (solo pagos cash — self-guard dentro):
+	// queda en payment_cash_codes y se proyecta a payments_live/private/cash,
+	// legible solo por el cliente; el conductor lo digita al confirmar.
+	if err := cashcode.Create(ctx, tx, rideID); err != nil {
+		return nil, fmt.Errorf("cash code: %w", err)
 	}
 
 	// Al terminar cualquier viaje el conductor queda no disponible y debe

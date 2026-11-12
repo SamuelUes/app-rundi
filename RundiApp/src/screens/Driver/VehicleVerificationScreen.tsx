@@ -9,7 +9,7 @@ import {
   Platform,
   TextInput
 } from 'react-native';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { DatePickerField } from '../../components/ui/DatePickerField';
@@ -24,6 +24,12 @@ import supabaseStorage from '../../services/media/storageService';
 import vehiclesService from '../../services/driver/vehiclesService';
 import complianceService from '../../services/driver/complianceService';
 import { vehicleVerificationData } from '../../utils/driver/vehicleVerificationData';
+import {
+  extractFieldsFromDocument,
+  isOcrAvailable,
+  type DocumentOcrType,
+  type ExtractedDocumentFields,
+} from '../../services/media/ocr/documentOcrService';
 
 interface VehicleVerificationProps {
   route: any;
@@ -66,11 +72,24 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
   const [revisadoPhoto, setRevisadoPhoto] = useState<string | null>(null);
 
   const [uploadProgress, setUploadProgress] = useState(0);
+  // Año leído por OCR del reverso de la circulación — va a
+  // vehicles.registration_ocr_year al enviar el documento (elegibilidad premium).
+  const [registrationOcrYear, setRegistrationOcrYear] = useState<number | null>(null);
+  // OCR on-device: rellena campos vacíos o campos que el propio OCR llenó
+  // antes; nunca pisa un valor editado a mano.
+  const [ocrReading, setOcrReading] = useState(false);
+  const [ocrMessage, setOcrMessage] = useState<string | null>(null);
+  const ocrFilledRef = useRef<Set<keyof ExtractedDocumentFields>>(new Set());
+  const pendingOcr = useRef(0);
+  const backOcrVersion = useRef(0);
   const loadedDocumentsRef = useRef<{
     data: ReturnType<typeof vehicleVerificationData>;
     hasCard: boolean;
     hasInsurance: boolean;
   } | null>(null);
+  // Circulación + póliza rc_obligatorio verificadas. Con el sello el botón de
+  // guardar se apaga hasta que el conductor cambie un campo o una foto.
+  const [docsVerified, setDocsVerified] = useState(false);
 
   // Solicitar permisos para la cámara
   useEffect(() => {
@@ -123,6 +142,11 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
               (policy: any) => policy.coverage_type === 'rc_obligatorio',
             )),
           };
+          const verifiedStatuses = new Set(['verified', 'active']);
+          setDocsVerified(
+            verifiedStatuses.has(data.cardStatus.toLowerCase()) &&
+            verifiedStatuses.has(data.insuranceStatus.toLowerCase()),
+          );
           setRegistrationNumber(data.registrationNumber);
           setRegistrationExpiry(data.registrationExpiry);
           setRegistrationPhotoFront(data.registrationPhotoFront || null);
@@ -132,6 +156,16 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
           setInsuranceExpiry(data.insuranceExpiry);
           setInsurancePhoto(data.insurancePhoto || null);
           setVehiclePhoto(data.vehiclePhoto || null);
+          setInspectionDate(data.inspectionDate);
+          setInspectionValidUntil(data.inspectionValidUntil);
+          setEmissionsTestedAt(data.emissionsTestedAt);
+          setEmissionsValidUntil(data.emissionsValidUntil);
+          setRoadTaxPaidAt(data.roadTaxPaidAt);
+          setRevisadoValidUntil(data.revisadoValidUntil);
+          setInspectionPhoto(data.inspectionPhoto || null);
+          setEmissionsPhoto(data.emissionsPhoto || null);
+          setRoadTaxPhoto(data.roadTaxPhoto || null);
+          setRevisadoPhoto(data.revisadoPhoto || null);
         } else {
           console.log('⚠️ Vehículo no encontrado con ID:', vehicleId);
         }
@@ -151,18 +185,132 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
     .filter(Boolean).length;
   const allDataProvided = vehiclePhoto && registrationPhotoFront && registrationPhotoBack && insurancePhoto && 
                           registrationNumber && registrationExpiry && insuranceNumber && insuranceCompany && insuranceExpiry;
+
+  // Cambios sobre los datos precargados: cualquier edición reabre el guardado;
+  // si el documento estaba verificado, el backend crea una versión 'pending'.
+  // docChanged cubre los documentos de compliance (circulación, seguro y
+  // periódicos); vehicleChanged la foto general (va por el PATCH del vehículo).
+  const eq = (a: string | null | undefined, b: string | null | undefined) =>
+    (a ?? '') === (b ?? '');
+  const loadedForDiff = loadedDocumentsRef.current?.data;
+  const docChanged = !loadedForDiff ||
+    !eq(registrationNumber, loadedForDiff.registrationNumber) ||
+    !eq(registrationExpiry, loadedForDiff.registrationExpiry) ||
+    !eq(registrationPhotoFront, loadedForDiff.registrationPhotoFront) ||
+    !eq(registrationPhotoBack, loadedForDiff.registrationPhotoBack) ||
+    !eq(insuranceNumber, loadedForDiff.insuranceNumber) ||
+    !eq(insuranceCompany, loadedForDiff.insuranceCompany) ||
+    !eq(insuranceExpiry, loadedForDiff.insuranceExpiry) ||
+    !eq(insurancePhoto, loadedForDiff.insurancePhoto) ||
+    !eq(inspectionDate, loadedForDiff.inspectionDate) ||
+    !eq(inspectionValidUntil, loadedForDiff.inspectionValidUntil) ||
+    !eq(emissionsTestedAt, loadedForDiff.emissionsTestedAt) ||
+    !eq(emissionsValidUntil, loadedForDiff.emissionsValidUntil) ||
+    !eq(roadTaxPaidAt, loadedForDiff.roadTaxPaidAt) ||
+    !eq(revisadoValidUntil, loadedForDiff.revisadoValidUntil) ||
+    !eq(inspectionPhoto, loadedForDiff.inspectionPhoto) ||
+    !eq(emissionsPhoto, loadedForDiff.emissionsPhoto) ||
+    !eq(roadTaxPhoto, loadedForDiff.roadTaxPhoto) ||
+    !eq(revisadoPhoto, loadedForDiff.revisadoPhoto);
+  const anyChanged = docChanged || !eq(vehiclePhoto, loadedForDiff?.vehiclePhoto);
+  const showVerifiedNotice = docsVerified && !anyChanged;
   
+  /**
+   * Corre OCR sobre la foto recién tomada y llena campos vacíos o campos
+   * que el propio OCR llenó antes. Nunca pisa un valor escrito a mano.
+   * El reverso de la circulación además fija el año OCR (premium).
+   */
+  const runDocumentOcr = async (
+    imageUri: string,
+    docType: DocumentOcrType,
+    backVersion?: number,
+  ) => {
+    if (!isOcrAvailable()) {
+      return;
+    }
+    pendingOcr.current += 1;
+    setOcrReading(true);
+    setOcrMessage(null);
+    try {
+      const { fields } = await extractFieldsFromDocument(imageUri, docType);
+      if (backVersion !== undefined && backVersion === backOcrVersion.current) {
+        const detectedYear = Number(fields.year);
+        setRegistrationOcrYear(
+          Number.isInteger(detectedYear) && detectedYear >= 1900 && detectedYear <= 2100
+            ? detectedYear
+            : null,
+        );
+      }
+      const applied: string[] = [];
+      const filledByOcr = ocrFilledRef.current;
+
+      const fill = (
+        current: string,
+        detected: string | undefined,
+        setter: (v: string) => void,
+        fieldKey: keyof ExtractedDocumentFields,
+      ) => {
+        if (!detected) return;
+        if (current && !filledByOcr.has(fieldKey)) return; // valor manual
+        setter(detected);
+        filledByOcr.add(fieldKey);
+        applied.push(t(`${ns}.ocr.fields.${fieldKey}`));
+      };
+
+      if (docType === 'registration') {
+        fill(registrationNumber, fields.registrationNumber, setRegistrationNumber, 'registrationNumber');
+        fill(registrationExpiry, fields.registrationExpiry, setRegistrationExpiry, 'registrationExpiry');
+      } else if (docType === 'insurance') {
+        fill(insuranceNumber, fields.insuranceNumber, setInsuranceNumber, 'insuranceNumber');
+        fill(insuranceCompany, fields.insuranceCompany, setInsuranceCompany, 'insuranceCompany');
+        fill(insuranceExpiry, fields.insuranceExpiry, setInsuranceExpiry, 'insuranceExpiry');
+      }
+
+      setOcrMessage(
+        applied.length > 0
+          ? t(`${ns}.ocr.detected`, { fields: applied.join(', ') })
+          : t(`${ns}.ocr.notDetected`),
+      );
+    } catch (err) {
+      console.warn('⚠️ OCR de documento falló:', err);
+      setOcrMessage(t(`${ns}.ocr.notDetected`));
+    } finally {
+      pendingOcr.current -= 1;
+      setOcrReading(pendingOcr.current > 0);
+    }
+  };
+
+  // Edición manual: saca el campo del set "llenado por OCR" para que una
+  // nueva foto no sobreescriba la corrección del usuario.
+  const manualEdit =
+    (key: keyof ExtractedDocumentFields, setter: (v: string) => void) =>
+    (v: string) => {
+      ocrFilledRef.current.delete(key);
+      setter(v);
+    };
+
   // Tomar foto con la cámara
-  const takePhoto = async (setPhotoFunction: React.Dispatch<React.SetStateAction<string | null>>) => {
+  const takePhoto = async (
+    setPhotoFunction: React.Dispatch<React.SetStateAction<string | null>>,
+    ocrDocType?: DocumentOcrType,
+    isRegistrationBack = false,
+  ) => {
     try {
       const result = await launchCameraSafely({
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.7,
+        quality: 0.9,
       });
 
       if (result && !result.canceled && result.assets && result.assets.length > 0) {
-        setPhotoFunction(result.assets[0].uri);
+        const uri = result.assets[0].uri;
+        setPhotoFunction(uri);
+        if (ocrDocType) {
+          if (isRegistrationBack) {
+            backOcrVersion.current += 1;
+          }
+          void runDocumentOcr(uri, ocrDocType, isRegistrationBack ? backOcrVersion.current : undefined);
+        }
       }
     } catch (error) {
       Alert.alert(
@@ -174,7 +322,11 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
   };
 
   // Seleccionar foto de la galería
-  const pickFromGallery = async (setPhotoFunction: React.Dispatch<React.SetStateAction<string | null>>) => {
+  const pickFromGallery = async (
+    setPhotoFunction: React.Dispatch<React.SetStateAction<string | null>>,
+    ocrDocType?: DocumentOcrType,
+    isRegistrationBack = false,
+  ) => {
     try {
       if (Platform.OS !== 'web') {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -191,11 +343,18 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.7,
+        quality: 0.9,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setPhotoFunction(result.assets[0].uri);
+        const uri = result.assets[0].uri;
+        setPhotoFunction(uri);
+        if (ocrDocType) {
+          if (isRegistrationBack) {
+            backOcrVersion.current += 1;
+          }
+          void runDocumentOcr(uri, ocrDocType, isRegistrationBack ? backOcrVersion.current : undefined);
+        }
       }
     } catch (error) {
       Alert.alert(
@@ -302,6 +461,7 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
           declaredValidUntil: registrationExpiry,
           documentPath: uploadedUrls['registration_front'],
           documentPathBack: uploadedUrls['registration_back'],
+          ...(registrationOcrYear != null ? { ocrYear: registrationOcrYear } : {}),
         });
       }
 
@@ -324,7 +484,10 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
       // Documentos periódicos: se registran solo cuando el conductor capturó
       // las fechas (son opcionales en esta pantalla; el motor decide si son
       // exigibles según el vehículo y la transición).
-      if (inspectionDate && inspectionValidUntil) {
+      if (inspectionDate && inspectionValidUntil &&
+          (loaded?.data.inspectionDate !== inspectionDate ||
+           loaded?.data.inspectionValidUntil !== inspectionValidUntil ||
+           (uploadedUrls['inspection_photo'] ?? '') !== (loaded?.data.inspectionPhoto ?? ''))) {
         await complianceService.submitVehicleDocument({
           vehicleId,
           documentType: 'inspection',
@@ -334,7 +497,10 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
           documentPath: uploadedUrls['inspection_photo'],
         });
       }
-      if (emissionsTestedAt && emissionsValidUntil) {
+      if (emissionsTestedAt && emissionsValidUntil &&
+          (loaded?.data.emissionsTestedAt !== emissionsTestedAt ||
+           loaded?.data.emissionsValidUntil !== emissionsValidUntil ||
+           (uploadedUrls['emissions_photo'] ?? '') !== (loaded?.data.emissionsPhoto ?? ''))) {
         await complianceService.submitVehicleDocument({
           vehicleId,
           documentType: 'emissions',
@@ -344,7 +510,9 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
           documentPath: uploadedUrls['emissions_photo'],
         });
       }
-      if (roadTaxPaidAt) {
+      if (roadTaxPaidAt &&
+          (loaded?.data.roadTaxPaidAt !== roadTaxPaidAt ||
+           (uploadedUrls['road_tax_photo'] ?? '') !== (loaded?.data.roadTaxPhoto ?? ''))) {
         await complianceService.submitVehicleDocument({
           vehicleId,
           documentType: 'road_tax',
@@ -353,7 +521,9 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
           documentPath: uploadedUrls['road_tax_photo'],
         });
       }
-      if (revisadoValidUntil) {
+      if (revisadoValidUntil &&
+          (loaded?.data.revisadoValidUntil !== revisadoValidUntil ||
+           (uploadedUrls['revisado_photo'] ?? '') !== (loaded?.data.revisadoPhoto ?? ''))) {
         await complianceService.submitVehicleDocument({
           vehicleId,
           documentType: 'revisado',
@@ -396,28 +566,30 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
     title: string,
     photo: string | null,
     setPhoto: React.Dispatch<React.SetStateAction<string | null>>,
+    ocrDocType?: DocumentOcrType,
+    isRegistrationBack = false,
   ) => (
     <View style={styles.photoContainer}>
       <View style={styles.photoTitleRow}>
         <Text style={styles.photoTitle}>{title}</Text>
-        {photo && <MaterialIcons name="check-circle" size={20} color={colors.success || '#2E7D32'} />}
+        {photo && <Ionicons name="checkmark-circle" size={20} color={colors.success || '#2E7D32'} />}
       </View>
       {photo && <StorageImage uri={photo} style={styles.photoPreview} />}
       <View style={styles.photoActionsRow}>
         <TouchableOpacity
           style={[styles.photoActionButton, styles.photoActionButtonPrimary]}
-          onPress={() => takePhoto(setPhoto)}
+          onPress={() => takePhoto(setPhoto, ocrDocType, isRegistrationBack)}
         >
-          <MaterialIcons name="photo-camera" size={18} color="#fff" />
+          <Ionicons name="camera" size={18} color="#fff" />
           <Text style={styles.photoActionButtonPrimaryText}>
             {photo ? t(`${ns}.photos.retakePhoto`) : t(`${ns}.photos.takePhoto`)}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.photoActionButton, styles.photoActionButtonSecondary]}
-          onPress={() => pickFromGallery(setPhoto)}
+          onPress={() => pickFromGallery(setPhoto, ocrDocType, isRegistrationBack)}
         >
-          <MaterialIcons name="photo-library" size={18} color={colors.primary} />
+          <Ionicons name="images" size={18} color={colors.primary} />
           <Text style={styles.photoActionButtonSecondaryText}>
             {t(`${ns}.photos.chooseFromGallery`)}
           </Text>
@@ -435,7 +607,7 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={styles.headerTopRow}>
           <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <MaterialIcons name="arrow-back" size={22} color={colors.text} />
+            <Ionicons name="chevron-back" size={22} color={colors.text} />
           </TouchableOpacity>
           <Text style={styles.title}>{t(`${ns}.header.title`)}</Text>
           <View style={styles.headerSpacer} />
@@ -454,7 +626,7 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
           autoCorrect={false}
           placeholder={t(`${ns}.form.registrationNumberPlaceholder`)}
           value={registrationNumber}
-          onChangeText={setRegistrationNumber}
+          onChangeText={manualEdit('registrationNumber', setRegistrationNumber)}
           placeholderTextColor={colors.textSecondary}
         />
 
@@ -463,7 +635,7 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
           style={styles.input}
           placeholder={t(`${ns}.form.registrationExpiryPlaceholder`)}
           value={registrationExpiry}
-          onChangeText={setRegistrationExpiry}
+          onChangeText={manualEdit('registrationExpiry', setRegistrationExpiry)}
           placeholderTextColor={colors.textSecondary}
         />
 
@@ -474,7 +646,7 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
           autoCorrect={false}
           placeholder={t(`${ns}.form.insuranceNumberPlaceholder`)}
           value={insuranceNumber}
-          onChangeText={setInsuranceNumber}
+          onChangeText={manualEdit('insuranceNumber', setInsuranceNumber)}
           placeholderTextColor={colors.textSecondary}
         />
 
@@ -482,7 +654,7 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         <InsuranceCompanySelectField
           style={styles.input}
           value={insuranceCompany}
-          onChange={setInsuranceCompany}
+          onChange={manualEdit('insuranceCompany', setInsuranceCompany)}
           placeholder={t(`${ns}.form.insuranceCompanyPlaceholder`)}
         />
 
@@ -491,7 +663,7 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
           style={styles.input}
           placeholder={t(`${ns}.form.insuranceExpiryPlaceholder`)}
           value={insuranceExpiry}
-          onChangeText={setInsuranceExpiry}
+          onChangeText={manualEdit('insuranceExpiry', setInsuranceExpiry)}
           placeholderTextColor={colors.textSecondary}
         />
       </View>
@@ -568,10 +740,21 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
           <Text style={styles.photoProgress}>{photosCompleted}/4</Text>
         </View>
 
+        <Text style={styles.ocrHint}>{t(`${ns}.ocr.hint`)}</Text>
+        {ocrReading && (
+          <View style={styles.ocrStatusRow}>
+            <LoadingIcon size={14} color={colors.primary} />
+            <Text style={styles.ocrStatusText}>{t(`${ns}.ocr.reading`)}</Text>
+          </View>
+        )}
+        {!ocrReading && ocrMessage && (
+          <Text style={styles.ocrStatusText}>{ocrMessage}</Text>
+        )}
+
         {renderPhotoCard(t(`${ns}.photos.vehicleTitle`), vehiclePhoto, setVehiclePhoto)}
-        {renderPhotoCard(t(`${ns}.photos.registrationFrontTitle`), registrationPhotoFront, setRegistrationPhotoFront)}
-        {renderPhotoCard(t(`${ns}.photos.registrationBackTitle`), registrationPhotoBack, setRegistrationPhotoBack)}
-        {renderPhotoCard(t(`${ns}.photos.insuranceTitle`), insurancePhoto, setInsurancePhoto)}
+        {renderPhotoCard(t(`${ns}.photos.registrationFrontTitle`), registrationPhotoFront, setRegistrationPhotoFront, 'registration')}
+        {renderPhotoCard(t(`${ns}.photos.registrationBackTitle`), registrationPhotoBack, setRegistrationPhotoBack, 'registration', true)}
+        {renderPhotoCard(t(`${ns}.photos.insuranceTitle`), insurancePhoto, setInsurancePhoto, 'insurance')}
       </View>
 
       <View style={styles.noticeContainer}>
@@ -585,18 +768,30 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
             {t(`${ns}.loading.verifying`, { progress: Math.round(uploadProgress * 100) })}
           </Text>
         </View>
+      ) : showVerifiedNotice ? (
+        <View style={styles.verifiedNotice}>
+          <Text style={styles.verifiedNoticeText}>{t(`${ns}.verified.title`)}</Text>
+          <Text style={styles.verifiedNoticeSubtitle}>{t(`${ns}.verified.subtitle`)}</Text>
+        </View>
       ) : (
-        <TouchableOpacity 
-          style={[styles.submitButton, !allDataProvided && styles.submitButtonDisabled]}
-          onPress={uploadVehicleVerification}
-          disabled={!allDataProvided}
-        >
-          <Text style={[styles.submitButtonText, !allDataProvided && styles.submitButtonTextDisabled]}>
-            {allDataProvided
-              ? t(`${ns}.buttons.submit`)
-              : t(`${ns}.buttons.incomplete`)}
-          </Text>
-        </TouchableOpacity>
+        <>
+          {docsVerified && docChanged && (
+            <View style={styles.noticeContainer}>
+              <Text style={styles.noticeText}>{t(`${ns}.verified.resubmitHint`)}</Text>
+            </View>
+          )}
+          <TouchableOpacity 
+            style={[styles.submitButton, !allDataProvided && styles.submitButtonDisabled]}
+            onPress={uploadVehicleVerification}
+            disabled={!allDataProvided}
+          >
+            <Text style={[styles.submitButtonText, !allDataProvided && styles.submitButtonTextDisabled]}>
+              {allDataProvided
+                ? (docsVerified ? t(`${ns}.buttons.update`) : t(`${ns}.buttons.submit`))
+                : t(`${ns}.buttons.incomplete`)}
+            </Text>
+          </TouchableOpacity>
+        </>
       )}
       
       <View style={{ height: 12 }} />
@@ -615,8 +810,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   header: {
     paddingHorizontal: 20,
     paddingBottom: 20,
-    backgroundColor: colors.card,
-    borderBottomWidth: 1,
+    borderBottomWidth: 0,
     borderBottomColor: colors.border,
   },
   headerTopRow: {
@@ -656,7 +850,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     padding: 18,
     backgroundColor: colors.card,
     borderRadius: 16,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
   },
   sectionTitle: {
@@ -695,6 +889,24 @@ const createStyles = (colors: any) => StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 8,
   },
+  ocrHint: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
+    marginBottom: 10,
+  },
+  ocrStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+  },
+  ocrStatusText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
+    marginBottom: 10,
+  },
   photoSectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -715,7 +927,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     backgroundColor: colors.card,
     borderRadius: 14,
     padding: 14,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
   },
   photoTitleRow: {
@@ -805,6 +1017,26 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   submitButtonTextDisabled: {
     color: colors.textTertiary,
+  },
+  verifiedNotice: {
+    padding: 18,
+    marginHorizontal: 16,
+    backgroundColor: 'rgba(127, 221, 130, 0.4)',
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  verifiedNoticeText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  verifiedNoticeSubtitle: {
+    color: colors.text,
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
   },
   loadingContainer: {
     padding: 20,

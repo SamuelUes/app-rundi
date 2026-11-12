@@ -476,7 +476,8 @@ func (s *Service) refreshSnapshots(ctx context.Context, facts *Facts, rctx *Rule
 		_, dstatus := SummarizeEvaluation(dreasons, "driver")
 		_, _ = s.pool.Exec(ctx, `
 			UPDATE public.drivers SET compliance_status = $2::public.driver_compliance_status
-			WHERE id = $1::uuid`, facts.Driver.ID, dstatus)
+			WHERE id = $1::uuid AND compliance_status IS DISTINCT FROM $2::public.driver_compliance_status`,
+			facts.Driver.ID, dstatus)
 	}
 	if facts.Vehicle != nil {
 		vreasons := []Reason{}
@@ -487,9 +488,13 @@ func (s *Service) refreshSnapshots(ctx context.Context, facts *Facts, rctx *Rule
 			vreasons = append(vreasons, r)
 		}
 		_, vstatus := SummarizeEvaluation(vreasons, "vehicle")
+		// Sin cambio de estado no se escribe: un UPDATE no-op dispara el
+		// trigger compliance_signals_vehicles e invalida la evaluación recién
+		// leída (activación quedaba en ErrSessionSignalsStale perpetuo).
 		_, _ = s.pool.Exec(ctx, `
 			UPDATE public.vehicles SET compliance_status = $2::public.vehicle_compliance_status
-			WHERE id = $1::uuid`, facts.Vehicle.ID, vstatus)
+			WHERE id = $1::uuid AND compliance_status IS DISTINCT FROM $2::public.vehicle_compliance_status`,
+			facts.Vehicle.ID, vstatus)
 	}
 }
 

@@ -101,7 +101,7 @@ const mergeLiveMovements = (
 export default function RechargeFundsScreen({ navigation }: any) {
   const { colors, isDark } = useTheme();
   const accentColor = isDark ? '#D8A15F' : '#B77734';
-  const styles = useMemo(() => createStyles(colors, accentColor), [colors, accentColor]);
+  const styles = useMemo(() => createStyles(colors, accentColor, isDark), [colors, accentColor, isDark]);
   const { t } = useTranslation();
   const headerTitle = t('driver.rechargeFunds.header.title');
   const loadingText = t('driver.rechargeFunds.loading');
@@ -404,7 +404,7 @@ export default function RechargeFundsScreen({ navigation }: any) {
   );
 }
 
-const createStyles = (colors: any, accentColor: string) =>
+const createStyles = (colors: any, accentColor: string, isDark: boolean) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: {
@@ -439,9 +439,9 @@ const createStyles = (colors: any, accentColor: string) =>
     contentContainer: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 32, gap: 16 },
 
     summaryCard: {
-      backgroundColor: colors.card,
+      backgroundColor: colors.surface,
       borderRadius: 24,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: colors.border,
       overflow: 'hidden',
     },
@@ -485,7 +485,7 @@ const createStyles = (colors: any, accentColor: string) =>
       paddingVertical: 10,
       paddingHorizontal: 12,
       borderRadius: 14,
-      backgroundColor: colors.surface,
+      backgroundColor: isDark ? colors.card : 'rgba(255, 255, 255, 1)',
     },
     summaryBreakdownText: {
       flex: 1,
@@ -521,7 +521,7 @@ const createStyles = (colors: any, accentColor: string) =>
       backgroundColor: colors.card,
       borderRadius: 24,
       padding: 20,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: colors.border,
     },
     infoTitle: { fontSize: 18, fontWeight: '700', color: colors.text, marginBottom: 10 },
@@ -598,15 +598,15 @@ const createStyles = (colors: any, accentColor: string) =>
     cardItemLabel: { fontSize: 13, color: colors.text, fontWeight: '500' },
 
     inputCard: {
-      backgroundColor: colors.card,
+      backgroundColor: isDark ? colors.surface : 'rgba(247, 247, 247, 0.87)',
       borderRadius: 20,
       padding: 16,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: colors.border,
     },
     inputLabel: { fontSize: 13, color: colors.textSecondary, marginBottom: 10 },
     input: {
-      backgroundColor: colors.surface,
+      backgroundColor: isDark ? colors.card : 'rgba(225, 225, 225, 0.87)',
       borderWidth: 0,
       borderColor: colors.border,
       borderRadius: 12,
@@ -636,10 +636,10 @@ const createStyles = (colors: any, accentColor: string) =>
     payButtonText: { fontSize: 15, color: '#fff', fontWeight: '800', letterSpacing: 0.2 },
 
     historyCard: {
-      backgroundColor: colors.card,
+      backgroundColor: colors.surface,
       borderRadius: 20,
       padding: 16,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: colors.border,
       gap: 12,
       marginTop: 4,

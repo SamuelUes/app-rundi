@@ -97,4 +97,15 @@ func TestProjectDriverSession(t *testing.T) {
 	if got := status(); got != "on_ride" {
 		t.Fatalf("activation changed on_ride status to %q", got)
 	}
+
+	// Reactivación post-viaje (pago cerrado): un 'on_ride' obsoleto SÍ baja a
+	// online — el conductor venía de offline, no pudo tomar otro viaje.
+	postRide := activated(8)
+	postRide["postRideReactivation"] = true
+	if err := projectDriverSession(ctx, client, postRide, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := status(); got != "online" {
+		t.Fatalf("post-ride reactivation left status=%q", got)
+	}
 }

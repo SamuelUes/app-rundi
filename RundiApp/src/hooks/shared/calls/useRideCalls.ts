@@ -3,11 +3,8 @@ import { getFirebaseAuth, getFirebaseFirestore } from '../../../config/firebase'
 import { onAuthStateChanged, Unsubscribe } from 'firebase/auth';
 import {
   collection,
-  doc,
   onSnapshot,
   query,
-  serverTimestamp,
-  updateDoc,
   where,
   type Unsubscribe as FirestoreUnsubscribe,
 } from 'firebase/firestore';
@@ -230,12 +227,7 @@ export function useRideCalls(rideId: string | null, otherUserId: string | null) 
     setLoading(true);
     setError(null);
     try {
-      const db = await getFirebaseFirestore();
       if (status === 'accepted') {
-        await updateDoc(doc(db, FS_COL.calls, callId), {
-          status,
-          updatedAt: serverTimestamp(),
-        });
         await pushCallEvent(callId, resolvedUid || '', 'accepted');
       } else {
         await endCallV2(callId, resolvedUid || '', status === 'rejected' ? 'rejected' : 'ended');

@@ -115,8 +115,8 @@ export const AnimatedButton: React.FC<AnimatedButtonProps> = ({
           <LoadingIcon icon="refresh" size={20} color={variant === 'outline' ? accentColor : '#FFFFFF'} animation="spin" />
         ) : (
           <View style={styles.contentRow}>
-            {iconName && <MaterialIcons name={iconName} size={size === 'small' ? 16 : size === 'large' ? 22 : 20} color={variant === 'outline' ? accentColor : '#FFFFFF'} style={styles.icon} />}
             <Text style={[getTextStyle(), textStyle]}>{title}</Text>
+            {iconName && <MaterialIcons name={iconName} size={size === 'small' ? 16 : size === 'large' ? 22 : 20} color={variant === 'outline' ? accentColor : '#FFFFFF'} style={styles.icon} />}
           </View>
         )}
       </TouchableOpacity>

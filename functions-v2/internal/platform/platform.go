@@ -24,6 +24,7 @@ import (
 	"github.com/rundi/functions-v2/internal/apperr"
 	"github.com/rundi/functions-v2/internal/fs"
 	"github.com/rundi/functions-v2/internal/geo"
+	"github.com/rundi/functions-v2/internal/outbox"
 )
 
 const termsVersion = "2024-01" // versión de términos preflight vigente
@@ -62,7 +63,7 @@ func (s *Service) LogBiometric(ctx context.Context, uid, userType, bioType, bioC
 		return apperr.New(400, "userType y biometricType requeridos")
 	}
 	switch bioType {
-	case "fingerprint", "face_id", "biometric", "NOT_SUPPORTED":
+	case "fingerprint", "face_id", "biometric", "device_credential", "NOT_SUPPORTED":
 	default:
 		// El cliente reporta también métodos no biométricos (p.ej.
 		// 'apple_signin'); el enum solo admite tipos de biometría.
@@ -79,12 +80,44 @@ func (s *Service) LogBiometric(ctx context.Context, uid, userType, bioType, bioC
 	if errMsg != "" {
 		em = &errMsg
 	}
-	_, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var registrationID *string
+	err = tx.QueryRow(ctx, `
+		SELECT biometric_registration_id::text FROM public.drivers
+		WHERE user_id = $1 AND deleted_at IS NULL FOR UPDATE`, uid).Scan(&registrationID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if err == nil && registrationID == nil {
+		var id string
+		if err := tx.QueryRow(ctx, `
+			UPDATE public.drivers SET biometric_registration_id = gen_random_uuid()
+			WHERE user_id = $1 AND deleted_at IS NULL
+			RETURNING biometric_registration_id::text`, uid).Scan(&id); err != nil {
+			return err
+		}
+		registrationID = &id
+		if err := outbox.Insert(ctx, tx, outbox.Event{
+			Type: "driver.biometric_registered", AggregateType: "driver", AggregateID: uid,
+			Payload: map[string]any{"userId": uid},
+		}); err != nil {
+			return err
+		}
+	}
+	_, err = tx.Exec(ctx, `
 		INSERT INTO public.biometric_authentications
-			(ride_id, user_id, user_type, biometric_type, context, success, attempt_number, error_message)
-		VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)`,
-		ride, uid, userType, bioType, bioContext, success, attempt, em)
-	return err
+			(ride_id, user_id, user_type, biometric_type, context, success, attempt_number, error_message, biometric_registration_id)
+		VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::uuid)`,
+		ride, uid, userType, bioType, bioContext, success, attempt, em, registrationID)
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // ---------- sms_verification_codes ----------

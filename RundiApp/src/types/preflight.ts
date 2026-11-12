@@ -111,6 +111,7 @@ export type GetPreflightDataResponse = {
   activeRide?: PreflightActiveRideSummary | null;
   programmedRide?: PreflightProgrammedRideSummary | null;
   pendingPayments?: PreflightPendingPaymentsSummary | null;
+  pendingRating?: import('../api/ratings').PendingRating | null;
   penalties?: PreflightPenaltiesSummary | null;
   rechargeFunds?: PreflightRechargeFundsSummary | null;
 };

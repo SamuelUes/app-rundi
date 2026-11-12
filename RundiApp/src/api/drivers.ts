@@ -325,11 +325,13 @@ export async function requestDriverRecharge(body: {
 }
 
 export interface CrewCandidate {
-  userId: string;
+  driverId: string;
   name: string;
   rating: number;
+  licenseNumber: string;
   department: string;
-  profilePhoto?: string;
+  photoURL?: string;
+  status: string;
 }
 
 /** GET /v1/drivers/crew-candidates?q= (searchDesignatedCrewCandidates v1). */

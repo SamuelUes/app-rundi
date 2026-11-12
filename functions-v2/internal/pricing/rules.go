@@ -10,14 +10,46 @@ import (
 )
 
 const (
-	StopFee           = 20.0
-	MinSurgeMult      = 1.0
-	MaxSurgeMult      = 1.6
-	MinSurgeRequests  = 5
-	surgePriorRides   = 4
-	surgePriorDrivers = 5
-	defaultTZ         = "America/Managua"
+	StopFee      = 20.0
+	MinSurgeMult = 1.0
+	MaxSurgeMult = 1.6
+	PeakHourMult = 1.115
+	// Tarifa del servicio normal como referencia: conductor designado cobra
+	// ×2.6 la tarifa del viaje en auto. La moto aplica su fórmula propia
+	// con un descuento del 25% sobre el resultado.
+	DesignatedDriverFareMult = 2.6
+	MotorcycleFareMult       = 0.75
+	MinSurgeRequests         = 5
+	surgePriorRides          = 4
+	surgePriorDrivers        = 5
+	defaultTZ                = "America/Managua"
 )
+
+// peakWindows — ventanas de hora pico en minutos desde medianoche (hora
+// America/Managua): 6-8, 11-13 y 17-19:30. NO es un feature: aplica a todos
+// los servicios (incluidos conductor designado y premium) y no es
+// deseleccionable.
+var peakWindows = [][2]int{
+	{6 * 60, 8 * 60},
+	{11 * 60, 13 * 60},
+	{17 * 60, 19*60 + 30},
+}
+
+// IsPeakHourAt — true si `at` cae dentro de una ventana de hora pico.
+func IsPeakHourAt(at time.Time) bool {
+	loc, err := time.LoadLocation(defaultTZ)
+	if err != nil {
+		return false
+	}
+	local := at.In(loc)
+	cur := local.Hour()*60 + local.Minute()
+	for _, w := range peakWindows {
+		if cur >= w[0] && cur < w[1] {
+			return true
+		}
+	}
+	return false
+}
 
 var PricingServiceCodes = map[string]bool{
 	"normal":                 true,
@@ -241,11 +273,11 @@ func CalculateSurgeRatio(demand, supply int) *float64 {
 	return &r
 }
 
-func RoundFareToNearestFive(v float64) float64 {
+func RoundFare(v float64) float64 {
 	if math.IsNaN(v) || v < 0 {
 		return 0
 	}
-	return math.Round(v/5) * 5
+	return math.Round(v)
 }
 
 func CommissionAmount(finalFare, rate float64) float64 {
@@ -264,5 +296,5 @@ func DynamicMinimumFare(fareBeforeSurge, finalFare, surgeMult float64) float64 {
 	if surgeMult > 1 {
 		retained = fareBeforeSurge * (1 + (math.Min(MaxSurgeMult, surgeMult)-1)*0.5)
 	}
-	return math.Round(math.Max(50, math.Max(finalFare*0.6667, retained))*100) / 100
+	return math.Round(math.Max(50, math.Max(finalFare*0.6667, retained)))
 }

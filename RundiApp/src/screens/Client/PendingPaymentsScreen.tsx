@@ -52,7 +52,7 @@ export default function PendingPaymentsScreen({ navigation }: any) {
         const profileCache = new Map<string, PendingPayment['driverProfile'] | null>();
         const formattedPayments: PendingPayment[] = await Promise.all(
           (data.payments || []).map(async (payment: any) => {
-            const normalizedMethod = payment.paymentMethod === 'card' ? 'card' : 'card';
+            const normalizedMethod = payment.paymentMethod === 'card' ? 'card' : 'cash';
             const driverId = payment.driverId || payment.driver_id || null;
 
             let driverProfile: PendingPayment['driverProfile'] | undefined;
@@ -86,7 +86,7 @@ export default function PendingPaymentsScreen({ navigation }: any) {
               payment: {
                 status: 'pending',
                 method: normalizedMethod,
-                finalAmount: payment.amount,
+                finalAmount: payment.total,
                 createdAt: payment.createdAt,
               },
               ride: {
@@ -136,6 +136,15 @@ export default function PendingPaymentsScreen({ navigation }: any) {
     const { rideId, payment, ride } = pendingPayment;
     
     console.log('💰 Navegando a pago pendiente:', rideId);
+    if (payment.method === 'cash') {
+      navigation.navigate('CashPayment', {
+        rideId,
+        amount: payment.finalAmount,
+        driverName: ride.driver?.name || t('client.pendingPayments.driverFallback'),
+        driverPhoto: ride.driver?.photoURL,
+      });
+      return;
+    }
     
     // IMPORTANTE: Los pagos pendientes SOLO se pueden pagar con tarjeta (transferencia bancaria)
     // Esto es una política de negocio para garantizar el cobro de deudas

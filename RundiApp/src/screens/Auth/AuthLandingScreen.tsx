@@ -290,7 +290,7 @@ const createStyles = (colors: any, isDark: boolean) => {
       justifyContent: 'center',
       gap: 10,
       paddingHorizontal: 20,
-      borderRadius: 22,
+      borderRadius: 14,
       backgroundColor: gold,
     },
     primaryButtonText: {
@@ -309,7 +309,7 @@ const createStyles = (colors: any, isDark: boolean) => {
       justifyContent: 'center',
       gap: 10,
       paddingHorizontal: 20,
-      borderRadius: 22,
+      borderRadius: 14,
       borderWidth: 1.5,
       borderColor: readableGold,
       backgroundColor: 'transparent',

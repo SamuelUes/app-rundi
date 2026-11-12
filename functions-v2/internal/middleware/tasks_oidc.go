@@ -38,3 +38,19 @@ func RequireTasksOIDC(saEmail, audience string) func(http.Handler) http.Handler 
 		})
 	}
 }
+
+// RequireLocalTasks — auth simplificada exclusivamente para la cola local del
+// stack Docker. En producción se usa RequireTasksOIDC; este chequeo nunca debe
+// sustituir la firma OIDC real.
+func RequireLocalTasks(token string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if token == "" || r.Header.Get("Authorization") != "Bearer "+token ||
+				r.Header.Get("X-CloudTasks-TaskName") == "" {
+				apperr.Write(w, apperr.New(401, "invalid local task"))
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}

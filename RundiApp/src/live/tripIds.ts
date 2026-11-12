@@ -13,6 +13,8 @@ import { FS_COL } from '../constants/firestore';
 const liveIdCache = new Map<string, string>();
 const sqlIdCache = new Map<string, string>();
 
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 function cachePair(liveId: string, sqlId: string) {
   liveIdCache.set(liveId, liveId);
   liveIdCache.set(sqlId, liveId);
@@ -35,10 +37,11 @@ export async function liveTripDocId(rideOrLiveId: string): Promise<string> {
   } catch {
     // doc inexistente o reglas lo niegan — seguir por REST
   }
-  // Es un id SQL: el detalle REST (participante u oferente) trae firebaseRideId.
+  // El detalle REST (participante u oferente) trae ambos ids; el backend
+  // también resuelve firebase_ride_id en el path.
   const detail = await getRideDetail(rideOrLiveId);
   const fbId = detail.firebaseRideId || rideOrLiveId;
-  cachePair(fbId, rideOrLiveId);
+  cachePair(fbId, detail.id || rideOrLiveId);
   return fbId;
 }
 
@@ -55,8 +58,22 @@ export async function sqlRideIdForTrip(rideOrLiveId: string): Promise<string> {
       return sqlId;
     }
   } catch {
-    // no existe como doc vivo — ya es el id SQL
+    // doc inexistente o reglas lo niegan (oferente pre-asignación) — REST
   }
-  sqlIdCache.set(rideOrLiveId, rideOrLiveId);
-  return rideOrLiveId;
+  if (UUID_RE.test(rideOrLiveId)) {
+    sqlIdCache.set(rideOrLiveId, rideOrLiveId);
+    return rideOrLiveId;
+  }
+  // Id no-uuid = probable firebaseRideId cuyo doc no pudimos leer (driver
+  // aún no participante). GET /v1/rides/{id} también resuelve por
+  // firebase_ride_id y autoriza al conductor con oferta existente.
+  try {
+    const detail = await getRideDetail(rideOrLiveId);
+    const sqlId = detail.id || rideOrLiveId;
+    cachePair(detail.firebaseRideId || rideOrLiveId, sqlId);
+    return sqlId;
+  } catch {
+    sqlIdCache.set(rideOrLiveId, rideOrLiveId);
+    return rideOrLiveId;
+  }
 }

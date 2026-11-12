@@ -115,7 +115,7 @@ export function RideDetailsPayment({
           }
 
           const rideType = ride.rideType || 'normal';
-          const commissionRate = rideType === 'designated_driver' ? 0.25 : 0.11;
+          const commissionRate = rideType === 'designated_driver' ? 0.25 : 0.15;
 
           let commission = 0;
           if (ride.payment?.commission) {

@@ -7,6 +7,7 @@ import (
 	"context"
 	"math"
 	"sort"
+	"strings"
 
 	"cloud.google.com/go/firestore"
 	"google.golang.org/api/iterator"
@@ -59,6 +60,11 @@ func FindDrivers(ctx context.Context, c *firestore.Client, q Query) ([]Candidate
 	iter := fsQuery.Documents(ctx)
 	defer iter.Stop()
 
+	// Viajes designados: el flag vivo drivers_live.designatedMode (toggle del
+	// conductor) es requisito además del servicio aprobado — paridad con
+	// driversInfo.isDesignatedDriverMode de v1.
+	designatedOnly := strings.HasPrefix(q.ServiceCode, "designated_driver_")
+
 	var out []Candidate
 	for {
 		snap, err := iter.Next()
@@ -69,6 +75,10 @@ func FindDrivers(ctx context.Context, c *firestore.Client, q Query) ([]Candidate
 			return nil, err
 		}
 		d := snap.Data()
+
+		if designatedOnly && d["designatedMode"] != true {
+			continue
+		}
 
 		if q.ServiceCode != "" {
 			codes, _ := d["activeServiceCodes"].([]any)

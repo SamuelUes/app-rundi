@@ -110,12 +110,44 @@ func TestCalculateSurgeRatio(t *testing.T) {
 	}
 }
 
-func TestRoundFareToNearestFive(t *testing.T) {
-	if got := RoundFareToNearestFive(103); got != 105 {
-		t.Errorf("103 → %v want 105", got)
+func TestRoundFare(t *testing.T) {
+	if got := RoundFare(103.4); got != 103 {
+		t.Errorf("103.4 → %v want 103", got)
 	}
-	if got := RoundFareToNearestFive(102); got != 100 {
-		t.Errorf("102 → %v want 100", got)
+	if got := RoundFare(102.6); got != 103 {
+		t.Errorf("102.6 → %v want 103", got)
+	}
+	if got := DynamicMinimumFare(107.64, 120, 1.115); got != 114 {
+		t.Errorf("DynamicMinimumFare → %v want 114 (entero)", got)
+	}
+}
+
+func TestIsPeakHourAt(t *testing.T) {
+	loc, _ := time.LoadLocation("America/Managua")
+	cases := []struct {
+		hour, min int
+		want      bool
+	}{
+		{5, 59, false},
+		{6, 0, true},
+		{7, 59, true},
+		{8, 0, false},
+		{10, 59, false},
+		{11, 0, true},
+		{12, 30, true},
+		{13, 0, false},
+		{16, 59, false},
+		{17, 0, true},
+		{19, 29, true},
+		{19, 30, false},
+		{20, 0, false},
+		{23, 0, false},
+	}
+	for _, c := range cases {
+		at := time.Date(2026, 3, 4, c.hour, c.min, 0, 0, loc)
+		if got := IsPeakHourAt(at); got != c.want {
+			t.Errorf("%02d:%02d → %v want %v", c.hour, c.min, got, c.want)
+		}
 	}
 }
 

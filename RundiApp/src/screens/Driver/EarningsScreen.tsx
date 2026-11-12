@@ -9,7 +9,6 @@ import {
   RefreshControl,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useTranslation } from 'react-i18next';
@@ -150,7 +149,7 @@ export default function EarningsScreen() {
           activeOpacity={0.9}
           onPress={() => navigation.navigate('RechargeFunds')}
         >
-          <MaterialIcons name="arrow-upward" size={16} color="#1A1206" />
+          <Ionicons name="arrow-up" size={16} color="#1A1206" />
           <Text style={styles.primaryNavText}>{t('driver.earnings.nav.commissions')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -158,7 +157,7 @@ export default function EarningsScreen() {
           activeOpacity={0.9}
           onPress={() => navigation.navigate('RideHistory')}
         >
-          <MaterialIcons name="receipt-long" size={16} color={colors.text} />
+          <Ionicons name="receipt-outline" size={16} color={colors.text} />
           <Text style={styles.secondaryNavText}>{t('driver.earnings.nav.history')}</Text>
         </TouchableOpacity>
       </View>
@@ -259,9 +258,9 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    padding: 3,
+    padding: 6,
     borderRadius: 14,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
     backgroundColor: colors.surface || colors.background,
   },
@@ -288,8 +287,8 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 4,
     borderRadius: 18,
-    backgroundColor: colors.card,
-    borderWidth: 1,
+    backgroundColor: colors.surface,
+    borderWidth: 0.1,
     borderColor: colors.border,
     overflow: 'hidden',
   },
@@ -381,9 +380,9 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
   },
   statChip: {
     width: '48.5%',
-    backgroundColor: colors.card,
+    backgroundColor: colors.surface,
     borderRadius: 14,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
     paddingVertical: 13,
     paddingHorizontal: 14,
@@ -441,7 +440,7 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
     borderRadius: 14,
     paddingVertical: 12,
     gap: 7,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
     backgroundColor: colors.surface || colors.background,
   },
@@ -603,7 +602,7 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
     margin: 16,
     marginTop: 0,
     padding: 20,
-    backgroundColor: colors.card,
+    backgroundColor: colors.surface,
     borderRadius: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -677,10 +676,10 @@ const createStyles = (colors: any, accentColor: string) => StyleSheet.create({
   },
   rideCard: {
     padding: 16,
-    backgroundColor: colors.card,
+    backgroundColor: colors.surface,
     borderRadius: 18,
     marginBottom: 12,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
   },
   rideHeader: {

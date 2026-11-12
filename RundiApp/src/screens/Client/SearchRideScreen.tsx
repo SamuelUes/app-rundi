@@ -56,11 +56,13 @@ import {
   VEHICLE_OPTION_IMAGES,
 } from '../../components/client/SearchRide/SearchRideVehicleOptions';
 import { SearchRideSummary } from '../../components/client/SearchRide/SearchRideSummary';
+import { isPeakHour } from '../../utils/ride/priceCalculatorCentralize';
 import { SearchRideCTA } from '../../components/client/SearchRide/SearchRideCTA';
 import { SearchRideSearchOverlay } from '../../components/client/SearchRide/SearchRideSearchOverlay';
 import { SearchRideConfirmPinButton } from '../../components/client/SearchRide/SearchRideConfirmPinButton';
 import { SearchRideScheduleModal } from '../../components/client/SearchRide/SearchRideScheduleModal';
 import type { RecurringRide } from '../../types/recurringRide';
+import { useRideFlowTransition } from '../../hooks/client/useRideFlowTransition';
 
 const { MANUAL_ORIGIN, MANUAL_ORIGIN_HOLD, ORIGIN_PIN, DESTINATION_PIN, MULTI_STOP_PIN } = MAP_ICONS;
 const DEFAULT_FALLBACK_COORDS = { latitude: 12.1364, longitude: -86.2514 };
@@ -85,6 +87,18 @@ type MapSelectionState =
   | null;
 
 export default function SearchRideScreenNewDesign({ navigation, route }: any) {
+  const rideTransition = useRideFlowTransition();
+  const allowRideFlowBack = useRef(false);
+  const submissionNavigation = useMemo(() => ({
+    ...navigation,
+    navigate: (screen: string, params?: any) => {
+      if (screen === 'HomeOffers') {
+        rideTransition.exit(() => navigation.navigate(screen, params));
+      } else {
+        navigation.navigate(screen, params);
+      }
+    },
+  }), [navigation, rideTransition.exit]);
   const recurringRide: RecurringRide | undefined = route?.params?.recurringRide;
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
@@ -197,12 +211,22 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
       : 'normal';
   const selectedFeatureService = servicesCatalog.find((service) => service.code === selectedFeatureServiceCode);
   const selectedFeatureCodes = selectedFeatureCodesByService[selectedFeatureServiceCode] ?? [];
+  // Solo los features con elegibilidad (senior/premium/pet_friendly) filtran
+  // conductores: los ajustes de pricing (night, hora pico) no son capacidades.
+  const eligibilityFeatureCodes = useMemo(
+    () =>
+      selectedFeatureCodes.filter((code) => {
+        const subject = selectedFeatureService?.features.find((f) => f.code === code)?.eligibilitySubject;
+        return subject === 'driver' || subject === 'vehicle';
+      }),
+    [selectedFeatureCodes, selectedFeatureService],
+  );
   const { driversAvailable, checkingDrivers, availabilityByType } = useDriversAvailability(
     coords,
     vehicleType,
     designatedDriverMode,
     selectedFeatureServiceCode,
-    selectedFeatureCodes,
+    eligibilityFeatureCodes,
     calculationAt.getTime(),
   );
 
@@ -243,6 +267,7 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
     designatedDriverEligibility,
     recomputeRoute,
     recalcPriceOnly,
+    recalcEstimates,
   } = useRideRouteCalculation({
     vehicleType,
     designatedDriverMode,
@@ -349,7 +374,7 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
     validateLocationForContext,
     uploadPhotoIfNeeded,
     tr,
-    navigation,
+    navigation: submissionNavigation,
   });
 
   useEffect(() => {
@@ -432,7 +457,9 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
     lastFeaturePriceKeyRef.current = featurePriceKey;
     if (!destinationCoords || estimatedDistance <= 0) return;
     const stopsCount = extraDestinations.filter((item) => item.coords).length;
-    recalcPriceOnly(originCoords, coords, destinationCoords, stopsCount);
+    // Batch: refresca el precio de todas las tarjetas con sus features
+    // (p. ej. premium ×1.38), no solo el estimado del servicio actual.
+    recalcEstimates(originCoords, coords, stopsCount);
   }, [
     coords,
     originCoords,
@@ -445,7 +472,7 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
     vehicleType,
     designatedDriverMode,
     scheduledAt,
-    recalcPriceOnly,
+    recalcEstimates,
   ]);
 
   const capacityByVehicle: Record<VehicleType, number> = useMemo(
@@ -771,10 +798,22 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
       if (showSearchOverlay) {
         event.preventDefault();
         setShowSearchOverlay(false);
+        return;
+      }
+      const navState = navigation.getState();
+      const previousRoute = navState.routes[navState.index - 1];
+      if (!allowRideFlowBack.current && previousRoute?.name === 'ClientHome' &&
+          (event.data.action.type === 'GO_BACK' || event.data.action.type === 'POP')) {
+        event.preventDefault();
+        rideTransition.exit(() => {
+          allowRideFlowBack.current = true;
+          navigation.dispatch(event.data.action);
+          allowRideFlowBack.current = false;
+        });
       }
     });
     return unsubscribe;
-  }, [navigation, centerPinActive, manualOriginDragging, manualDestinationDragging, showSearchOverlay, setShowSearchOverlay, cancelMapSelection]);
+  }, [navigation, centerPinActive, manualOriginDragging, manualDestinationDragging, showSearchOverlay, setShowSearchOverlay, cancelMapSelection, rideTransition.exit]);
 
   const { height: windowHeight } = useWindowDimensions();
   const sheetMaxHeight = Math.round(windowHeight * SHEET_EXPANDED_RATIO);
@@ -967,10 +1006,14 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
         />
       ) : null}
 
+      <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, rideTransition.topStyle]}>
       {panelLevel < 2 ? (
         <TouchableOpacity
           style={[styles.backButton, { top: insets.top + 12 }]}
-          onPress={() => (centerPinActive ? cancelMapSelection() : navigation?.goBack?.())}
+          onPress={() => {
+            if (centerPinActive) cancelMapSelection();
+            else if (!manualOriginDragging && !manualDestinationDragging) navigation?.goBack?.();
+          }}
           disabled={showSearchOverlay}
           accessibilityLabel={tr('accessibility.back')}
           accessibilityRole="button"
@@ -998,7 +1041,9 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
         styles={styles}
         tr={tr}
       />
+      </Animated.View>
 
+      <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, rideTransition.bottomStyle]}>
       <Animated.View
         pointerEvents={bottomPanelReady ? 'auto' : 'none'}
         style={[styles.bottomPanel, { transform: [{ translateY: bottomPanelTranslate }], opacity: bottomPanelAnim }]}
@@ -1082,6 +1127,7 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
                       rideComment={rideComment}
                       checkingDrivers={checkingDrivers}
                       driversAvailable={driversAvailable}
+                      isPeakHour={priceBreakdown?.isPeakHour ?? isPeakHour(calculationAt)}
                       colors={colors}
                       onSetPaymentMethod={setPaymentMethod}
                       onSetPriceSuggestion={setPriceSuggestion}
@@ -1164,12 +1210,14 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
                   onClearSchedule={() => setScheduledAt(null)}
                   onConfirmRequest={onConfirmRequest}
                   styles={styles}
+                  colors={colors}
                   tr={tr}
                 />
               </View>
             </KeyboardAvoidingView>
           </Reanimated.View>
         </GestureHandlerRootView>
+      </Animated.View>
       </Animated.View>
 
       {showSearchOverlay && (
@@ -1482,19 +1530,19 @@ function createStyles(colors: any, isDark: boolean = false) {
       paddingHorizontal: 10,
     },
     vehicleOptionCardSelected: {
-      backgroundColor: isDark ? 'rgba(69, 69, 69, 0.8)' : surfaceBg,
+      backgroundColor: isDark ? 'rgba(55, 55, 55, 0.8)' : surfaceBg,
     },
     vehicleOptionTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, minHeight: 64 },
     vehicleOptionIconBubble: {
       width: 52,
       height: 44,
       borderRadius: 12,
-      backgroundColor: surfaceBg,
+      // backgroundColor: surfaceBg,
       alignItems: 'center',
       justifyContent: 'center',
     },
     vehicleOptionIconBubbleSelected: { backgroundColor: accentSoft },
-    vehicleOptionIconImage: { width: 46, height: 32 },
+    vehicleOptionIconImage: { width: 56, height: 42 },
     vehicleOptionTitleBlock: { flex: 1, minWidth: 0 },
     vehicleOptionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 },
     vehicleOptionTitle: { fontSize: 16, fontWeight: '700', color: textPrimary, flexShrink: 1 },
@@ -1554,7 +1602,7 @@ function createStyles(colors: any, isDark: boolean = false) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
-      minWidth: 148,
+      minWidth: 170,
       maxWidth: 210,
       minHeight: 52,
       paddingHorizontal: 12,
@@ -1629,6 +1677,7 @@ function createStyles(colors: any, isDark: boolean = false) {
     photoButtonText: { color: textPrimary, fontWeight: '700', fontSize: 14 },
 
     cta: {
+      flex: 1,
       backgroundColor: accent,
       paddingVertical: 15,
       borderRadius: 16,
@@ -1640,48 +1689,163 @@ function createStyles(colors: any, isDark: boolean = false) {
     ctaText: { color: '#fff', fontSize: 16, fontWeight: '800', textAlign: 'center' },
 
     ctaContainer: { paddingTop: 12, gap: 10 },
+    ctaRow: { flexDirection: 'row', alignItems: 'stretch', gap: 10 },
 
-    scheduleCta: {
-      paddingVertical: 12,
+    scheduleIconCta: {
+      width: 52,
       borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(109, 68, 255, 0.75)',
       borderWidth: 1,
-      borderColor: accentBorder,
-      marginBottom: 0,
+      borderColor: 'transparent',
+    },
+    scheduleIconCtaActive: { 
+      backgroundColor: accentSoft, 
+      borderColor: accentBorder ,
+    },
+
+    scheduledRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    scheduledInfo: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      borderRadius: 12,
       backgroundColor: accentSoft,
     },
-    scheduleCtaDisabled: { opacity: 0.65 },
-    scheduleCtaText: { textAlign: 'center', fontWeight: '700', color: accentStrong },
-    scheduleClearCta: {
-      paddingVertical: 10,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: borderColor,
-      marginBottom: 0,
-      backgroundColor: 'transparent',
+    scheduledText: { flex: 1, fontSize: 13, fontWeight: '700', color: accentStrong },
+    scheduledClear: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: card2Bg,
     },
-    scheduleClearText: { textAlign: 'center', fontWeight: '700', color: textSecondary },
 
-    scheduleOverlay: {
-      flex: 1,
+    scheduleModalRoot: { flex: 1 },
+    scheduleBackdrop: {
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
       backgroundColor: colors.overlay || 'rgba(0,0,0,0.6)',
-      padding: 16,
+    },
+    scheduleSheetDock: { position: 'absolute', left: 0, right: 0, bottom: 0 },
+    scheduleSheet: {
+      backgroundColor: colors.card || '#ffffff',
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      overflow: 'hidden',
+      paddingHorizontal: 20,
+      shadowColor: '#000',
+      shadowOpacity: isDark ? 0 : 0.15,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: -4 },
+      elevation: isDark ? 0 : 12,
+      borderTopWidth: isDark ? StyleSheet.hairlineWidth : 0,
+      borderTopColor: borderColor,
+    },
+    scheduleHandleZone: { alignItems: 'center', paddingVertical: 10 },
+    scheduleHandle: {
+      width: 48,
+      height: 5,
+      borderRadius: 999,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.16)',
+    },
+    scheduleHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    scheduleTitleIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: accentSoft,
+    },
+    scheduleTitle: { flex: 1, fontSize: 18, fontWeight: '800', color: textPrimary },
+    scheduleCloseBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surface || '#F5F5F5',
+    },
+    scheduleSectionLabel: {
+      fontSize: 11,
+      fontWeight: '700',
+      letterSpacing: 0.5,
+      textTransform: 'uppercase',
+      color: textSecondary,
+      marginTop: 14,
+      marginBottom: 8,
+    },
+    schedulePickerTrack: {
+      flexDirection: 'row',
+      backgroundColor: colors.surface || '#F5F5F5',
+      borderRadius: 14,
+      overflow: 'hidden',
+      ...(Platform.OS === 'ios' ? { height: 148 } : {}),
+    },
+    scheduleDayPickerCol: { flex: 1.6 },
+    scheduleTimePickerCol: { flex: 1 },
+    schedulePickerWheel: Platform.OS === 'ios' ? { height: 148 } : {},
+    schedulePreview: {
+      marginTop: 14,
+      textAlign: 'center',
+      fontSize: 13,
+      fontWeight: '700',
+      color: accentStrong,
+      fontVariant: ['tabular-nums'],
+    },
+    scheduleConfirmBtn: {
+      marginTop: 16,
+      backgroundColor: accent,
+      paddingVertical: 15,
+      borderRadius: 16,
+      alignItems: 'center',
       justifyContent: 'center',
     },
-    scheduleCard: {
-      borderRadius: 18,
-      padding: 16,
+    scheduleConfirmText: { 
+      color: '#fff', 
+      fontSize: 16, 
+      fontWeight: '800' 
     },
-    scheduleTitle: { fontSize: 18, fontWeight: '800', marginBottom: 12, textAlign: 'center' },
-    scheduleLabel: { fontSize: 13, fontWeight: '700', marginTop: 10, marginBottom: 6 },
-    pickerBox: { borderWidth: 1, borderRadius: 12, overflow: 'hidden' },
-    timeRow: { flexDirection: 'row', alignItems: 'center' },
-    timePicker: { flex: 1 },
-    timeSeparator: { marginHorizontal: 10, fontSize: 18, fontWeight: '800' },
-    scheduleButtonsRow: { flexDirection: 'row', marginTop: 16 },
-    scheduleButton: { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: 'center' },
-    scheduleCancelButton: { marginRight: 10, borderWidth: 1, backgroundColor: 'transparent' },
-    scheduleButtonText: { fontWeight: '800' },
-    scheduleButtonTextPrimary: { fontWeight: '800', color: '#fff' },
+    scheduleCancelBtn: {
+      alignItems: 'center',
+      minHeight: 44,
+      paddingVertical: 10,
+      paddingHorizontal: 16,
+      borderRadius: 12,
+      marginTop: 6,
+      justifyContent: 'center',
+      backgroundColor: 'rgba(200, 48, 48, 0.9)'
+    },
+    scheduleCancelText: { 
+      fontSize: 14, 
+      fontWeight: '800', 
+      color: textPrimary 
+    },
+    scheduleHintRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'center',
+      gap: 6,
+      marginTop: 8,
+      paddingHorizontal: 10,
+    },
+    scheduleHintText: {
+      flexShrink: 1,
+      fontSize: 12,
+      fontWeight: '500',
+      color: textSecondary,
+      textAlign: 'center',
+      lineHeight: 17,
+    },
 
     estimateCard: { borderRadius: 14, padding: 12, backgroundColor: cardBg, borderWidth: 1, borderColor: borderColor, marginBottom: 10 },
     estimateCardElevated: {

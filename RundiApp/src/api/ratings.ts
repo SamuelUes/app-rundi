@@ -16,6 +16,22 @@ export interface Rating {
   createdAt: string;
 }
 
+export interface PendingRating {
+  rideId: string;
+  firebaseRideId: string;
+  driverId: string;
+  followerDriverId?: string | null;
+  version: number;
+  status: 'pending' | 'completed' | 'skipped';
+  captainRated: boolean;
+  followerRated: boolean;
+}
+
+export async function getPendingRating(): Promise<PendingRating | null> {
+  const { data } = await client.get<{ rating: PendingRating | null }>('/ratings/pending');
+  return data.rating;
+}
+
 export interface SubmitRatingInput {
   rideId: string;
   toUserId: string;
@@ -38,6 +54,10 @@ export interface SubmitRatingInput {
 export async function submitRating(input: SubmitRatingInput): Promise<Rating | null> {
   const { data } = await client.post<{ rating: Rating | null }>('/ratings', input);
   return data.rating;
+}
+
+export async function skipRating(rideId: string): Promise<void> {
+  await client.post('/ratings', { rideId, skip: true });
 }
 
 export interface DriverRating {

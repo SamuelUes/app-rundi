@@ -40,6 +40,8 @@ export interface PriceCalculationResult {
     baseFare: number;
     fareBeforeSurge: number;
     surgeMultiplier: number;
+    peakHourMultiplier?: number;
+    isPeakHour?: boolean;
     demandSupplyRatio: number | null;
     commissionRate: number;
     commissionAmount: number;
@@ -106,42 +108,42 @@ const DEFAULT_SERVICE_AREA: ServiceAreaDoc = {
 const DEFAULT_SERVICE_CONFIGS: Record<string, ServicePricingConfig> = {
   normal: {
     code: 'normal',
-    basePrice: 50,
-    pricePerKm: 10,
-    pricePerMinute: 0,
-    minimumFare: 50,
+    basePrice: 60,
+    pricePerKm: 12,
+    pricePerMinute: 1.2,
+    minimumFare: 60,
     commissionRate: 0.15,
   },
   motorcycle: {
     code: 'motorcycle',
-    basePrice: 50,
+    basePrice: 40,
     pricePerKm: 8,
-    pricePerMinute: 0,
-    minimumFare: 50,
+    pricePerMinute: 1.2,
+    minimumFare: 40,
     commissionRate: 0.075,
   },
   designated_driver_auto: {
     code: 'designated_driver_auto',
-    basePrice: 50,
+    basePrice: 80,
     pricePerKm: 13,
-    pricePerMinute: 0,
-    minimumFare: 50,
+    pricePerMinute: 1.6,
+    minimumFare: 80,
     commissionRate: 0.25,
   },
   designated_driver_moto: {
     code: 'designated_driver_moto',
-    basePrice: 50,
+    basePrice: 80,
     pricePerKm: 13,
-    pricePerMinute: 0,
-    minimumFare: 50,
+    pricePerMinute: 1.6,
+    minimumFare: 80,
     commissionRate: 0.125,
   },
   designated_driver: {
     code: 'designated_driver',
-    basePrice: 50,
+    basePrice: 80,
     pricePerKm: 13,
-    pricePerMinute: 0,
-    minimumFare: 50,
+    pricePerMinute: 1.6,
+    minimumFare: 80,
     commissionRate: 0.25,
   },
 };
@@ -339,17 +341,28 @@ function mapRideTypeToServiceCode(vehicleType: VehicleType, rideType: RideType):
   return vehicleType === 'motorcycle' ? 'motorcycle' : 'normal';
 }
 
+// Multiplicador de hora pico (paridad con internal/pricing PeakHourMult).
+// Ventanas: 6-8, 11-13 y 17:00-19:30 (hora de Managua).
+export const PEAK_HOUR_MULTIPLIER = 1.115;
+const PEAK_WINDOWS: ReadonlyArray<readonly [number, number]> = [
+  [6 * 60, 8 * 60],
+  [11 * 60, 13 * 60],
+  [17 * 60, 19 * 60 + 30],
+];
+// Paridad con el feature 'premium' (0005_pricing.sql): viaje normal ×1.38.
+const PREMIUM_FARE_MULTIPLIER = 1.38;
+// Tarifa del servicio normal como referencia (paridad con el backend):
+// conductor designado ×2.6; moto = su fórmula propia ×0.75 (25% menos).
+const DESIGNATED_DRIVER_FARE_MULTIPLIER = 2.6;
+const MOTORCYCLE_FARE_MULTIPLIER = 0.75;
+
 export function isPeakHour(date: Date = new Date()): boolean {
-  const hour = date.getHours();
-  return (hour >= 6 && hour < 8) || (hour >= 17 && hour < 20);
+  const minutes = date.getHours() * 60 + date.getMinutes();
+  return PEAK_WINDOWS.some(([start, end]) => minutes >= start && minutes < end);
 }
 
 function roundCurrency(value: number): number {
   return Math.round(value * 100) / 100;
-}
-
-function roundFareToNearestFive(value: number): number {
-  return Math.round(value / 5) * 5;
 }
 
 function toFiniteNumber(value: unknown): number | null {
@@ -547,7 +560,7 @@ function normalizeBackendResponse(data: any): PriceCalculationResult | null {
       }
     }
   }
-  finalPrice = roundFareToNearestFive(finalPrice);
+  finalPrice = Math.round(finalPrice);
 
   return {
     distancePrice,
@@ -559,7 +572,10 @@ function normalizeBackendResponse(data: any): PriceCalculationResult | null {
     finalPrice,
     breakdown: payload.breakdown ?? undefined,
     isPeakHour: Boolean(payload.isPeakHour ?? payload.is_peak_hour),
-    peakHourAdjustment: Number(payload.peakHourAdjustment ?? payload.peak_hour_adjustment ?? 1),
+    peakHourAdjustment: Number(
+      payload.peakHourMultiplier ?? payload.peak_hour_multiplier ??
+      payload.peakHourAdjustment ?? payload.peak_hour_adjustment ?? 1,
+    ),
     vehicleType: (payload.vehicleType ?? payload.vehicle_type ?? 'car') as VehicleType,
     rideType: (payload.rideType ?? payload.ride_type ?? 'normal') as RideType,
     commissionRate,
@@ -586,6 +602,10 @@ function normalizeBackendResponse(data: any): PriceCalculationResult | null {
       baseFare: Number(payload.baseFare ?? payload.base_fare ?? finalPrice),
       fareBeforeSurge: Number(payload.baseFare ?? payload.base_fare ?? finalPrice),
       surgeMultiplier: 1,
+      peakHourMultiplier: Number(
+        payload.peakHourMultiplier ?? payload.peak_hour_multiplier ?? 1,
+      ),
+      isPeakHour: Boolean(payload.isPeakHour ?? payload.is_peak_hour),
       demandSupplyRatio: null,
       commissionRate,
       commissionAmount: commission,
@@ -607,16 +627,33 @@ function toPriceResult(payload: any): PriceResult {
     baseFare: payload.baseFare ?? payload.finalPrice ?? 0,
     fareBeforeSurge: payload.baseFare ?? payload.finalPrice ?? 0,
     surgeMultiplier: payload.surgeMultiplier ?? 1,
+    peakHourMultiplier: payload.peakHourMultiplier ?? 1,
+    isPeakHour: payload.isPeakHour ?? false,
     demandSupplyRatio: payload.demandSupplyRatio ?? null,
     commissionRate: payload.commissionRate ?? 0,
     commissionAmount: payload.commission ?? 0,
     finalFare: payload.finalPrice ?? 0,
     dynamicMinimumFare: 0,
   };
+  const distanceKm = payload.distanceKm ?? 0;
+  const multiplier = payload.multiplier ?? 0;
+  const peakHourMultiplier =
+    payload.peakHourMultiplier ?? snapshot.peakHourMultiplier ?? 1;
+  if (Number(peakHourMultiplier) > 1) {
+    console.debug('[priceCalculator] backend applied peak hour multiplier', {
+      serviceCode: payload.serviceCode ?? 'normal',
+      peakHourMultiplier,
+      isPeakHour: payload.isPeakHour ?? snapshot.isPeakHour,
+      finalPrice: payload.finalPrice,
+    });
+  }
   return {
-    distanceKm: payload.distanceKm ?? 0,
+    distanceKm,
     durationMinutes: payload.durationMinutes ?? 0,
-    multiplier: payload.multiplier ?? 0,
+    multiplier,
+    // distancePrice no viene del backend: se deriva km × mult para pasar la
+    // validación de normalizeBackendResponse (que lo exige numérico).
+    distancePrice: Math.round(distanceKm * multiplier * 100) / 100,
     finalPrice: payload.finalPrice ?? 0,
     commissionRate: payload.commissionRate ?? 0,
     commission: payload.commission ?? 0,
@@ -626,6 +663,8 @@ function toPriceResult(payload: any): PriceResult {
     baseFare: payload.baseFare ?? 0,
     featureCodes: payload.featureCodes ?? [],
     surgeMultiplier: payload.surgeMultiplier ?? 1,
+    peakHourMultiplier,
+    isPeakHour: payload.isPeakHour ?? snapshot.isPeakHour ?? false,
     isFallback: payload.isFallback ?? false,
     pricingSnapshot: snapshot,
   };
@@ -648,6 +687,7 @@ async function calculateRidePriceViaEndpoint(payload: BackendPricePayload): Prom
         extraStops: payload.extraStops,
         selectedFeatureCodes: payload.selectedFeatureCodes,
         driverId: payload.driverId,
+        calculationAt: payload.calculationAt,
       }),
       new Promise<never>((_, reject) => {
         controller.signal.addEventListener('abort', () => reject(new Error('aborted')));
@@ -705,6 +745,9 @@ export interface PriceBatchVariant {
 }
 
 
+const isPriceResult = (value: unknown): value is PriceResult =>
+  Boolean(value) && typeof (value as PriceResult).finalPrice === 'number';
+
 async function calculateRidePricesViaBatchEndpoint(
   payload: BackendPricePayload,
   variants: PriceBatchVariant[],
@@ -713,7 +756,9 @@ async function calculateRidePricesViaBatchEndpoint(
   const timeoutId = setTimeout(() => controller.abort(), REMOTE_TIMEOUT_MS);
 
   try {
-    // v2: /pricing/calculate-variants devuelve {car?, motorcycle?}.
+    // v2: /pricing/calculate-variants con `variants` devuelve resultados keyed
+    // (cada variante lleva su serviceCode/rideType/features). Sin soporte en el
+    // backend responde el formato legado {car, motorcycle} — se usa de fallback.
     const results = await Promise.race([
       calculateRidePriceVariantsV2({
         distanceMeters: payload.distanceInMeters,
@@ -725,6 +770,14 @@ async function calculateRidePricesViaBatchEndpoint(
         extraStops: payload.extraStops,
         selectedFeatureCodes: payload.selectedFeatureCodes,
         driverId: payload.driverId,
+        calculationAt: payload.calculationAt,
+        variants: variants.map((variant) => ({
+          key: variant.key,
+          vehicleType: variant.vehicleType === 'motorcycle' ? 'motorcycle' : 'car',
+          rideType: variant.rideType,
+          serviceCodeOverride: variant.serviceCodeOverride,
+          selectedFeatureCodes: variant.selectedFeatureCodes ?? payload.selectedFeatureCodes,
+        })),
       }),
       new Promise<never>((_, reject) => {
         controller.signal.addEventListener('abort', () => reject(new Error('aborted')));
@@ -733,7 +786,9 @@ async function calculateRidePricesViaBatchEndpoint(
 
     const normalized: Record<string, PriceCalculationResult | null> = {};
     for (const variant of variants) {
-      const raw = variant.vehicleType === 'motorcycle' ? results.motorcycle : results.car;
+      const keyed = results[variant.key];
+      const legacy = variant.vehicleType === 'motorcycle' ? results.motorcycle : results.car;
+      const raw = isPriceResult(keyed) ? keyed : isPriceResult(legacy) ? legacy : null;
       normalized[variant.key] = raw ? normalizeBackendResponse(toPriceResult(raw)) : null;
     }
 
@@ -844,6 +899,8 @@ async function calculateRidePriceFallback(
     minimumFare,
   );
 
+  // Tarifa del servicio normal como referencia (paridad con el backend):
+  // conductor designado = ×2.6.
   if (rideType === 'designated_driver') {
     const normalService = await fetchServiceConfig('normal');
     const normalMultiplier = normalService.pricePerKm > 0
@@ -856,8 +913,12 @@ async function calculateRidePriceFallback(
         extraStopsCharge,
       normalService.minimumFare ?? normalService.basePrice,
     );
-    minimumFare = Math.max(minimumFare, normalFare * 2);
+    minimumFare = Math.max(minimumFare, normalFare * DESIGNATED_DRIVER_FARE_MULTIPLIER);
     baseFare = Math.max(baseFare, minimumFare);
+  }
+  // Moto (viaje normal): su propia fórmula menos el 25% (paridad con el backend).
+  if (rideType !== 'designated_driver' && serviceCode === 'motorcycle') {
+    baseFare *= MOTORCYCLE_FARE_MULTIPLIER;
   }
 
   const now = options.calculationAt ?? new Date();
@@ -899,9 +960,35 @@ async function calculateRidePriceFallback(
       adjustment: adjustedFare - beforeDiscount,
     });
   }
+  // Premium ×1.38 (paridad con feature 'premium' en 0005_pricing.sql; solo
+  // servicio 'normal'). Orden posterior al descuento, igual que el backend.
+  if (
+    serviceCode === 'normal' &&
+    (selectedFeatures === null || selectedFeatures.has('premium'))
+  ) {
+    const beforePremium = adjustedFare;
+    adjustedFare = roundCurrency(adjustedFare * PREMIUM_FARE_MULTIPLIER);
+    featureCodes.push('premium');
+    featureAdjustments.push({ code: 'premium', adjustment: adjustedFare - beforePremium });
+  }
   const fareBeforeSurge = Math.max(adjustedFare, minimumFare);
   const surgeMultiplier = 1;
-  const finalPrice = roundFareToNearestFive(fareBeforeSurge * surgeMultiplier);
+  // Hora pico ×1.115: surge forzoso (no es feature), 6-8 / 11-13 / 17-19:30.
+  const peakActive =
+    managuaMinutes >= 0
+      ? PEAK_WINDOWS.some(([start, end]) => managuaMinutes >= start && managuaMinutes < end)
+      : isPeakHour(now);
+  const peakMultiplier = peakActive ? PEAK_HOUR_MULTIPLIER : 1;
+  const finalPrice = Math.round(fareBeforeSurge * surgeMultiplier * peakMultiplier);
+  if (peakMultiplier > 1) {
+    console.debug('[priceCalculator] peak hour multiplier applied', {
+      serviceCode,
+      calculationAt: now.toISOString(),
+      peakMultiplier,
+      fareBeforeSurge: roundCurrency(fareBeforeSurge),
+      finalPrice,
+    });
+  }
   const commissionRate = service.commissionRate ?? getFallbackCommissionRate(serviceCode);
   const commission = roundCurrency(finalPrice * commissionRate);
   const breakdownLines: string[] = [];
@@ -921,6 +1008,9 @@ async function calculateRidePriceFallback(
     const sign = feature.adjustment < 0 ? '-' : '+';
     breakdownLines.push(`${feature.code}: ${sign}C$${Math.abs(feature.adjustment).toFixed(2)}`);
   }
+  if (peakMultiplier > 1) {
+    breakdownLines.push(`Hora pico (×${peakMultiplier})`);
+  }
   breakdownLines.push(`Tarifa final: C$${finalPrice.toFixed(2)}`);
   breakdownLines.push(`Comisión ${(commissionRate * 100).toFixed(2)}%: C$${commission.toFixed(2)}`);
   const pricingSnapshot = {
@@ -930,6 +1020,8 @@ async function calculateRidePriceFallback(
     baseFare: roundCurrency(baseFare),
     fareBeforeSurge: roundCurrency(fareBeforeSurge),
     surgeMultiplier,
+    peakHourMultiplier: peakMultiplier,
+    isPeakHour: peakActive,
     demandSupplyRatio: null,
     commissionRate,
     commissionAmount: commission,
@@ -938,11 +1030,11 @@ async function calculateRidePriceFallback(
       Math.max(
         50,
         finalPrice * 0.6667,
-        surgeMultiplier > 1
-          ? fareBeforeSurge * (1 + (Math.min(1.6, surgeMultiplier) - 1) * 0.5)
+        surgeMultiplier * peakMultiplier > 1
+          ? fareBeforeSurge * (1 + (Math.min(1.6, surgeMultiplier * peakMultiplier) - 1) * 0.5)
           : 0,
-      ) * 100,
-    ) / 100,
+      ),
+    ),
   };
 
   return {
@@ -954,8 +1046,8 @@ async function calculateRidePriceFallback(
     multiplier,
     finalPrice,
     breakdown: breakdownLines.join('\n'),
-    isPeakHour: false,
-    peakHourAdjustment: 1,
+    isPeakHour: peakActive,
+    peakHourAdjustment: peakMultiplier,
     vehicleType,
     rideType,
     commissionRate,

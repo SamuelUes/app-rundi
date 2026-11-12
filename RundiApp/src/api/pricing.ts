@@ -17,6 +17,7 @@ export interface CalculatePriceRequest {
   skipSurge?: boolean;
   selectedFeatureCodes?: string[];
   driverId?: string;
+  calculationAt?: string;
 }
 
 export interface AppliedFeature {
@@ -33,6 +34,8 @@ export interface PricingSnapshot {
   baseFare: number;
   fareBeforeSurge: number;
   surgeMultiplier: number;
+  peakHourMultiplier: number;
+  isPeakHour: boolean;
   demandSupplyRatio: number | null;
   commissionRate: number;
   commissionAmount: number;
@@ -44,6 +47,7 @@ export interface PriceResult {
   distanceKm: number;
   durationMinutes: number;
   multiplier: number;
+  distancePrice?: number;
   finalPrice: number;
   commissionRate: number;
   commission: number;
@@ -53,6 +57,8 @@ export interface PriceResult {
   baseFare: number;
   featureCodes: string[];
   surgeMultiplier: number;
+  peakHourMultiplier: number;
+  isPeakHour: boolean;
   isFallback: boolean;
   pricingSnapshot: PricingSnapshot;
 }
@@ -63,10 +69,29 @@ export async function calculateRidePrice(body: CalculatePriceRequest): Promise<P
   return data;
 }
 
-/** Estimación para ambas variantes de vehículo. */
+export interface PriceVariantRequest {
+  key: string;
+  vehicleType: 'car' | 'motorcycle';
+  rideType: 'normal' | 'designated_driver';
+  serviceCodeOverride?: string;
+  selectedFeatureCodes?: string[];
+}
+
+export type VariantsPriceResponse = Record<string, PriceResult | { error?: string } | undefined>;
+
+/**
+ * Estimación para variantes de vehículo. Con `variants` cada item lleva su
+ * rideType/serviceCode/features propios y la respuesta viene keyed; sin ellos
+ * el backend responde el formato legado {car, motorcycle}.
+ */
 export async function calculateRidePriceVariants(
-  body: Omit<CalculatePriceRequest, 'vehicleType'>,
-): Promise<{ car?: PriceResult; motorcycle?: PriceResult }> {
+  body: Omit<CalculatePriceRequest, 'vehicleType' | 'rideType' | 'serviceCodeOverride' | 'selectedFeatureCodes'> & {
+    rideType?: CalculatePriceRequest['rideType'];
+    serviceCodeOverride?: string;
+    selectedFeatureCodes?: string[];
+    variants?: PriceVariantRequest[];
+  },
+): Promise<VariantsPriceResponse> {
   const { data } = await client.post('/pricing/calculate-variants', body);
   return data;
 }

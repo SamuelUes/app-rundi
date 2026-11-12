@@ -25,11 +25,14 @@ service cloud.firestore {
     function isAdmin() { return isAuth() && role() == 'admin'; }
     function isOperator() { return isAuth() && (role() == 'operator' || isAdmin()); }
     function isOwner(userId) { return isAuth() && uid() == userId; }
-    // Participante de un viaje vivo (client, capitán o seguidor)
+    // Participante de un viaje vivo (client, capitán o seguidor).
+    // .get() porque driverId/followerDriverId no existen mientras el viaje
+    // está 'requested'/'driver_offered' (la proyección omite NULLs — acceder
+    // al campo ausente es evaluation error, no un false limpio).
     function isTripParticipant(data) {
-      return isAuth() && (data.clientId == uid()
-                          || data.driverId == uid()
-                          || data.followerDriverId == uid());
+      return isAuth() && (data.get('clientId', null) == uid()
+                          || data.get('driverId', null) == uid()
+                          || data.get('followerDriverId', null) == uid());
     }
     // GeoPoint nativo (tipo latlng en reglas) — drivers_live.location
     // Nota: lat/lng se leen como métodos v.latitude()/v.longitude().
@@ -43,6 +46,13 @@ service cloud.firestore {
       return v is map
         && v.latitude is number && v.latitude >= -90 && v.latitude <= 90
         && v.longitude is number && v.longitude >= -180 && v.longitude <= 180;
+    }
+    function validChangedString(data, fields, field, maxSize) {
+      return !fields.hasAny([field])
+        || (data[field] is string && data[field].size() <= maxSize);
+    }
+    function validChangedNumber(data, fields, field) {
+      return !fields.hasAny([field]) || data[field] is number;
     }
     // Doc aún no proyectado (consumer async tras la mutación SQL): leerlo
     // devuelve !exists — no hay datos que proteger. Sin este disjunct,
@@ -76,13 +86,67 @@ service cloud.firestore {
       allow delete: if false; // baja de cuenta va por API (deactivateUserAccount)
 
       match /fcmTokens/{tokenId} {
-        allow read, write: if isOwner(userId);
+        function validToken() {
+          return request.resource.data.keys().hasOnly(['token', 'createdAt'])
+            && request.resource.data.token is string
+            && request.resource.data.token == tokenId
+            && request.resource.data.token.size() <= 1500
+            && request.resource.data.createdAt == request.time;
+        }
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && validToken();
       }
       match /voipTokens/{tokenId} {
-        allow read, write: if isOwner(userId);
+        function validToken() {
+          return request.resource.data.keys().hasOnly(['token', 'platform', 'bundleId', 'createdAt'])
+            && request.resource.data.token is string
+            && request.resource.data.token == tokenId
+            && request.resource.data.token.size() <= 1500
+            && request.resource.data.platform == 'ios'
+            && request.resource.data.bundleId is string
+            && request.resource.data.bundleId.size() > 0
+            && request.resource.data.bundleId.size() <= 255
+            && request.resource.data.createdAt == request.time;
+        }
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && validToken();
       }
       match /recurringRides/{rideId} {
-        allow read, write: if isOwner(userId);
+        function validPoint(point) {
+          return point is map
+            && point.keys().hasOnly(['lat', 'lng', 'address'])
+            && point.lat is number && point.lat >= -90 && point.lat <= 90
+            && point.lng is number && point.lng >= -180 && point.lng <= 180
+            && point.address is string && point.address.size() <= 2048;
+        }
+        function validRide() {
+          let data = request.resource.data;
+          return data.keys().hasOnly([
+              'id', 'title', 'origin', 'destination', 'extraStops', 'vehicleType',
+              'designatedDriverMode', 'paymentMethod', 'passengers', 'comment',
+              'priceSuggestion', 'createdAt', 'updatedAt'])
+            && data.id == rideId
+            && data.title is string && data.title.size() > 0 && data.title.size() <= 1000
+            && validPoint(data.origin) && validPoint(data.destination)
+            && data.extraStops is list && data.extraStops.size() <= 3
+            && (data.extraStops.size() < 1 || validPoint(data.extraStops[0]))
+            && (data.extraStops.size() < 2 || validPoint(data.extraStops[1]))
+            && (data.extraStops.size() < 3 || validPoint(data.extraStops[2]))
+            && data.vehicleType in ['auto', 'moto', 'designated_driver']
+            && (!data.keys().hasAny(['designatedDriverMode'])
+                || data.designatedDriverMode in ['auto', 'moto'])
+            && data.paymentMethod in ['cash', 'card']
+            && data.passengers is int && data.passengers >= 1 && data.passengers <= 4
+            && (!data.keys().hasAny(['comment']) || (data.comment is string && data.comment.size() <= 4000))
+            && (!data.keys().hasAny(['priceSuggestion']) || data.priceSuggestion == null || data.priceSuggestion is number)
+            && data.createdAt is number && data.updatedAt is number;
+        }
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && validRide();
+      }
+      match /pendingActions/{actionId} {
+        allow get: if isOwner(userId) && actionId == 'rating';
+        allow list, write: if false;
       }
     }
 
@@ -141,6 +205,19 @@ service cloud.firestore {
 
     // Sesión activa (modo cliente/conductor, dispositivo, serviceAreaId)
     match /REALTIME_user_sessions/{userId} {
+      function validSessionTimes(fields) {
+        return (!fields.hasAny(['lastHeartbeat']) || request.resource.data.lastHeartbeat == request.time)
+          && (!fields.hasAny(['startedAt']) || request.resource.data.startedAt == request.time);
+      }
+      function validSessionFields(fields) {
+        let data = request.resource.data;
+        return validChangedString(data, fields, 'device', 256)
+          && validChangedString(data, fields, 'platform', 32)
+          && validChangedString(data, fields, 'appVersion', 128)
+          && validChangedString(data, fields, 'serviceAreaId', 128)
+          && validChangedString(data, fields, 'fcmToken', 4096)
+          && validSessionTimes(fields);
+      }
       allow read: if isOwner(userId);
       // En create resource.data es null: validar keys() del doc nuevo
       // (diff() sobre null da Null value error y deniega).
@@ -149,13 +226,15 @@ service cloud.firestore {
              'mode', 'device', 'platform', 'appVersion', 'serviceAreaId',
              'lastHeartbeat', 'startedAt', 'fcmToken'])
         && (!request.resource.data.keys().hasAny(['mode'])
-            || request.resource.data.mode in ['client', 'driver']);
+            || request.resource.data.mode in ['client', 'driver'])
+        && validSessionFields(request.resource.data.keys());
       allow update: if isOwner(userId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
              'mode', 'device', 'platform', 'appVersion', 'serviceAreaId',
              'lastHeartbeat', 'startedAt', 'fcmToken'])
         && (!request.resource.data.keys().hasAny(['mode'])
-            || request.resource.data.mode in ['client', 'driver']);
+            || request.resource.data.mode in ['client', 'driver'])
+        && validSessionFields(request.resource.data.diff(resource.data).affectedKeys());
       allow delete: if isOwner(userId);
     }
 
@@ -165,8 +244,9 @@ service cloud.firestore {
       allow write: if isOwner(userId)
         && request.resource.data.keys().hasOnly([
              'state', 'lastSeen', 'heartbeatAt'])
-        && (!request.resource.data.keys().hasAny(['state'])
-            || request.resource.data.state in ['online', 'offline', 'away']);
+        && request.resource.data.state in ['online', 'offline', 'away']
+        && request.resource.data.lastSeen == request.time
+        && request.resource.data.heartbeatAt == request.time;
     }
 
     // GPS/estado en vivo del conductor — único doc que el driver escribe directo.
@@ -176,26 +256,42 @@ service cloud.firestore {
     // (serviceAreaId/vehicleType); la disponibilidad va por POST/DELETE
     // /v1/compliance/availability.
     match /REALTIME_drivers_live/{driverId} {
+      function validDriverFields(fields) {
+        let data = request.resource.data;
+        return validChangedString(data, fields, 'serviceAreaId', 128)
+          && validChangedString(data, fields, 'vehicleType', 128)
+          && validChangedNumber(data, fields, 'heading')
+          && validChangedNumber(data, fields, 'speed')
+          && validChangedNumber(data, fields, 'accuracy')
+          && (!fields.hasAny(['designatedMode']) || data.designatedMode is bool)
+          && (!fields.hasAny(['lastSeen']) || data.lastSeen == request.time);
+      }
       allow read: if isAuth();
       // En create resource.data es null: validar keys() del doc nuevo
       // (diff() sobre null da Null value error y deniega).
       allow create: if isOwner(driverId) && isDriver()
         && request.resource.data.keys().hasOnly([
-             'location', 'serviceAreaId', 'vehicleType',
+             'location', 'serviceAreaId', 'vehicleType', 'designatedMode',
              'lastSeen', 'heading', 'speed', 'accuracy'])
         && (!request.resource.data.keys().hasAny(['location'])
-            || validLatLng(request.resource.data.location));
+            || validLatLng(request.resource.data.location))
+        && validDriverFields(request.resource.data.keys());
       allow update: if isOwner(driverId) && isDriver()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-             'location', 'serviceAreaId', 'vehicleType',
+             'location', 'serviceAreaId', 'vehicleType', 'designatedMode',
              'lastSeen', 'heading', 'speed', 'accuracy'])
         && (!request.resource.data.keys().hasAny(['location'])
-            || validLatLng(request.resource.data.location));
+            || validLatLng(request.resource.data.location))
+        && validDriverFields(request.resource.data.diff(resource.data).affectedKeys());
       // delete ya quedaba denegado (request.resource es null en delete).
       allow delete: if false;
       match /vehicles/{vehicleDoc} {
         allow read: if isOwner(driverId) || isOperator();
         allow write: if false;
+      }
+      match /private/{privateDoc} {
+        allow get: if privateDoc == 'biometric' && (isOwner(driverId) || isOperator());
+        allow list, write: if false;
       }
     }
 
@@ -208,6 +304,11 @@ service cloud.firestore {
       allow list: if isDriver() && resource.data.status == 'requested';
       allow write: if false; // comandos vía API; el consumidor proyecta
 
+      match /private/pickup {
+        allow get: if isAuth() && (resource == null || resource.data.clientId == uid());
+        allow list, write: if false;
+      }
+
       // Subcampos de ubicación en vivo — el participante correspondiente escribe su GPS
       match /locations/{participant} {
         allow read: if isOperator()
@@ -216,8 +317,12 @@ service cloud.firestore {
         allow write: if isAuth() && participant == uid()
           && isTripParticipant(get(/databases/$(database)/documents/REALTIME_trips_live/$(tripId)).data)
           && validGeoPoint(request.resource.data)
+          && request.resource.data.updatedAt == request.time
           && request.resource.data.keys().hasOnly([
-               'latitude', 'longitude', 'updatedAt', 'heading', 'speed', 'accuracy']);
+               'latitude', 'longitude', 'updatedAt', 'heading', 'speed', 'accuracy'])
+          && validChangedNumber(request.resource.data, request.resource.data.keys(), 'heading')
+          && validChangedNumber(request.resource.data, request.resource.data.keys(), 'speed')
+          && validChangedNumber(request.resource.data, request.resource.data.keys(), 'accuracy');
       }
     }
 
@@ -234,6 +339,11 @@ service cloud.firestore {
       allow read: if docNotYetProjected()
         || isOperator() || isTripParticipant(resource.data);
       allow write: if false; // confirmación financiera solo backend/SQL
+
+      match /private/cash {
+        allow get: if isAuth() && (resource == null || resource.data.clientId == uid());
+        allow list, write: if false;
+      }
     }
 
     // Billetera del conductor — saldo + recargas (financiero privado: solo el
@@ -250,20 +360,14 @@ service cloud.firestore {
 
     // Señalización de llamadas (LiveKit) — el doc lo crea el backend con roles
     // resueltos desde SQL (clientUid/driverUid/operatorUid no spoofeables);
-    // participantes solo actualizan estado/tiempos y escriben eventos propios.
+    // participantes actualizan estado y eventos mediante la API autenticada.
     match /REALTIME_calls/{callId} {
       allow read: if docNotYetProjected()
         || isOperator()
         || (isAuth() && (resource.data.callerUid == uid() || resource.data.calleeUid == uid()));
       allow create: if false; // POST /v1/calls/initiate (backend)
-      // Update: participante existente; identidades, roles y vínculos inmutables
-      allow update: if isAuth()
-        && (resource.data.callerUid == uid() || resource.data.calleeUid == uid())
-        && request.resource.data.callerUid == resource.data.callerUid
-        && request.resource.data.calleeUid == resource.data.calleeUid
-        && (!request.resource.data.diff(resource.data).affectedKeys()
-              .hasAny(['clientUid', 'driverUid', 'operatorUid', 'callType',
-                       'direction', 'rideId', 'complaintId']));
+      // Update: aceptación y cierre pasan por API.
+      allow update: if false;
       allow delete: if false;
       match /events/{eventId} {
         function callParticipant() {
@@ -271,7 +375,7 @@ service cloud.firestore {
           return isAuth() && (call.callerUid == uid() || call.calleeUid == uid());
         }
         allow read: if callParticipant();
-        allow create: if callParticipant() && request.resource.data.from == uid();
+        allow create: if false;
       }
     }
 
@@ -297,12 +401,7 @@ service cloud.firestore {
       allow read: if isOperator()
         || (isAuth() && !exists(/databases/$(database)/documents/REALTIME_chats/$(chatId)))
         || (isAuth() && uid() in get(/databases/$(database)/documents/REALTIME_chats/$(chatId)).data.participants);
-      allow create: if isAuth()
-        && request.resource.data.from == uid()
-        && uid() in get(/databases/$(database)/documents/REALTIME_chats/$(chatId)).data.participants
-        && request.resource.data.keys().hasOnly(['from', 'text', 'sentAt', 'type', 'metadata'])
-        && request.resource.data.text is string
-        && request.resource.data.text.size() <= 4000;
+      allow create: if false;
       allow update, delete: if false;
     }
     match /REALTIME_chats/{chatId} {
@@ -330,9 +429,7 @@ service cloud.firestore {
     // Foto efímera de vehículo de llegada (TTL)
     match /REALTIME_designated_arrival_photos/{uid} {
       allow read: if isOwner(uid) || isOperator();
-      allow write: if isOwner(uid)
-        && request.resource.data.keys().hasOnly(['path', 'takenAt'])
-        && request.resource.data.path is string; // objectPath Storage
+      allow write: if false; // objectPath Storage gestionado por API
     }
 
     // ======================================================================
@@ -369,35 +466,11 @@ service cloud.firestore {
     // SYSTEM — infraestructura de eventos/proyecciones (solo backend)
     // ======================================================================
     match /SYSTEM_pending_events/{eventId} {
-      // Patrón doc §5.2: el cliente escribe el doc operacional + su pending
-      // event en un batch atómico; el consumidor lo persiste en SQL. Solo se
-      // acepta create con forma exacta y eventType whitelisted; el backend
-      // valida participación antes de aplicar (nunca confiar en payload).
-      allow create: if isAuth()
-        && request.resource.data.keys().hasOnly(
-             ['eventType', 'aggregateType', 'aggregateId', 'payload', 'status', 'createdAt', 'source'])
-        && request.resource.data.aggregateId is string
-        && request.resource.data.status == 'pending'
-        && request.resource.data.source == 'client'
-        && request.resource.data.payload.uid == request.auth.uid
-        && (
-          (request.resource.data.eventType == 'arrival_photo_uploaded'
-            && request.resource.data.aggregateType == 'ride'
-            && request.resource.data.payload.keys().hasOnly(['rideId', 'uid', 'path'])
-            && request.resource.data.payload.rideId is string
-            && request.resource.data.payload.path is string
-            && request.resource.data.payload.path.size() <= 500)
-          ||
-          (request.resource.data.eventType in ['call_initiated', 'call_ended']
-            && request.resource.data.aggregateType == 'call'
-            && request.resource.data.payload.keys().hasOnly(['callId', 'uid'])
-            && request.resource.data.payload.callId is string)
-          ||
-          (request.resource.data.eventType == 'chat_message'
-            && request.resource.data.aggregateType == 'chat'
-            && request.resource.data.payload.keys().hasOnly(['chatId', 'uid'])
-            && request.resource.data.payload.chatId is string)
-        );
+      // Patrón doc §5.2: la API escribe el doc operacional y su pending
+      // event en una transacción atómica; el consumidor lo persiste en SQL.
+      // El backend valida la participación antes de escribir y al consumir;
+      // el cliente ya no crea eventos directamente.
+      allow create: if false;
       allow read, update, delete: if false;
     }
     match /SYSTEM_processed_events/{eventId} {

@@ -24,16 +24,32 @@ import { RideDetailsPayment } from '../../components/shared/RideDetails/RideDeta
 
 const STATUS_KEY_MAP: Record<string, string> = {
   completed: 'completed',
+  rating_completed: 'ratingCompleted',
+  rating_skipped: 'ratingSkipped',
   canceled: 'canceled',
   in_progress: 'inProgress',
+  pending_payment: 'pendingPayment',
   accepted: 'accepted',
+  driver_offered: 'driverOffered',
+  driver_on_route: 'driverOnRoute',
+  driver_arrived: 'driverArrived',
   requested: 'requested',
 };
 
+// Estados de pago SQL → clave de etiqueta. confirmed/payment_completed son
+// los terminales reales del backend.
 const PAYMENT_STATUS_KEY_MAP: Record<string, string> = {
   completed: 'completed',
+  payment_completed: 'completed',
+  confirmed: 'completed',
   pending: 'pending',
+  pending_confirmation: 'pending',
+  pending_capture: 'pending',
+  payment_in_progress: 'pending',
+  in_progress: 'pending',
+  processing: 'pending',
   failed: 'failed',
+  canceled: 'failed',
   no_payment_data: 'noData',
 };
 
@@ -46,8 +62,8 @@ const DATE_LOCALE_MAP: Record<string, string> = {
 export default function RideDetailsScreen({ navigation, route }: any) {
   const { rideId } = route.params;
   const { user } = useAuth();
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const { t, i18n } = useTranslation();
   const dateLocale = useMemo(
     () => DATE_LOCALE_MAP[i18n.language] || DATE_LOCALE_MAP.es,
@@ -124,10 +140,19 @@ export default function RideDetailsScreen({ navigation, route }: any) {
   // Helper: Obtener color de estado
   const getStatusColor = (status: string): string => {
     switch (status) {
-      case 'completed': return '#4CAF50';
+      case 'completed':
+      case 'rating_completed':
+      case 'rating_skipped':
+        return '#4CAF50';
       case 'canceled': return '#F44336';
-      case 'in_progress': return '#FF9800';
-      case 'accepted': return '#2196F3';
+      case 'in_progress':
+      case 'pending_payment':
+        return '#FF9800';
+      case 'accepted':
+      case 'driver_offered':
+      case 'driver_on_route':
+      case 'driver_arrived':
+        return '#2196F3';
       default: return colors.textSecondary;
     }
   };
@@ -141,11 +166,15 @@ export default function RideDetailsScreen({ navigation, route }: any) {
   // Helper: Obtener color de estado de pago
   const getPaymentStatusColor = (status: string): string => {
     switch (status) {
-      case 'completed': return '#4CAF50';
-      case 'pending': return '#FF9800';
-      case 'failed': return '#F44336';
+      case 'completed':
+      case 'payment_completed':
+      case 'confirmed':
+        return '#4CAF50';
+      case 'failed':
+      case 'canceled':
+        return '#F44336';
       case 'no_payment_data': return '#757575';
-      default: return colors.textSecondary;
+      default: return '#FF9800';
     }
   };
 
@@ -276,7 +305,7 @@ export default function RideDetailsScreen({ navigation, route }: any) {
   );
 }
 
-const createStyles = (colors: any) => StyleSheet.create({
+const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -334,7 +363,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     height: 42,
     borderRadius: 21,
     backgroundColor: colors.surface || colors.background,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
     justifyContent: 'center',
     alignItems: 'center',
@@ -385,10 +414,10 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginBottom: 8,
   },
   card: {
-    backgroundColor: colors.card,
+    backgroundColor: isDark ? '#2C2C2C' : '#fafafa',
     borderRadius: 18,
     padding: 16,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
   },
   routeRow: {
@@ -496,6 +525,13 @@ const createStyles = (colors: any) => StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.primary + '26',
   },
+  personAvatarImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    overflow: 'hidden',
+    backgroundColor: colors.primary + '26',
+  },
   personAvatarText: {
     fontSize: 16,
     fontWeight: '800',
@@ -545,6 +581,10 @@ const createStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.surface || colors.background,
+  },
+  vehicleIconImage: {
+    width: 32,
+    height: 32,
   },
   vehicleBody: {
     flex: 1,

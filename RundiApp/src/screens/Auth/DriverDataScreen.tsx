@@ -10,7 +10,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
 } from 'react-native';
@@ -37,6 +36,7 @@ import { AuthStackParamList } from '../../navigation/types';
 import { useTranslation } from 'react-i18next';
 import { DriverDataLicenseTab } from '../../components/auth/DriverData/DriverDataLicenseTab';
 import { DriverDataVehicleTab } from '../../components/auth/DriverData/DriverDataVehicleTab';
+import { DriverDeviceSecurityStep } from '../../components/auth/DriverData/DriverDeviceSecurityStep';
 
 type DriverDataNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'DriverData'>;
 type DriverDataRouteProp = RouteProp<AuthStackParamList, 'DriverData'>;
@@ -69,6 +69,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
     context === 'register_upgrade_driver' ? 'register_upgrade_driver' : 'register_driver';
 
   const [loading, setLoading] = useState(false);
+  const [deviceSecurityVerified, setDeviceSecurityVerified] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [activeTab, setActiveTab] = useState<'license' | 'vehicle'>('license');
 
@@ -114,6 +115,8 @@ export default function DriverDataScreen({ navigation, route }: Props) {
   const [registrationPhotoFront, setRegistrationPhotoFront] = useState<string | null>(null);
   const [registrationPhotoBack, setRegistrationPhotoBack] = useState<string | null>(null);
   const [vehiclePhoto, setVehiclePhoto] = useState<string | null>(null);
+  const [inspectionPhoto, setInspectionPhoto] = useState<string | null>(null);
+  const [emissionsPhoto, setEmissionsPhoto] = useState<string | null>(null);
 
   // OCR on-device: estado de lectura y resumen de campos autocompletados
   const [ocrReading, setOcrReading] = useState(false);
@@ -151,7 +154,13 @@ export default function DriverDataScreen({ navigation, route }: Props) {
     insurancePhoto &&
     registrationPhotoFront &&
     registrationPhotoBack &&
-    vehiclePhoto;
+    vehiclePhoto &&
+    inspectionPhoto &&
+    emissionsPhoto &&
+    inspectionDate &&
+    inspectionValidUntil &&
+    emissionsTestedAt &&
+    emissionsValidUntil;
   const isComplete = isLicenseComplete && isVehicleComplete;
 
   const progressCurrent = 3;
@@ -159,7 +168,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
 
   useEffect(() => {
     (async () => {
-      if (Platform.OS !== 'web') {
+      if (deviceSecurityVerified && Platform.OS !== 'web') {
         try {
           await ImagePicker.requestCameraPermissionsAsync();
         } catch {
@@ -167,7 +176,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
         }
       }
     })();
-  }, []);
+  }, [deviceSecurityVerified]);
 
   // Hidratar borrador desde params o checkpoint
   useEffect(() => {
@@ -223,6 +232,8 @@ export default function DriverDataScreen({ navigation, route }: Props) {
           setRegistrationPhotoFront(draftVehicle.registrationPhotoFront || null);
           setRegistrationPhotoBack(draftVehicle.registrationPhotoBack || null);
           setVehiclePhoto(draftVehicle.vehiclePhoto || null);
+          setInspectionPhoto(draftVehicle.inspectionPhoto || null);
+          setEmissionsPhoto(draftVehicle.emissionsPhoto || null);
           setInspectionDate(draftVehicle.inspectionDate || '');
           setInspectionValidUntil(draftVehicle.inspectionValidUntil || '');
           setEmissionsTestedAt(draftVehicle.emissionsTestedAt || '');
@@ -280,6 +291,8 @@ export default function DriverDataScreen({ navigation, route }: Props) {
       ...(registrationPhotoFront ? { registrationPhotoFront } : {}),
       ...(registrationPhotoBack ? { registrationPhotoBack } : {}),
       ...(vehiclePhoto ? { vehiclePhoto } : {}),
+      ...(inspectionPhoto ? { inspectionPhoto } : {}),
+      ...(emissionsPhoto ? { emissionsPhoto } : {}),
       ...(inspectionDate ? { inspectionDate } : {}),
       ...(inspectionValidUntil ? { inspectionValidUntil } : {}),
       ...(emissionsTestedAt ? { emissionsTestedAt } : {}),
@@ -344,6 +357,8 @@ export default function DriverDataScreen({ navigation, route }: Props) {
     registrationPhotoFront,
     registrationPhotoBack,
     vehiclePhoto,
+    inspectionPhoto,
+    emissionsPhoto,
     inspectionDate,
     inspectionValidUntil,
     emissionsTestedAt,
@@ -403,7 +418,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
         fill(chasis, fields.chasis, setChasis, 'chasis');
         fill(registrationNumber, fields.registrationNumber, setRegistrationNumber, 'registrationNumber');
         fill(emissionDate, fields.emissionDate, setEmissionDate, 'emissionDate');
-      } else {
+      } else if (docType === 'insurance') {
         fill(insuranceNumber, fields.insuranceNumber, setInsuranceNumber, 'insuranceNumber');
         fill(insuranceCompany, fields.insuranceCompany, setInsuranceCompany, 'insuranceCompany');
         fill(insuranceExpiry, fields.insuranceExpiry, setInsuranceExpiry, 'insuranceExpiry');
@@ -414,6 +429,12 @@ export default function DriverDataScreen({ navigation, route }: Props) {
         fill(vin, fields.vin, setVin, 'vin');
         fill(motor, fields.motor, setMotor, 'motor');
         fill(chasis, fields.chasis, setChasis, 'chasis');
+      } else if (docType === 'inspection') {
+        fill(inspectionDate, fields.inspectionDate, setInspectionDate, 'inspectionDate');
+        fill(inspectionValidUntil, fields.inspectionValidUntil, setInspectionValidUntil, 'inspectionValidUntil');
+      } else {
+        fill(emissionsTestedAt, fields.emissionsTestedAt, setEmissionsTestedAt, 'emissionsTestedAt');
+        fill(emissionsValidUntil, fields.emissionsValidUntil, setEmissionsValidUntil, 'emissionsValidUntil');
       }
 
       setOcrMessage(
@@ -486,6 +507,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
         const backVersion = isRegistrationBack ? ++backOcrVersion.current : undefined;
         if (isRegistrationBack) setRegistrationOcrYear(null);
         setPhotoFunction(uri);
+        if (ocrDocType === 'inspection' || ocrDocType === 'emissions') setVehicleFieldsExpanded(true);
         if (ocrDocType) {
           void runDocumentOcr(uri, ocrDocType, backVersion);
         }
@@ -586,10 +608,19 @@ export default function DriverDataScreen({ navigation, route }: Props) {
     if (insuranceExpiry && !isValidDateString(insuranceExpiry)) {
       invalidDates.push(t('authScreens.driverData.vehicle.insuranceExpiryPlaceholder'));
     }
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Managua', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    for (const [issued, expiry, label] of [
+      [inspectionDate, inspectionValidUntil, t('authScreens.driverData.photos.inspectionTitle')],
+      [emissionsTestedAt, emissionsValidUntil, t('authScreens.driverData.photos.emissionsTitle')],
+    ]) {
+      if (!isValidDateString(issued) || !isValidDateString(expiry) || issued > today || expiry < today || expiry < issued) {
+        invalidDates.push(label);
+      }
+    }
     if (invalidDates.length > 0) {
       Alert.alert(
         t('authScreens.driverData.alerts.errorTitle'),
-        `${t('authScreens.driverData.alerts.incomplete')}\n\n${invalidDates.join('\n')}`,
+        `${t('authScreens.driverData.alerts.invalidDates')}\n\n${invalidDates.join('\n')}`,
       );
       return;
     }
@@ -639,6 +670,8 @@ export default function DriverDataScreen({ navigation, route }: Props) {
             registrationPhotoFront: registrationPhotoFront || undefined,
             registrationPhotoBack: registrationPhotoBack || undefined,
             vehiclePhoto: vehiclePhoto || undefined,
+            inspectionPhoto: inspectionPhoto || undefined,
+            emissionsPhoto: emissionsPhoto || undefined,
             inspectionDate: inspectionDate || undefined,
             inspectionValidUntil: inspectionValidUntil || undefined,
             emissionsTestedAt: emissionsTestedAt || undefined,
@@ -670,6 +703,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
         driverData: {
           licenseNumber,
           licenseExpiry,
+          deviceSecurityVerified,
           department,
           municipality,
           profilePhoto: profilePhoto || undefined,
@@ -697,6 +731,8 @@ export default function DriverDataScreen({ navigation, route }: Props) {
           registrationPhotoFront: registrationPhotoFront || undefined,
           registrationPhotoBack: registrationPhotoBack || undefined,
           vehiclePhoto: vehiclePhoto || undefined,
+          inspectionPhoto: inspectionPhoto || undefined,
+          emissionsPhoto: emissionsPhoto || undefined,
           inspectionDate: inspectionDate || undefined,
           inspectionValidUntil: inspectionValidUntil || undefined,
           emissionsTestedAt: emissionsTestedAt || undefined,
@@ -717,17 +753,19 @@ export default function DriverDataScreen({ navigation, route }: Props) {
     }
   };
 
+  if (!deviceSecurityVerified) {
+    return <DriverDeviceSecurityStep onVerified={() => setDeviceSecurityVerified(true)} onBack={handleBack} />;
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView
+      <ScrollView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+        showsVerticalScrollIndicator={false}
       >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>
@@ -868,6 +906,8 @@ export default function DriverDataScreen({ navigation, route }: Props) {
               registrationPhotoFront={registrationPhotoFront}
               registrationPhotoBack={registrationPhotoBack}
               vehiclePhoto={vehiclePhoto}
+              inspectionPhoto={inspectionPhoto}
+              emissionsPhoto={emissionsPhoto}
               loading={loading}
               colors={colors}
               onSetPlate={manualEdit('plate', setPlate)}
@@ -891,16 +931,18 @@ export default function DriverDataScreen({ navigation, route }: Props) {
               emissionsValidUntil={emissionsValidUntil}
               roadTaxPaidAt={roadTaxPaidAt}
               revisadoValidUntil={revisadoValidUntil}
-              onSetInspectionDate={setInspectionDate}
-              onSetInspectionValidUntil={setInspectionValidUntil}
-              onSetEmissionsTestedAt={setEmissionsTestedAt}
-              onSetEmissionsValidUntil={setEmissionsValidUntil}
+              onSetInspectionDate={manualEdit('inspectionDate', setInspectionDate)}
+              onSetInspectionValidUntil={manualEdit('inspectionValidUntil', setInspectionValidUntil)}
+              onSetEmissionsTestedAt={manualEdit('emissionsTestedAt', setEmissionsTestedAt)}
+              onSetEmissionsValidUntil={manualEdit('emissionsValidUntil', setEmissionsValidUntil)}
               onSetRoadTaxPaidAt={setRoadTaxPaidAt}
               onSetRevisadoValidUntil={setRevisadoValidUntil}
               onTakeInsurancePhoto={() => takePhoto(setInsurancePhoto, 'insurance')}
               onTakeRegistrationPhotoFront={() => takePhoto(setRegistrationPhotoFront, 'registration')}
               onTakeRegistrationPhotoBack={() => takePhoto(setRegistrationPhotoBack, 'registration', true)}
               onTakeVehiclePhoto={() => takePhoto(setVehiclePhoto)}
+              onTakeInspectionPhoto={() => takePhoto(setInspectionPhoto, 'inspection')}
+              onTakeEmissionsPhoto={() => takePhoto(setEmissionsPhoto, 'emissions')}
               ocrReading={ocrReading}
               ocrMessage={ocrMessage}
               fieldsExpanded={vehicleFieldsExpanded}
@@ -916,7 +958,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
                 title={t('authScreens.driverData.buttons.continue')}
                 onPress={handleContinue}
                 size="large"
-                iconName="arrow-forward"
+                //iconName="arrow-forward"
                 loading={loading}
                 disabled={!isComplete || ocrReading}
                 style={styles.actionButton}
@@ -926,7 +968,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
                 onPress={handleBack}
                 size="large"
                 variant="outline"
-                iconName="arrow-back"
+               // iconName="arrow-back"
                 color={readableGold}
                 disabled={loading}
                 style={styles.actionButton}
@@ -934,7 +976,6 @@ export default function DriverDataScreen({ navigation, route }: Props) {
             </View>
           </AnimatedCard>
       </ScrollView>
-    </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -998,21 +1039,21 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     borderRadius: 28,
     paddingHorizontal: 20,
     paddingVertical: 26,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.2,
     shadowRadius: 12,
     elevation: 2,
   },
   tabContainer: {
     flexDirection: 'row',
-    backgroundColor: colors.background,
+    backgroundColor: isDark ? colors.background : 'rgba(244, 245, 245, 0.5)',
     borderRadius: 999,
     padding: 4,
     gap: 4,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
     marginBottom: 20,
   },
@@ -1055,13 +1096,13 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     marginBottom: 8,
   },
   input: {
-    backgroundColor: colors.background,
+    backgroundColor: isDark ? colors.background : 'rgba(246, 246, 246, 0.8)',
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
     color: colors.text,
-    borderWidth: 1.5,
+    borderWidth: 0.1,
     borderColor: colors.border,
   },
   pickerContainer: {
@@ -1130,11 +1171,19 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   },
   photoContainer: {
     marginBottom: 14,
-    backgroundColor: colors.background,
+    backgroundColor: isDark ? colors.background : 'rgba(248, 248, 248, 0.8)',
     borderRadius: 16,
     padding: 14,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
+    shadowColor: 'rgba(0, 0, 0, 0.41)',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   photoHeader: {
     flexDirection: 'row',

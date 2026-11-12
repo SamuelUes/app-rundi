@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { getFirebaseFirestore } from '../../../config/firebase';
 import { FS_COL } from '../../../constants/firestore';
 import alertService from '../../../services/notification/alertService';
 import proximityService from '../../../services/ride/proximityService';
 import { extractRequestedFeatureCodes } from '../../../utils/ride/rideFeatureLabels';
+import { matchesRidePreviewOffer, mergeRidePreviewOffer } from '../../../utils/ride/ridePreviewOfferSnapshot';
 
 export interface RideLocation {
   lat: number;
@@ -28,6 +29,7 @@ export interface RidePreviewData {
   clientSuggestedPrice?: number;
   driverOfferedPrice?: number | null;
   driverOfferStatus?: string | null;
+  lastOfferBy?: string | null;
   paymentMethod?: 'cash' | 'card';
   negotiationStatus?: string | null;
   rideType?: string | null;
@@ -115,8 +117,8 @@ export function useRidePreviewData(
   // Listeners v2:
   // - REALTIME_trips_live/{rideId}: solo legible si soy participante (falla
   //   silenciosa hasta que el cliente confirme al driver).
-  // - REALTIME_driver_offers/{rideId}_{uid}: siempre legible para el
-  //   oferente — refleja status/offeredPrice de mi oferta.
+  // - REALTIME_driver_offers: consulta las ofertas propias para resolver
+  //   tanto el UUID SQL como el ID del documento vivo del viaje.
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
@@ -213,15 +215,12 @@ export function useRidePreviewData(
 
       unsubs.push(
         onSnapshot(
-          doc(db, FS_COL.driverOffers, `${ride.id}_${userId}`),
+          query(collection(db, FS_COL.driverOffers), where('driverId', '==', userId)),
           (snap) => {
-            const offer = snap.data();
+            const offer = snap.docs.map((item) => item.data())
+              .find((item) => matchesRidePreviewOffer(item, ride.id));
             if (!offer) return;
-            setRideData((prev) => ({
-              ...prev,
-              driverOfferedPrice: offer?.offeredPrice ?? prev.driverOfferedPrice ?? null,
-              driverOfferStatus: offer?.status ?? prev.driverOfferStatus ?? null,
-            }));
+            setRideData((prev) => mergeRidePreviewOffer(prev, offer));
             // Oferta expirada/rechazada por el sistema = viaje no disponible.
             if (
               ['expired', 'rejected', 'cancelled', 'canceled'].includes(String(offer?.status || '')) &&
@@ -237,7 +236,7 @@ export function useRidePreviewData(
                 .finally(() => navigation.goBack());
             }
           },
-          () => {},
+          (error) => console.warn('[useRidePreviewData] Error escuchando oferta:', error),
         ),
       );
     })().catch((error) => console.warn('[useRidePreviewData] Error inicializando listeners:', error));

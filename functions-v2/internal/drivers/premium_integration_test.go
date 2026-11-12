@@ -35,7 +35,7 @@ func TestPremiumUsesOnlyActiveVehicle(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM public.users WHERE id = $1`, uid)
 	})
 
-	svc := NewService(pool, nil)
+	svc := NewService(pool, nil, nil)
 	plate := fmt.Sprintf("P%09d", time.Now().UnixNano()%1_000_000_000)
 	currentYear := time.Now().In(time.FixedZone("Managua", -6*60*60)).Year()
 	oldYear := currentYear - 10

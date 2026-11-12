@@ -6,7 +6,6 @@ import {
   Pressable,
   TextInput,
   ScrollView,
-  KeyboardAvoidingView,
   Platform,
 } from 'react-native';
 import { liveTripDocId } from '../../live/tripIds';
@@ -29,6 +28,9 @@ import { useTranslation } from 'react-i18next';
 import { doc, getDoc } from 'firebase/firestore';
 import { getFirebaseFirestore } from '../../config/firebase';
 import { FS_COL } from '../../constants/firestore';
+import { getPendingRating } from '../../api/ratings';
+import { getRideDetail } from '../../api/rides';
+import StorageImage from '../../components/shared/StorageImage';
 
 const STAR_GOLD = '#FFC531';
 
@@ -108,25 +110,72 @@ export default function RatingScreen({ route, navigation }: any) {
     followerDriverId?: string;
   }>({});
   const [followerRating, setFollowerRating] = useState(0);
+  const [captainRated, setCaptainRated] = useState(Boolean(route.params?.captainRated));
+  const [followerRated, setFollowerRated] = useState(Boolean(route.params?.followerRated));
+  const [counterpart, setCounterpart] = useState<{
+    name?: string;
+    photo?: string | null;
+    rating?: number;
+  }>({});
 
-  const isDriver = user?.role === 'driver';
+  const isDriver = route.params?.role === 'client' ? false : user?.role === 'driver';
 
   useEffect(() => {
-    if (isDriver) return;
     // v2: el seguidor vive como campo del doc trips_live.
     getFirebaseFirestore()
       .then(async (db) => getDoc(doc(db, FS_COL.tripsLive, await liveTripDocId(rideId))))
-      .then((snap) => {
-        const data = snap.data() as any;
-        setFollower(data?.follower ?? null);
-        setTripParticipants({
-          clientId: data?.clientId,
-          driverId: data?.driverId,
-          followerDriverId: data?.followerDriverId,
-        });
+      .then(async (snap) => {
+        const data = (snap.exists() ? snap.data() : await getRideDetail(rideId)) as any;
+        setFollower((previous) => isDriver ? null : data?.follower ?? (data?.followerDriverId ? previous ?? {} : previous));
+        setTripParticipants((previous) => ({
+          clientId: data?.clientId ?? data?.client?.id ?? previous.clientId,
+          driverId: data?.driverId ?? data?.driver?.id ?? previous.driverId,
+          followerDriverId: data?.followerDriverId ?? previous.followerDriverId,
+        }));
+        setCounterpart((previous) => ({
+          ...previous,
+          name: previous.name ?? (isDriver
+            ? data?.clientName ?? data?.client?.name
+            : data?.driverName ?? data?.driver?.name),
+        }));
       })
       .catch(() => setFollower(null));
   }, [rideId, isDriver]);
+
+  useEffect(() => {
+    if (isDriver) return;
+    getPendingRating().then((pending) => {
+      if (pending && (pending.rideId === rideId || pending.firebaseRideId === rideId)) {
+        setCaptainRated(pending.captainRated);
+        setFollowerRated(pending.followerRated);
+        setTripParticipants((previous) => ({
+          ...previous,
+          driverId: pending.driverId || previous.driverId,
+          followerDriverId: pending.followerDriverId || previous.followerDriverId,
+        }));
+        if (pending.followerDriverId) setFollower((previous) => previous ?? {});
+      }
+    }).catch(() => {});
+  }, [rideId, isDriver]);
+
+  useEffect(() => {
+    const driverId = tripParticipants.driverId;
+    if (isDriver || !driverId) return;
+    let cancelled = false;
+    getFirebaseFirestore()
+      .then((db) => getDoc(doc(db, FS_COL.driverPublic, driverId)))
+      .then((snap) => {
+        if (cancelled || !snap.exists()) return;
+        const d = snap.data() as any;
+        setCounterpart((previous) => ({
+          name: d?.displayName || previous.name,
+          photo: d?.photoUrl || previous.photo,
+          rating: typeof d?.averageRating === 'number' ? d.averageRating : previous.rating,
+        }));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isDriver, tripParticipants.driverId]);
 
   const categoryLabels = useMemo<Record<RatingCategoryKey, string>>(
     () => ({
@@ -165,8 +214,16 @@ export default function RatingScreen({ route, navigation }: any) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
+  const showRatingSuccess = () => {
+    alertService.showSuccessAlert(
+      t('shared.rating.alerts.successTitle'),
+      t('shared.rating.alerts.successMessage'),
+      () => navigation.replace(isDriver ? 'DriverHome' : 'ClientHome'),
+    );
+  };
+
   const handleSubmitRating = async () => {
-    if (rating === 0 && followerRating === 0) {
+    if ((rating === 0 || captainRated) && (followerRating === 0 || followerRated)) {
       alertService.showErrorAlert(t('shared.rating.alerts.missingRating'));
       return;
     }
@@ -183,7 +240,7 @@ export default function RatingScreen({ route, navigation }: any) {
         friendliness: categoryRatings.friendliness > 0 ? categoryRatings.friendliness : rating,
       };
 
-      if (rating > 0) {
+      if (rating > 0 && !captainRated) {
         await ratingService.submitRideRating({
           rideId,
           toUserId: isDriver ? tripParticipants.clientId : tripParticipants.driverId,
@@ -198,8 +255,9 @@ export default function RatingScreen({ route, navigation }: any) {
           targetRole: isDriver ? 'client' : follower ? 'captain' : 'driver',
           finalize: !(follower && followerRating > 0),
         });
+        setCaptainRated(true);
       }
-      if (follower && followerRating > 0) {
+      if (follower && followerRating > 0 && !followerRated) {
         await ratingService.submitRideRating({
           rideId,
           toUserId: tripParticipants.followerDriverId,
@@ -207,20 +265,23 @@ export default function RatingScreen({ route, navigation }: any) {
           targetRole: 'follower',
           finalize: true,
         });
+        setFollowerRated(true);
       }
 
-      alertService.showSuccessAlert(
-        t('shared.rating.alerts.successTitle'),
-        t('shared.rating.alerts.successMessage'),
-        () => {
-        if (isDriver) {
-          navigation.replace('DriverHome');
-        } else {
-          navigation.replace('ClientHome');
-        }
-      });
+      showRatingSuccess();
     } catch (error: any) {
       console.error('Error enviando calificación:', error);
+      if (!isDriver) {
+        const pending = await getPendingRating().catch(() => null);
+        if (pending && (pending.rideId === rideId || pending.firebaseRideId === rideId)) {
+          setCaptainRated(pending.captainRated);
+          setFollowerRated(pending.followerRated);
+          if (pending.status === 'completed') {
+            showRatingSuccess();
+            return;
+          }
+        }
+      }
       alertService.showErrorAlert(error.message || t('shared.rating.alerts.submitError'));
     } finally {
       setSubmitting(false);
@@ -237,20 +298,29 @@ export default function RatingScreen({ route, navigation }: any) {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView
-        style={styles.keyboard}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+        showsVerticalScrollIndicator={false}
       >
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
           {/* Header */}
           <View style={styles.hero}>
             <View style={styles.heroBadge}>
-              <MaterialIcons name="star" size={34} color={STAR_GOLD} />
+              {counterpart.photo ? (
+                <StorageImage
+                  uri={counterpart.photo}
+                  style={styles.heroAvatar}
+                  resizeMode="cover"
+                />
+              ) : counterpart.name ? (
+                <Text style={styles.heroAvatarText}>
+                  {counterpart.name.trim().charAt(0).toUpperCase()}
+                </Text>
+              ) : (
+                <MaterialIcons name="star" size={34} color={STAR_GOLD} />
+              )}
             </View>
             <Text style={styles.title}>
               {isDriver ? t('shared.rating.header.titleDriver') : t('shared.rating.header.titleClient')}
@@ -258,13 +328,26 @@ export default function RatingScreen({ route, navigation }: any) {
             <Text style={styles.subtitle}>
               {t('shared.rating.header.subtitle')}
             </Text>
+            {counterpart.name ? (
+              <View style={styles.counterpartRow}>
+                <Text style={styles.counterpartName}>{counterpart.name}</Text>
+                {typeof counterpart.rating === 'number' && counterpart.rating > 0 && (
+                  <View style={styles.counterpartRating}>
+                    <MaterialIcons name="star" size={14} color={STAR_GOLD} />
+                    <Text style={styles.counterpartRatingText}>
+                      {counterpart.rating.toFixed(1)}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            ) : null}
 
             {follower && (
               <Text style={styles.sectionTitle}>{t('shared.rating.crew.captainTitle')}</Text>
             )}
 
             {/* Estrellas */}
-            <View style={styles.starsContainer}>
+            {!captainRated && <View style={styles.starsContainer}>
               {[1, 2, 3, 4, 5].map((star) => (
                 <RatingStar
                   key={star}
@@ -274,12 +357,12 @@ export default function RatingScreen({ route, navigation }: any) {
                   onPress={() => handleSelectRating(star)}
                 />
               ))}
-            </View>
+            </View>}
 
             <Text style={styles.ratingText}>{ratingText}</Text>
           </View>
 
-          {follower && (
+          {follower && !followerRated && (
             <View style={styles.followerSection}>
               <Text style={styles.sectionTitle}>
                 {t('shared.rating.crew.followerTitle', { name: follower.name ?? '' })}
@@ -394,8 +477,10 @@ export default function RatingScreen({ route, navigation }: any) {
           {/* Botón omitir */}
           <Pressable
             style={styles.skipButton}
+            disabled={submitting}
             onPress={async () => {
               try {
+                setSubmitting(true);
                 // Llamar a skipRating para marcar que omitió
                 await ratingService.skipRideRating(rideId);
 
@@ -407,19 +492,16 @@ export default function RatingScreen({ route, navigation }: any) {
                 }
               } catch (error) {
                 console.error('Error omitiendo calificación:', error);
-                // Navegar de todas formas
-                if (isDriver) {
-                  navigation.replace('DriverHome');
-                } else {
-                  navigation.replace('ClientHome');
-                }
+                // Mantener la pantalla para permitir reintentar
+                alertService.showErrorAlert(t('shared.rating.alerts.submitError'));
+              } finally {
+                setSubmitting(false);
               }
             }}
           >
             <Text style={styles.skipButtonText}>{t('shared.rating.buttons.skip')}</Text>
           </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -428,9 +510,6 @@ const createStyles = (colors: any) => StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.surface,
-  },
-  keyboard: {
-    flex: 1,
   },
   scroll: {
     flex: 1,
@@ -456,6 +535,38 @@ const createStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
+    overflow: 'hidden',
+  },
+  heroAvatar: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+  },
+  heroAvatarText: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: STAR_GOLD,
+  },
+  counterpartRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  counterpartName: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  counterpartRating: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  counterpartRatingText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
   },
   title: {
     fontSize: 26,
@@ -506,7 +617,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 9,
     borderRadius: 18,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
   },
   quickCommentChipActive: {
@@ -529,7 +640,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: colors.card,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
     borderRadius: 14,
     paddingHorizontal: 14,
@@ -565,7 +676,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 14,
     color: colors.text,
     minHeight: 96,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
   },
   spacer: {

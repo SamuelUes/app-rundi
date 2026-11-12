@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rundi/functions-v2/internal/compliance"
 )
 
 func TestPremiumEligibilityBoundaries(t *testing.T) {
@@ -36,6 +37,10 @@ func TestPremiumEligibilityBoundaries(t *testing.T) {
 		{"grace ends", intPtr(2022), "sedan", "2027-06-30 23:59:59-06", true},
 		{"expired", intPtr(2022), "sedan", "2027-07-01 00:00:00-06", false},
 		{"motorcycle", intPtr(2022), "moto", "2026-01-01 00:00:00-06", false},
+		{"suv qualifies", intPtr(2022), "suv", "2026-01-01 00:00:00-06", true},
+		{"pickup qualifies", intPtr(2022), "pickup", "2026-01-01 00:00:00-06", true},
+		{"van excluded", intPtr(2022), "van", "2026-01-01 00:00:00-06", false},
+		{"generic auto excluded", intPtr(2022), "auto", "2026-01-01 00:00:00-06", false},
 		{"no OCR year", nil, "sedan", "2026-01-01 00:00:00-06", false},
 	}
 	for _, tt := range tests {
@@ -54,6 +59,34 @@ func TestPremiumEligibilityBoundaries(t *testing.T) {
 }
 
 func intPtr(v int) *int { return &v }
+
+// openTestDriverSession — AcceptRide/Negotiate exigen una autorización viva
+// (driver_sessions + compliance_signals, migraciones 0016/0017).
+func openTestDriverSession(t *testing.T, ctx context.Context, pool *pgxpool.Pool, driverID string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `INSERT INTO public.compliance_signals (kind, signal_key)
+		VALUES ('driver', $1) ON CONFLICT DO NOTHING`, driverID); err != nil {
+		t.Fatal(err)
+	}
+	var generation int64
+	if err := pool.QueryRow(ctx, `SELECT generation FROM public.compliance_signals
+		WHERE kind = 'driver' AND signal_key = $1`, driverID).Scan(&generation); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	today, end := compliance.NicaraguaDayWindow(time.Now())
+	if _, _, err := compliance.OpenDriverSession(ctx, tx, driverID, today, nil,
+		[]string{"rides"}, map[string]int64{"driver:" + driverID: generation}, end); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestSeniorRideRequiresOptIn(t *testing.T) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
@@ -76,9 +109,11 @@ func TestSeniorRideRequiresOptIn(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM public.drivers WHERE user_id = $1`, driver)
 		_, _ = pool.Exec(ctx, `DELETE FROM public.users WHERE id IN ($1, $2)`, driver, client)
 	})
-	if _, err := pool.Exec(ctx, `INSERT INTO public.drivers(user_id) VALUES ($1)`, driver); err != nil {
+	var seniorDriverID string
+	if err := pool.QueryRow(ctx, `INSERT INTO public.drivers(user_id) VALUES ($1) RETURNING id::text`, driver).Scan(&seniorDriverID); err != nil {
 		t.Fatal(err)
 	}
+	openTestDriverSession(t, ctx, pool, seniorDriverID)
 	var rideID string
 	if err := pool.QueryRow(ctx, `INSERT INTO public.rides(client_id, firebase_ride_id, pricing_snapshot, estimated_price)
 		VALUES ($1, $2, '{"featureCodes":["senior"]}', 100) RETURNING id::text`, client, "senior-ride-"+suffix).Scan(&rideID); err != nil {
@@ -129,6 +164,7 @@ func TestPremiumAcceptRequiresActiveVehicle(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO public.drivers(user_id) VALUES ($1) RETURNING id::text`, driver).Scan(&driverID); err != nil {
 		t.Fatal(err)
 	}
+	openTestDriverSession(t, ctx, pool, driverID)
 	year := time.Now().In(time.FixedZone("Managua", -6*60*60)).Year()
 	var active, inactive string
 	plate := fmt.Sprintf("Q%09d", time.Now().UnixNano()%1_000_000_000)
@@ -152,6 +188,8 @@ func TestPremiumAcceptRequiresActiveVehicle(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE public.vehicles SET is_active = (id = $1::uuid) WHERE driver_id = $2::uuid`, inactive, driverID); err != nil {
 		t.Fatal(err)
 	}
+	// El UPDATE dispara la señal de compliance → reautoriza con la generación vigente.
+	openTestDriverSession(t, ctx, pool, driverID)
 	if _, err := svc.AcceptRide(ctx, rideID, driver, t.Name(), nil); err != nil {
 		t.Fatalf("vehículo activo premium: %v", err)
 	}

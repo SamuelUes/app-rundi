@@ -41,6 +41,8 @@ export interface SubmitVehicleDocumentPayload {
   cardNumber?: string;
   issuedAt?: string;
   declaredValidUntil?: string;
+  /** Año detectado por OCR de la circulación — va a vehicles.registration_ocr_year. */
+  ocrYear?: number;
 
   // insurance
   policyNumber?: string;

@@ -3,8 +3,7 @@ package payments
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"math/rand"
+	"log"
 	"net/http"
 	"strings"
 
@@ -12,26 +11,41 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/rundi/functions-v2/internal/apperr"
-	"github.com/rundi/functions-v2/internal/fs"
+	"github.com/rundi/functions-v2/internal/compliance"
 	"github.com/rundi/functions-v2/internal/middleware"
 )
 
 type Handler struct {
-	svc *Service
-	fs  *firestore.Client
+	svc        *Service
+	fs         *firestore.Client
+	compSvc    *compliance.Service
+	dailyStore *compliance.DailyStore
 }
 
 func NewHandler(svc *Service, fsClient *firestore.Client) *Handler {
 	return &Handler{svc: svc, fs: fsClient}
 }
 
-// writeCashCode — publica el código en REALTIME_payments_live/{rideId}
-// (proyección backend; el cliente lo lee del doc vivo).
-func (h *Handler) writeCashCode(ctx context.Context, rideID string) func(map[string]any) error {
-	return func(fields map[string]any) error {
-		_, err := h.fs.Collection(fs.ColPaymentsLive).Doc(rideID).
-			Set(ctx, fields, firestore.MergeAll)
-		return err
+// SetDriverReactivation — cablea la reactivación automática del conductor al
+// terminar el proceso de viaje y de pago (vuelve a 'online' en drivers_live).
+func (h *Handler) SetDriverReactivation(svc *compliance.Service, store *compliance.DailyStore) {
+	h.compSvc, h.dailyStore = svc, store
+}
+
+// reactivateDriver — best-effort post-commit: corre la misma evaluación del
+// alta manual. Si no califica (documentos, señales obsoletas) queda offline y
+// reactiva a mano con los motivos en pantalla; el pago ya quedó registrado.
+func (h *Handler) reactivateDriver(ctx context.Context, uid string) {
+	if h.compSvc == nil || uid == "" {
+		return
+	}
+	res, err := h.compSvc.ActivateAvailabilityPostRide(ctx, uid, h.dailyStore)
+	if err != nil {
+		log.Printf("driver post-ride reactivation uid=%s: %v", uid, err)
+		return
+	}
+	if !res.Allowed {
+		log.Printf("driver post-ride reactivation uid=%s denied: %s", uid, res.Status)
 	}
 }
 
@@ -57,11 +71,12 @@ func (h *Handler) confirmCash(w http.ResponseWriter, r *http.Request) {
 		apperr.Write(w, apperr.New(400, "invalid body: rideId required"))
 		return
 	}
-	p, err := h.svc.ConfirmCash(r.Context(), body.RideID, uid, reqID)
+	p, err := h.svc.ConfirmCash(r.Context(), body.RideID, uid, body.Code, reqID)
 	if err != nil {
 		apperr.Write(w, err)
 		return
 	}
+	h.reactivateDriver(r.Context(), uid)
 	apperr.JSON(w, http.StatusOK, map[string]any{"payment": p, "event": "payment.confirmed"})
 }
 
@@ -85,9 +100,12 @@ func (h *Handler) registerCash(w http.ResponseWriter, r *http.Request) {
 	apperr.JSON(w, http.StatusOK, map[string]any{"payment": p, "event": "payment.registered"})
 }
 
-// POST /v1/payments/generate-cash-code — driver genera código de 4 dígitos.
+// POST /v1/payments/generate-cash-code — driver (re)genera el código de 4
+// dígitos; NO se devuelve: se proyecta a payments_live/private/cash, legible
+// solo por el cliente.
 func (h *Handler) generateCashCode(w http.ResponseWriter, r *http.Request) {
 	uid, _ := r.Context().Value(middleware.CtxUID).(string)
+	reqID, _ := r.Context().Value(middleware.CtxRequestID).(string)
 	var body struct {
 		RideID string `json:"rideId"`
 	}
@@ -95,14 +113,11 @@ func (h *Handler) generateCashCode(w http.ResponseWriter, r *http.Request) {
 		apperr.Write(w, apperr.New(400, "rideId required"))
 		return
 	}
-	code := fmt.Sprintf("%04d", rand.Intn(10000))
-	code, err := h.svc.GenerateCashCode(r.Context(), body.RideID, uid, code,
-		h.writeCashCode(r.Context(), body.RideID))
-	if err != nil {
+	if err := h.svc.GenerateCashCode(r.Context(), body.RideID, uid, reqID); err != nil {
 		apperr.Write(w, err)
 		return
 	}
-	apperr.JSON(w, http.StatusOK, map[string]string{"code": code})
+	apperr.JSON(w, http.StatusOK, map[string]any{"sent": true})
 }
 
 // POST /v1/payments/cancel-cash — participante cancela pago pendiente.
@@ -122,6 +137,7 @@ func (h *Handler) cancelCash(w http.ResponseWriter, r *http.Request) {
 		apperr.Write(w, err)
 		return
 	}
+	h.reactivateDriver(r.Context(), p.DriverID)
 	apperr.JSON(w, http.StatusOK, map[string]any{"payment": p, "event": "payment.canceled"})
 }
 

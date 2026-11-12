@@ -11,6 +11,11 @@ export type PendingAction = {
   onPress: () => void;
 };
 
+// Estados terminales en trips_live. Una acción active_ride del resumen de
+// preflight quedó obsoleta si su viaje ya llegó a uno de estos (el resumen
+// se captura al arranque y no se re-ejecuta al terminar el viaje).
+const TERMINAL_LIVE_RIDE_STATUSES = new Set(['completed', 'rating_completed', 'rating_skipped', 'canceled']);
+
 interface ActiveRide {
   id: string;
   status: string;
@@ -26,6 +31,7 @@ interface ActiveRide {
 export function usePendingActions(
   userId: string | undefined,
   activeRide: ActiveRide | null,
+  activeRidesData: Record<string, any> | null,
   upcomingRide: UpcomingProgrammedRide | null,
   navigation: any,
   t: TFunction,
@@ -231,9 +237,23 @@ export function usePendingActions(
     }
 
     if (preflightActions.length > 0) {
-      const nextAction = preflightActions.find(
-        (action) => action.type === 'active_ride' || action.type === 'pending_payment',
-      );
+      const nextAction = preflightActions.find((action) => {
+        if (action.type !== 'active_ride' && action.type !== 'pending_payment') {
+          return false;
+        }
+        // Acción preflight obsoleta: el doc vivo de trips_live ya marca el
+        // viaje como terminado. Si el doc aún no existe (proyección ~15-20s
+        // o listener sin cargar), se conserva — el preflight vio el viaje
+        // activo en SQL.
+        if (action.type === 'active_ride' && activeRidesData) {
+          const rideId = action.metadata?.rideId;
+          const live = typeof rideId === 'string' ? activeRidesData[rideId] : undefined;
+          if (live && TERMINAL_LIVE_RIDE_STATUSES.has(live.status)) {
+            return false;
+          }
+        }
+        return true;
+      });
 
       if (nextAction) {
         const actionType = nextAction.type === 'pending_payment' ? 'pending_payment' : 'active_ride';
@@ -251,7 +271,7 @@ export function usePendingActions(
     }
 
     setPendingAction(null);
-  }, [hasPendingPayments, pendingPayments, activeRide, upcomingRide, preflightActions, getActiveRideLabel, handleViewActiveRide, handleViewScheduledRide, handleViewPendingPayments, navigation, t]);
+  }, [hasPendingPayments, pendingPayments, activeRide, activeRidesData, upcomingRide, preflightActions, getActiveRideLabel, handleViewActiveRide, handleViewScheduledRide, handleViewPendingPayments, navigation, t]);
 
   return {
     pendingPayments,

@@ -146,13 +146,23 @@ func TestActivateAvailabilityIntegration(t *testing.T) {
 }
 
 var activationTestDDL = []string{
+	`DO $$ BEGIN CREATE TYPE public.driver_compliance_status AS ENUM
+		('pending_documents', 'under_review', 'verified', 'expiring',
+		 'non_compliant', 'suspended');
+	EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+	`DO $$ BEGIN CREATE TYPE public.vehicle_compliance_status AS ENUM
+		('pending_verification', 'active', 'non_compliant',
+		 'expired_documents', 'suspended');
+	EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
 	`CREATE TABLE IF NOT EXISTS public.drivers (
 		id uuid PRIMARY KEY, user_id text, account_status text,
-		documents_status text, compliance_status text, deleted_at timestamptz)`,
+		documents_status text, compliance_status public.driver_compliance_status,
+		deleted_at timestamptz)`,
 	`CREATE TABLE IF NOT EXISTS public.vehicles (
 		id uuid PRIMARY KEY, driver_id uuid, plate text, type text,
 		service_type text, vehicle_class text, vin text, chasis text, motor text,
-		year int, emission_date date, is_active boolean, compliance_status text,
+		year int, emission_date date, is_active boolean,
+		compliance_status public.vehicle_compliance_status,
 		created_at timestamptz, deleted_at timestamptz)`,
 	`CREATE TABLE IF NOT EXISTS public.services (id uuid PRIMARY KEY, code text, is_active boolean)`,
 	`CREATE TABLE IF NOT EXISTS public.driver_services (
@@ -195,6 +205,7 @@ var activationTestDDL = []string{
 		event_id uuid PRIMARY KEY DEFAULT gen_random_uuid(), event_type text,
 		aggregate_type text, aggregate_id text, payload jsonb, request_id text)`,
 	`ALTER TABLE public.outbox_events ADD COLUMN IF NOT EXISTS request_id text`,
+	`ALTER TABLE public.outbox_events ADD COLUMN IF NOT EXISTS next_attempt_at timestamptz`,
 	`ALTER TABLE public.outbox_events ALTER COLUMN event_id SET DEFAULT gen_random_uuid()`,
 	`ALTER TABLE public.outbox_events ALTER COLUMN next_attempt_at SET DEFAULT now()`,
 }

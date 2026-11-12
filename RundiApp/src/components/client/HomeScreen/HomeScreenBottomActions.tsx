@@ -19,6 +19,7 @@ interface RegionStatus {
 interface HomeScreenBottomActionsProps {
   pendingAction: PendingAction | null;
   isOutsideSupportedArea: boolean;
+  isLocationUpdating: boolean;
   regionStatus: RegionStatus;
   scheduledRideNotice?: string | null;
   onRequestRide: () => void;
@@ -30,6 +31,7 @@ interface HomeScreenBottomActionsProps {
 export function HomeScreenBottomActions({
   pendingAction,
   isOutsideSupportedArea,
+  isLocationUpdating,
   regionStatus,
   scheduledRideNotice,
   onRequestRide,
@@ -87,16 +89,22 @@ export function HomeScreenBottomActions({
         </Text>
       </View>
 
-      {recurringChips}
+      <View
+        pointerEvents={isLocationUpdating || isOutsideSupportedArea ? 'none' : 'box-none'}
+        accessibilityElementsHidden={isLocationUpdating || isOutsideSupportedArea}
+        importantForAccessibility={isLocationUpdating || isOutsideSupportedArea ? 'no-hide-descendants' : 'auto'}
+      >
+        {recurringChips}
+      </View>
 
       <Pressable
         style={({ pressed }) => [
           styles.requestButton,
-          isOutsideSupportedArea && styles.requestButtonDisabled,
+          (isOutsideSupportedArea || isLocationUpdating) && styles.requestButtonDisabled,
           pressed && styles.requestButtonPressed,
         ]}
         onPress={onRequestRide}
-        disabled={isOutsideSupportedArea}
+        disabled={isOutsideSupportedArea || isLocationUpdating}
         accessibilityRole="button"
       >
         <Text style={styles.requestButtonLabel}>{t('client.home.requestRide')}</Text>

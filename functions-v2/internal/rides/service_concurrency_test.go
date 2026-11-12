@@ -42,11 +42,13 @@ func TestAcceptRide_Concurrency(t *testing.T) {
 			RETURNING id`).Scan(d); err != nil {
 			t.Fatalf("driver%d user fixture: %v", i, err)
 		}
-		if _, err := pool.Exec(ctx, `
+		var driverID string
+		if err := pool.QueryRow(ctx, `
 			INSERT INTO public.drivers (user_id, account_status)
-			VALUES ($1, 'active')`, *d); err != nil {
+			VALUES ($1, 'active') RETURNING id::text`, *d).Scan(&driverID); err != nil {
 			t.Fatalf("driver%d fixture: %v", i, err)
 		}
+		openTestDriverSession(t, ctx, pool, driverID)
 	}
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO public.rides (client_id, status, estimated_price)

@@ -9,7 +9,7 @@ import { liveTripDocId } from '../../live/tripIds';
  * - Alertas consistentes con alertService
  */
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -24,7 +24,8 @@ import { getAuth } from 'firebase/auth';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { getFirebaseFirestore } from '../../config/firebase';
 import { FS_COL } from '../../constants/firestore';
-import { confirmCashPayment } from '../../api/payments';
+import { getPendingPayments, registerCashPayment } from '../../api/payments';
+import { getPendingRating } from '../../api/ratings';
 import { formatNicaraguaTime } from '../../utils/format/dateUtils';
 import { formatCurrency } from '../../utils/format/safeFormatters';
 import { useTranslation } from 'react-i18next';
@@ -99,7 +100,7 @@ const createStyles = (colors: any, accentAlt: string) => StyleSheet.create({
     borderRadius: 20,
     padding: 20,
     marginBottom: 16,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -296,6 +297,28 @@ export default function CashPaymentScreen({ route, navigation }: any) {
   const sawPaymentDataRef = useRef(false);
   const lastPaymentStatusRef = useRef<string | null>(null);
   const [cashCode, setCashCode] = useState<string | null>(null);
+  const paymentTipRef = useRef<number>(0);
+
+  const navigateAfterPayment = useCallback(async () => {
+    try {
+      const [payments, rating] = await Promise.all([getPendingPayments(), getPendingRating()]);
+      if (payments.payments.length > 0) {
+        navigation.replace('PendingPayments');
+      } else if (rating?.status === 'pending') {
+        navigation.replace('Rating', {
+          rideId: rating.rideId,
+          role: 'client',
+          captainRated: rating.captainRated,
+          followerRated: rating.followerRated,
+        });
+      } else {
+        navigation.replace('ClientHome');
+      }
+    } catch {
+      alertService.showErrorAlert(t('client.pendingPayments.alerts.loadError'));
+      navigation.replace('PendingPayments');
+    }
+  }, [navigation, t]);
   
   // Cargar detalles del viaje
   useEffect(() => {
@@ -304,10 +327,19 @@ export default function CashPaymentScreen({ route, navigation }: any) {
     let rideRef: any, paymentRef: any;
     const unsubscribeRideHolder: { fn?: () => void } = {};
     const unsubscribePaymentHolder: { fn?: () => void } = {};
+    const unsubscribeCodeHolder: { fn?: () => void } = {};
     (async () => {
       const db = await getFirebaseFirestore();
-      rideRef = doc(db, FS_COL.tripsLive, await liveTripDocId(rideId));
-      paymentRef = doc(db, FS_COL.paymentsLive, await liveTripDocId(rideId));
+      const liveId = await liveTripDocId(rideId);
+      rideRef = doc(db, FS_COL.tripsLive, liveId);
+      paymentRef = doc(db, FS_COL.paymentsLive, liveId);
+      // Código de efectivo privado del cliente (payments_live/{id}/private/cash)
+      // — solo el cliente lo lee; se lo dicta al conductor para confirmar.
+      const cashCodeRef = doc(paymentRef, 'private', 'cash');
+      unsubscribeCodeHolder.fn = onSnapshot(cashCodeRef, (snap: any) => {
+        const d = snap.data();
+        setCashCode(typeof d?.code === 'string' ? d.code : null);
+      });
 
       console.log('💳 [CashPaymentScreen] Iniciando listeners para rideId:', rideId);
 
@@ -374,11 +406,8 @@ export default function CashPaymentScreen({ route, navigation }: any) {
         sawPaymentDataRef.current = true;
         lastPaymentStatusRef.current = paymentData.status ?? null;
         setPaymentStatus(paymentData.status);
-
-        if (paymentData.code && typeof paymentData.code === 'string') {
-          setCashCode(paymentData.code);
-        } else {
-          setCashCode(null);
+        if (typeof paymentData.tip === 'number') {
+          paymentTipRef.current = paymentData.tip;
         }
 
         const methodFromStatus = paymentData.method || paymentData.paymentMethod;
@@ -427,11 +456,11 @@ export default function CashPaymentScreen({ route, navigation }: any) {
           alertService.showInfoAlert(
             t('client.cashPayment.alerts.paymentCancelledTitle'),
             t('client.cashPayment.alerts.paymentCancelledMessage'),
-            () => navigation.replace('Rating', { rideId })
+            () => { void navigateAfterPayment(); }
           );
         } else {
           console.log('✅ Pago archivado, navegando a calificación');
-          navigation.replace('Rating', { rideId });
+          void navigateAfterPayment();
         }
       }
 
@@ -443,15 +472,13 @@ export default function CashPaymentScreen({ route, navigation }: any) {
         ) {
           console.log('✅ Pago confirmado, navegando a calificación');
           isNavigatingRef.current = true;
-          navigation.replace('Rating', { 
-            rideId
-          });
+          void navigateAfterPayment();
         } else if (paymentData.status === 'canceled' && !isNavigatingRef.current) {
           isNavigatingRef.current = true;
           alertService.showInfoAlert(
             t('client.cashPayment.alerts.paymentCancelledTitle'),
             t('client.cashPayment.alerts.paymentCancelledMessage'),
-            () => navigation.replace('Rating', { rideId })
+            () => { void navigateAfterPayment(); }
           );
         }
       }
@@ -462,8 +489,9 @@ export default function CashPaymentScreen({ route, navigation }: any) {
       console.log('🔇 Limpiando listeners de CashPaymentScreen');
       unsubscribeRideHolder.fn?.();
       unsubscribePaymentHolder.fn?.();
+      unsubscribeCodeHolder.fn?.();
     };
-  }, [rideId, navigation]);
+  }, [rideId, navigation, navigateAfterPayment]);
   
   useEffect(() => {
     if (biometricRequested) {
@@ -540,7 +568,9 @@ export default function CashPaymentScreen({ route, navigation }: any) {
         throw new Error('Firebase no inicializado');
       }
 
-      const payment = await confirmCashPayment(rideId);
+      // El cliente DECLARA el pago (register-cash → pending_confirmation);
+      // la confirmación final la hace el conductor con el código privado.
+      const payment = await registerCashPayment(rideId, paymentTipRef.current ?? 0);
       console.log('✅ Respuesta del backend:', payment);
 
       if (payment.status === 'confirmed' || payment.status === 'completed') {
@@ -548,7 +578,7 @@ export default function CashPaymentScreen({ route, navigation }: any) {
           t('client.cashPayment.alerts.paymentConfirmedTitle'),
           t('client.cashPayment.alerts.paymentConfirmedMessage'),
           () => {
-            navigation.replace('Rating', { rideId });
+            void navigateAfterPayment();
           }
         );
       } else {

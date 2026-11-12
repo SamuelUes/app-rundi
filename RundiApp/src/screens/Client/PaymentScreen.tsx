@@ -226,6 +226,9 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   const processCashPayment = async () => {
     try {
       setProcessing(true);
+      if (isPendingPayment && currentPaymentMethodRef.current === 'card') {
+        throw new Error(t('shared.payment.alerts.cardError'));
+      }
 
       // NOTA: La actualización de paymentStatus se hace desde el backend (Cloud Functions)
       // El cliente NO tiene permisos para escribir en /paymentStatus en Firebase Realtime DB
@@ -235,10 +238,10 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
         t('shared.payment.alerts.cashInfoTitle'),
         t('shared.payment.alerts.cashInfoMessage', { amount: totalAmount.toFixed(2) }),
         () => {
-          navigation.replace('Rating', {
+          navigation.replace('CashPayment', {
             rideId,
-            driverId: driverId || rideDetails?.driverId,
-            role: 'client',
+            amount: totalAmount,
+            driverName: driverName || 'Conductor',
           });
         }
       );

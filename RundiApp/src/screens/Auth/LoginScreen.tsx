@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   Image,
@@ -40,8 +39,8 @@ const GOOGLE_CLIENT_ID =
   '';
 
 export default function LoginScreen({ navigation }: any) {
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const { login, loginWithGoogle } = useAuth();
   const { t } = useTranslation();
   const [email, setEmail] = useState('');
@@ -272,17 +271,13 @@ export default function LoginScreen({ navigation }: any) {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
       >
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
-        >
           <View style={styles.bannerContainer}>
             <Image
               source={require('../../assets/images/campaña2/promo_1-2.png')}
@@ -442,8 +437,7 @@ export default function LoginScreen({ navigation }: any) {
               </TouchableOpacity>
             </View>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </ScrollView>
 
       <GoogleRegisterPrompt
         visible={!!googleNewUser}
@@ -455,7 +449,7 @@ export default function LoginScreen({ navigation }: any) {
   );
 }
 
-const createStyles = (colors: any) => StyleSheet.create({
+const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -531,13 +525,13 @@ const createStyles = (colors: any) => StyleSheet.create({
     letterSpacing: 0.2,
   },
   input: {
-    backgroundColor: colors.card,
+    backgroundColor: isDark ? colors.background : 'rgba(246, 246, 246, 0.8)',
     borderRadius: 12,
     padding: 13,
     fontSize: 15,
     color: colors.text,
     marginBottom: 14,
-    borderWidth: 1.5,
+    borderWidth: 0.1,
     borderColor: colors.border,
   },
   inputWithIcon: {
@@ -545,13 +539,13 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginBottom: 20,
   },
   inputFlex: {
-    backgroundColor: colors.card,
+    backgroundColor: isDark ? colors.background : 'rgba(246, 246, 246, 0.8)',
     borderRadius: 12,
     padding: 13,
     paddingRight: 44,
     fontSize: 15,
     color: colors.text,
-    borderWidth: 1.5,
+    borderWidth: 0.1,
     borderColor: colors.border,
   },
   eyeButton: {

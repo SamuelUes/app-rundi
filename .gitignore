@@ -1,8 +1,9 @@
 supabase/
 functions/
 Frontend/
-database-v2/
-rundiapp/
+database/
+#database-v2/
+#rundiapp/
 #functions-v2/
 dev/
 docs/
@@ -27,3 +28,8 @@ GoogleService-Info.plist
 
 Video/
 
+local-dev/
+
+.test.ts*
+
+.test.js*

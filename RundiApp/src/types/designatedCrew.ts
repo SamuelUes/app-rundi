@@ -1,5 +1,5 @@
 export type CrewRole = 'captain' | 'follower';
-export type CrewCandidateStatus = 'available' | 'busy' | 'paired' | 'offline' | 'not_eligible' | 'self';
+export type CrewCandidateStatus = 'available' | 'busy' | 'paired' | 'offline' | 'not_eligible' | 'self' | 'invited';
 export type FollowerRideStatus = 'active' | 'abandoned' | 'completed' | 'canceled';
 
 export interface CrewMemberSnapshot {
@@ -20,6 +20,9 @@ export interface CrewMembership {
   partnerId: string;
   currentRideId?: string | null;
   updatedAt?: number;
+  // Invitación emitida vigente (solo capitán): backend la escribe en Invite y
+  // la pisa AcceptInvite; expirada se ignora por expiresAt < Date.now().
+  pendingInvite?: { followerId: string; name?: string; expiresAt: number; createdAt?: number } | null;
 }
 
 export interface CrewInvite {

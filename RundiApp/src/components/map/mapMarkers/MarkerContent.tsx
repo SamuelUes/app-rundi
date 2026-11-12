@@ -183,6 +183,10 @@ export const markerStyles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 999,
   },
+  pinInfoBubbleDark: {
+    backgroundColor: '#211D19',
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
   pinInfoTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -235,6 +239,10 @@ export const markerStyles = StyleSheet.create({
     transform: [{ rotate: '45deg' }],
     marginTop: -6.5,
     marginBottom: 5.5,
+  },
+  pinInfoTailDark: {
+    backgroundColor: '#211D19',
+    borderColor: 'rgba(255,255,255,0.14)',
   },
   markerBounceContainer: { paddingBottom: 8 },
   clusterBubble: {
@@ -366,6 +374,7 @@ export interface PinInfoBubbleProps {
   label?: string | null;
   accentColor?: string;
   compact?: boolean;
+  isDark?: boolean;
 }
 
 export const PinInfoBubble = React.memo(function PinInfoBubble({
@@ -375,6 +384,7 @@ export const PinInfoBubble = React.memo(function PinInfoBubble({
   label,
   accentColor = '#0F172A',
   compact = false,
+  isDark = false,
 }: PinInfoBubbleProps) {
   const safeTitle = typeof title === 'string' && title.trim().length > 0 ? title : null;
   const safeText = typeof text === 'string' && text.trim().length > 0 ? text : null;
@@ -386,17 +396,21 @@ export const PinInfoBubble = React.memo(function PinInfoBubble({
     if (!compactText) return null;
     return (
       <View style={markerStyles.pinWithBubble} collapsable={false}>
-        <View collapsable={false} style={[markerStyles.pinInfoBubble, markerStyles.pinInfoBubbleCompact]}>
+        <View collapsable={false} style={[
+          markerStyles.pinInfoBubble,
+          markerStyles.pinInfoBubbleCompact,
+          isDark && markerStyles.pinInfoBubbleDark,
+        ]}>
           {!!safeLabel && (
             <Text numberOfLines={1} style={markerStyles.pinInfoCompactLabel}>
               {safeLabel}
             </Text>
           )}
-          <Text numberOfLines={1} style={[markerStyles.pinInfoCompactText, { color: accentColor }]}>
+          <Text numberOfLines={1} style={[markerStyles.pinInfoCompactText, { color: isDark ? '#F5F1EA' : accentColor }]}>
             {compactText}
           </Text>
         </View>
-        <View collapsable={false} style={markerStyles.pinInfoTail} />
+        <View collapsable={false} style={[markerStyles.pinInfoTail, isDark && markerStyles.pinInfoTailDark]} />
       </View>
     );
   }

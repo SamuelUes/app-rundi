@@ -22,6 +22,7 @@ func (h *Handler) Routes() chi.Router {
 	r := chi.NewRouter()
 	r.Post("/invite", h.invite)
 	r.Post("/accept", h.acceptInvite)
+	r.Post("/decline", h.declineInvite)
 	r.Post("/leave", h.leave)
 	r.Post("/attach", h.attach)
 	r.Post("/release", h.release)
@@ -51,6 +52,16 @@ func (h *Handler) acceptInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apperr.JSON(w, http.StatusOK, map[string]string{"event": "crew.accepted"})
+}
+
+// POST /v1/crew/decline — seguidor rechaza su invitación pendiente.
+func (h *Handler) declineInvite(w http.ResponseWriter, r *http.Request) {
+	uid, _ := r.Context().Value(middleware.CtxUID).(string)
+	if err := h.svc.DeclineInvite(r.Context(), uid); err != nil {
+		apperr.Write(w, err)
+		return
+	}
+	apperr.JSON(w, http.StatusOK, map[string]string{"event": "crew.declined"})
 }
 
 // POST /v1/crew/leave — cualquiera de los miembros abandona el crew.

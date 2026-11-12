@@ -211,7 +211,7 @@ var driversSpec = entitySpec{
 		var rating *float64
 		err := pool.QueryRow(ctx, `
 			SELECT d.account_status::text, d.designated_role_status::text,
-			       d.department, d.municipality, d.profile_photo,
+			       d.department, d.municipality, COALESCE(d.profile_photo, u.profile_photo),
 			       d.total_rides, d.average_rating, u.name
 			FROM public.drivers d
 			LEFT JOIN public.users u ON u.id = d.user_id

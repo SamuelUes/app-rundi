@@ -7,7 +7,6 @@ import {
   TextInput,
   Alert,
   ScrollView,
-  KeyboardAvoidingView,
   Platform,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -220,11 +219,11 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
   const cardBrand = detectCardBrand(cardNumber);
 
   return (
-    <KeyboardAvoidingView
+    <ScrollView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+      showsVerticalScrollIndicator={false}
     >
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
@@ -370,8 +369,7 @@ export default function AddCardScreen({ navigation }: AddCardScreenProps) {
           label={t('shared.addCards.support.label')}
           description={t('shared.addCards.support.description')}
         />
-      </ScrollView>
-    </KeyboardAvoidingView>
+    </ScrollView>
   );
 }
 
@@ -379,9 +377,6 @@ const createStyles = (colors: any) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.surface,
-  },
-  scrollView: {
-    flex: 1,
   },
   header: {
     flexDirection: 'row',

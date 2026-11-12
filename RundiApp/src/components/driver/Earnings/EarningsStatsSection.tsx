@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { DriverStats } from '../../../services/driver/earningsService';
 import type { TFunction } from 'i18next';
@@ -25,13 +26,18 @@ export function EarningsStatsSection({
   styles,
   t,
 }: EarningsStatsSectionProps) {
-  const chips: { icon: keyof typeof MaterialIcons.glyphMap; label: string; value: string }[] = [
-    { icon: 'today', label: t('driver.earnings.stats.ridesToday'), value: formatStatNumber(stats.ridesToday) },
-    { icon: 'directions-car', label: t('driver.earnings.stats.totalRides'), value: formatStatNumber(stats.totalRides) },
-    { icon: 'schedule', label: t('driver.earnings.stats.totalTime'), value: formatStatDuration(stats.totalDuration) },
-    { icon: 'trending-up', label: t('driver.earnings.stats.avgEarnings'), value: formatStatCurrency(stats.averageFare) },
-    { icon: 'account-balance-wallet', label: t('driver.earnings.stats.totalNet'), value: formatStatCurrency(stats.totalNetEarnings) },
-    { icon: 'route', label: t('driver.earnings.stats.totalDistance'), value: formatStatDistance(stats.totalDistance) },
+  const chips: (
+    { label: string; value: string } & (
+      | { icon: keyof typeof Ionicons.glyphMap; material?: false }
+      | { icon: keyof typeof MaterialIcons.glyphMap; material: true }
+    )
+  )[] = [
+    { icon: 'today-outline', label: t('driver.earnings.stats.ridesToday'), value: formatStatNumber(stats.ridesToday) },
+    { icon: 'car-outline', label: t('driver.earnings.stats.totalRides'), value: formatStatNumber(stats.totalRides) },
+    { icon: 'time-outline', label: t('driver.earnings.stats.totalTime'), value: formatStatDuration(stats.totalDuration) },
+    { icon: 'trending-up-outline', label: t('driver.earnings.stats.avgEarnings'), value: formatStatCurrency(stats.averageFare) },
+    { icon: 'wallet-outline', label: t('driver.earnings.stats.totalNet'), value: formatStatCurrency(stats.totalNetEarnings) },
+    { icon: 'route', material: true, label: t('driver.earnings.stats.totalDistance'), value: formatStatDistance(stats.totalDistance) },
   ];
 
   return (
@@ -41,7 +47,11 @@ export function EarningsStatsSection({
         {chips.map((chip) => (
           <View key={chip.label} style={styles.statChip}>
             <View style={styles.statChipTop}>
-              <MaterialIcons name={chip.icon} size={14} color={colors.textSecondary} />
+              {chip.material ? (
+                <MaterialIcons name={chip.icon} size={14} color={colors.textSecondary} />
+              ) : (
+                <Ionicons name={chip.icon} size={14} color={colors.textSecondary} />
+              )}
               <Text style={styles.statChipLabel} numberOfLines={1}>{chip.label}</Text>
             </View>
             <Text style={styles.statChipValue}>{chip.value}</Text>

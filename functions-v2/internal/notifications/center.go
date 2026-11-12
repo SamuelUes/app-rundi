@@ -195,6 +195,9 @@ func (c *Center) Notify(ctx context.Context, uid, rideID string, t Type, opts No
 		log.Printf("notifications: no FCM tokens for user %s (type %s)", uid, t)
 		return nil
 	}
+	if c.fcm == nil {
+		return nil
+	}
 	invalid, err := c.fcm.SendToTokens(ctx, tokens, title, body, data, fcm.SendOpts{
 		ChannelID:   entry.ChannelID,
 		TTL:         entry.TTL,

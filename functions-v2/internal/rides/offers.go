@@ -12,6 +12,7 @@ import (
 	"github.com/rundi/functions-v2/internal/apperr"
 	"github.com/rundi/functions-v2/internal/fs"
 	"github.com/rundi/functions-v2/internal/outbox"
+	"github.com/rundi/functions-v2/internal/pickupcode"
 )
 
 // ConfirmDriver — cliente confirma un conductor entre los que tienen oferta
@@ -120,6 +121,10 @@ func (s *Service) ConfirmDriver(ctx context.Context, rideID, clientUID, driverUI
 	}
 	if err != nil {
 		return nil, fmt.Errorf("confirm update: %w", err)
+	}
+
+	if err := pickupcode.Create(ctx, tx, rideID); err != nil {
+		return nil, err
 	}
 
 	// Oferta ganadora → 'accepted' en auditoría (upsert: cubre aceptación sin

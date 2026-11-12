@@ -372,7 +372,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
             accessibilityLabel={rr('collapseForm')}
           >
             <View style={styles.sheetHandleBar} />
-            <RRIcon id="collapseForm" size={15} color={mutedIconColor} />
+            {/* <RRIcon id="collapseForm" size={15} color={mutedIconColor} /> */}
           </Pressable>
           <ScrollView
             style={styles.formScroll}
@@ -458,9 +458,9 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
             </View>
           )}
 
-          <Text style={styles.fieldLabel}>{rr('paymentSection')}</Text>
-          <View style={styles.chipsRow}>
-            {(['cash', /* 'card' // pago con tarjeta no funcional por ahora */] as const).map((method) => {
+          {/* <Text style={styles.fieldLabel}>{rr('paymentSection')}</Text> */}
+          {/* <View style={styles.chipsRow}>
+            {(['cash',] as const).map((method) => {
               const selected = paymentMethod === method;
               return (
                 <Pressable
@@ -480,7 +480,7 @@ export default function RecurringRideFormScreen({ navigation, route }: any) {
                 </Pressable>
               );
             })}
-          </View>
+          </View> */}
 
           <Text style={styles.fieldLabel}>{rr('passengersLabel')}</Text>
           <View style={styles.stepperRow}>
@@ -838,9 +838,9 @@ const createStyles = (colors: any, isDark: boolean) => {
       gap: 6,
       paddingVertical: 9,
       paddingHorizontal: 13,
-      borderRadius: 999,
+      borderRadius: 14,
       backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(28,25,23,0.05)',
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(28,25,23,0.1)',
     },
     optionChipSelected: {

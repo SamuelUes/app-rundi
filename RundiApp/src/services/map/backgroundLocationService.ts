@@ -17,6 +17,7 @@ import foregroundService from '../../native/foregroundService';
 import workManager from '../../native/workManager';
 import batteryOptimization from '../../native/batteryOptimization';
 import i18n from '../../i18n';
+import { devRideTrackingStage } from '../../utils/devWriteMetrics';
 
 // Constantes para las tareas en segundo plano
 const BACKGROUND_LOCATION_TASK = 'background-location-task';
@@ -211,9 +212,11 @@ const defineBackgroundTask = () => {
   try {
     // @ts-ignore - La tipificación de Expo para TaskManagerTaskBody no es exacta
     TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
+      devRideTrackingStage('task_callback');
       console.log('🎯 [background-task] Tarea ejecutándose');
       
       if (error) {
+        devRideTrackingStage('task_error');
         // kCLErrorDomain Code=0 = ubicación temporalmente no disponible (iOS la
         // reintenta solo). En el simulador aparece si Features → Location = None.
         console.warn('⚠️ [background-task] Error temporal de ubicación:', error);
@@ -221,6 +224,7 @@ const defineBackgroundTask = () => {
       }
       
       if (!data) {
+        devRideTrackingStage('task_no_data');
         console.warn('⚠️ [background-task] No hay datos de ubicación');
         return;
       }
@@ -238,6 +242,7 @@ const defineBackgroundTask = () => {
 
       // Verificar que aún deberíamos estar trackeando
       const trackingState = await loadTrackingState();
+      devRideTrackingStage(trackingState.rideId ? 'task_ride_bound' : 'task_ride_missing');
       console.log('🔍 [background-task] TrackingState:', {
         isTracking: trackingState.isTracking,
         hasUserId: !!trackingState.userId,
@@ -246,6 +251,7 @@ const defineBackgroundTask = () => {
       });
       
       if (!trackingState.isTracking || !trackingState.userId) {
+        devRideTrackingStage('task_inactive');
         console.log('⚠️ [background-task] Tracking desactivado, deteniendo tarea');
         await stopBackgroundLocationTracking();
         return;
@@ -275,15 +281,18 @@ const defineBackgroundTask = () => {
 
         if (trackingState.role === 'driver' && trackingState.userId) {
           // Actualizar ubicación del conductor
+          devRideTrackingStage('task_driver_write_start');
           await firebaseTrackingService.updateDriverLocation(trackingState.userId, {
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
             speed: location.coords.speed || 0,
             heading: location.coords.heading || 0,
           });
+          devRideTrackingStage('task_driver_write_confirmed');
 
           // Si hay un viaje activo, actualizar también el tracking del viaje
           if (trackingState.rideId) {
+            devRideTrackingStage('task_ride_write_start');
             const rideLocation = {
               latitude: location.coords.latitude,
               longitude: location.coords.longitude,
@@ -321,6 +330,7 @@ const defineBackgroundTask = () => {
           }
         } else if (trackingState.role === 'client' && trackingState.rideId && trackingState.userId) {
           try {
+            devRideTrackingStage('task_ride_write_start');
             await firebaseTrackingService.updateRideTracking(trackingState.rideId, {
               clientLocation: {
                 latitude: location.coords.latitude,
@@ -330,6 +340,7 @@ const defineBackgroundTask = () => {
               },
             });
           } catch (error) {
+            devRideTrackingStage('task_failure');
             console.warn('Error actualizando tracking vía Cloud Function:', error);
             // No lanzar error - el tracking de ubicación es lo importante
           }
@@ -337,6 +348,9 @@ const defineBackgroundTask = () => {
         
         return;
       } catch (error) {
+        devRideTrackingStage(isPermissionDeniedError(error) ? 'task_permission_failure'
+          : isUnauthenticatedError(error) || sessionService.isSessionActiveElsewhereError(error)
+            ? 'task_auth_failure' : 'task_failure');
         if (
           isPermissionDeniedError(error) ||
           isUnauthenticatedError(error) ||

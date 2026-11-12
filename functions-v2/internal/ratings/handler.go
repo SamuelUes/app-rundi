@@ -22,9 +22,20 @@ func NewHandler(svc *Service) *Handler {
 func (h *Handler) Routes() chi.Router {
 	r := chi.NewRouter()
 	r.Post("/", h.submit)
+	r.Get("/pending", h.pending)
 	r.Get("/driver/{driverId}", h.driverRatings)
 	r.Get("/driver/{driverId}/insights", h.driverInsights)
 	return r
+}
+
+func (h *Handler) pending(w http.ResponseWriter, r *http.Request) {
+	uid, _ := r.Context().Value(middleware.CtxUID).(string)
+	result, err := LatestClientRating(r.Context(), h.svc.pool, uid)
+	if err != nil {
+		apperr.Write(w, err)
+		return
+	}
+	apperr.JSON(w, http.StatusOK, map[string]any{"rating": result})
 }
 
 // POST /v1/ratings — califica por rol, omite, o finaliza el flujo del viaje.

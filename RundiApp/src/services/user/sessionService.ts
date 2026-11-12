@@ -13,6 +13,7 @@ import {
 import { getFirebaseAuth, getFirebaseFirestore } from '../../config/firebase';
 import { FS_COL } from '../../constants/firestore';
 import { devTiming } from '../../utils/devTiming';
+import { devWriteAttempt } from '../../utils/devWriteMetrics';
 import { writePresence, writeUserSession, type UserSessionPatch } from '../../live/driverLive';
 
 const DEVICE_ID_KEY = 'deviceId';
@@ -205,6 +206,7 @@ export async function heartbeatSession(options?: { source?: string }) {
     throw sessionActiveElsewhere();
   }
 
+  devWriteAttempt('session');
   await setDoc(
     doc(db, FS_COL.userSessions, uid),
     { lastHeartbeat: serverTimestamp() },
@@ -219,6 +221,7 @@ export async function endSession() {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
     const db = await getFirebaseFirestore();
+    devWriteAttempt('session');
     await deleteDoc(doc(db, FS_COL.userSessions, uid));
     await writePresence(uid, 'offline').catch(() => {});
   } catch (e) {

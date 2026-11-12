@@ -1,21 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import designatedCrewService from '../../../services/driver/designatedCrewService';
-import type { CrewInvite, CrewMembership, DriverCrew } from '../../../types/designatedCrew';
+import type { CrewMembership, DriverCrew } from '../../../types/designatedCrew';
 
 export function useDesignatedCrew(userId: string | undefined, navigation?: any) {
   const [membership, setMembership] = useState<CrewMembership | null>(null);
-  const [invite, setInvite] = useState<CrewInvite | null>(null);
   const [crew, setCrew] = useState<DriverCrew | null>(null);
   const navigatedRideRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!userId) return;
-    const offMembership = designatedCrewService.subscribeMembership(userId, setMembership);
-    const offInvite = designatedCrewService.subscribeInvite(userId, setInvite);
-    return () => {
-      offMembership();
-      offInvite();
-    };
+    return designatedCrewService.subscribeMembership(userId, setMembership);
   }, [userId]);
 
   useEffect(() => {
@@ -37,7 +31,6 @@ export function useDesignatedCrew(userId: string | undefined, navigation?: any) 
 
   const isFollower = membership?.role === 'follower';
   const partner = crew ? (membership?.role === 'captain' ? crew.follower : crew.captain) : null;
-  const activeInvite = invite && invite.expiresAt > Date.now() ? invite : null;
 
-  return { membership, crew, partner, invite: activeInvite, isFollower };
+  return { membership, crew, partner, isFollower };
 }

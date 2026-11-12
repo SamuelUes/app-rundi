@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../../hooks/shared/theme/useTheme';
+import StorageImage from '../StorageImage';
 
 interface ProfileHeaderProps {
   headerTitle: string;
@@ -11,6 +12,7 @@ interface ProfileHeaderProps {
   roleLabel: string;
   userName: string;
   userEmail: string;
+  userPhotoUri?: string | null;
   onBack: () => void;
   onEditProfile: () => void;
   styles: any;
@@ -23,6 +25,7 @@ export function ProfileHeader({
   roleLabel,
   userName,
   userEmail,
+  userPhotoUri,
   onBack,
   onEditProfile,
   styles,
@@ -43,9 +46,13 @@ export function ProfileHeader({
 
       <View style={styles.headerMainRow}>
         <View style={styles.avatarContainer}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{initial || 'R'}</Text>
-          </View>
+          {userPhotoUri ? (
+            <StorageImage uri={userPhotoUri} style={styles.avatarImage} />
+          ) : (
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{initial || 'R'}</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.headerContent}>

@@ -16,6 +16,11 @@ export async function acceptCrewInvite(): Promise<void> {
   await client.post('/crew/accept');
 }
 
+/** Seguidor rechaza la invitación → borra el doc y libera al capitán. */
+export async function declineCrewInvite(): Promise<void> {
+  await client.post('/crew/decline');
+}
+
 /** Cualquiera de los miembros abandona el crew. */
 export async function leaveCrew(): Promise<void> {
   await client.post('/crew/leave');

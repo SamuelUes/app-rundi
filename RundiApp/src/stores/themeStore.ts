@@ -17,6 +17,7 @@ export const lightColors = {
   surface: '#F5F5F5',
   surface2: '#ededed',
   card: '#FFFFFF',
+  card2: '#fbfbfb',
   text: '#000000',
   textSecondary: '#666666',
   textTertiary: '#999999',

@@ -40,7 +40,7 @@ import { DriverHomeBottomBar } from '../../components/driver/DriverHome/DriverHo
 import { useDesignatedCrew } from '../../hooks/driver/DriverHomeScreen/useDesignatedCrew';
 import { DesignatedCrewChip } from '../../components/driver/DesignatedCrew/DesignatedCrewChip';
 import { DesignatedCrewSearchModal } from '../../components/driver/DesignatedCrew/DesignatedCrewSearchModal';
-import { DesignatedCrewInviteCard } from '../../components/driver/DesignatedCrew/DesignatedCrewInviteCard';
+import { DesignatedCrewInviteOverlay } from '../../components/driver/DesignatedCrew/DesignatedCrewInviteCard';
 import FloatingCompass from '../../components/driver/FloatingCompass';
 import designatedCrewService from '../../services/driver/designatedCrewService';
 import alertService from '../../services/notification/alertService';
@@ -98,7 +98,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
 
   useAcceptedRideListener(navigation);
   useDriverProximityTracking();
-  const { membership: crewMembership, partner: crewPartner, invite: crewInvite, isFollower } = useDesignatedCrew(user?.id, navigation);
+  const { membership: crewMembership, partner: crewPartner, isFollower } = useDesignatedCrew(user?.id, navigation);
   const [crewSearchVisible, setCrewSearchVisible] = useState(false);
   const [recenterTarget, setRecenterTarget] = useState<{ latitude: number; longitude: number } | null>(null);
   const handleCompassPress = useCallback(() => {
@@ -442,7 +442,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         styles={styles}
         t={t}
       />
-      {crewInvite && <DesignatedCrewInviteCard invite={crewInvite} />}
+      <DesignatedCrewInviteOverlay uid={user?.id} />
       <DesignatedCrewSearchModal
         visible={crewSearchVisible}
         serviceAreaId={serviceAreaId}

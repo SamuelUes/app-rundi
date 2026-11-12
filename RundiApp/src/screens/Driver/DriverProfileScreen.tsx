@@ -28,8 +28,8 @@ import { useDriverProfileHandlers } from '../../hooks/driver/DriverProfileScreen
 import { formatCurrency, isVehicleComplete } from '../../utils/driver/driverProfileHelpers';
 import { createStyles } from './DriverProfileScreen.styles';
 import { AddVehicleModal } from '../../components/driver/AddVehicleModal';
-import { DriverProfileHeader } from '../../components/driver/DriverProfileHeader';
-import { DriverProfileStats } from '../../components/driver/DriverProfileStats';
+import { DriverProfileHeader } from '../../components/driver/DriverProfile/DriverProfileHeader';
+import { DriverProfileStats } from '../../components/driver/DriverProfile/DriverProfileStats';
 import { DriverProfileVehicles } from '../../components/driver/DriverProfile/DriverProfileVehicles';
 import { DriverProfileDocuments } from '../../components/driver/DriverProfile/DriverProfileDocuments';
 import { DriverProfileRideFeatures } from '../../components/driver/DriverProfile/DriverProfileRideFeatures';
@@ -41,8 +41,8 @@ import { VirtualDocuments } from '../../components/driver/DriverProfile/VirtualD
 export default function DriverProfileScreen({ navigation }: any) {
   const { t } = useTranslation();
   const [showVirtualDocuments, setShowVirtualDocuments] = useState(false);
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
 
   const { user, userMode, setUserMode } = useAuth();
   const { settings: voiceSettings, setEnabled: setVoiceAssistantEnabled, initialized: voiceAssistantInitialized } = useVoiceAssistant();

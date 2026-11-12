@@ -8,6 +8,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as LegacyFileSystem from 'expo-file-system/legacy';
 import { bootstrapUser, upgradeToDriver } from '../../api/users';
 import { getMyVehicles, registerDriver, registerVehicle } from '../../api/drivers';
+import { logBiometric } from '../../api/platform';
 import { GoogleAuthProvider, signInWithCredential, deleteUser, signOut, getAuth} from 'firebase/auth';
 import { getFirebaseAuth } from '../../config/firebase';
 import phoneAuthService from './phoneAuthService';
@@ -45,6 +46,7 @@ interface RegistrationData {
     licensePhotoBack?: string;
     department?: string;
     municipality?: string;
+    deviceSecurityVerified?: boolean;
   };
   vehicleData?: {
     plate: string;
@@ -76,8 +78,10 @@ interface RegistrationData {
     insuranceExpiry?: string;
     insurancePhoto?: string;
     inspectionDate?: string;
+    inspectionPhoto?: string;
     inspectionValidUntil?: string;
     emissionsTestedAt?: string;
+    emissionsPhoto?: string;
     emissionsValidUntil?: string;
     roadTaxPaidAt?: string;
     roadTaxReceiptNumber?: string;
@@ -279,6 +283,14 @@ class RegistrationService {
       console.log('ℹ️ Perfil de conductor ya existía (retry) — continuando');
     }
     await getAuth().currentUser?.getIdToken(true); // propagar claim role=driver
+    if (driverData?.deviceSecurityVerified) {
+      await logBiometric({
+        userType: 'driver',
+        biometricType: 'device_credential',
+        context: 'driver_registration',
+        success: true,
+      });
+    }
     if (vehicleData) {
       try {
         await registerVehicle(vehicleData);

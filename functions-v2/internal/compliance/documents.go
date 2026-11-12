@@ -52,6 +52,9 @@ type VehicleDocInput struct {
 	CardNumber         string `json:"cardNumber"`
 	IssuedAt           string `json:"issuedAt"`
 	DeclaredValidUntil string `json:"declaredValidUntil"`
+	// Año leído por OCR de la foto del documento — año autoritativo para
+	// elegibilidad premium (no editable por PATCH de vehículos).
+	OcrYear *int `json:"ocrYear,omitempty"`
 	// insurance
 	PolicyNumber     string `json:"policyNumber"`
 	InsurerCode      string `json:"insurerCode"`
@@ -285,15 +288,20 @@ func (s *Service) SubmitVehicleDocument(ctx context.Context, uid string, in Vehi
 			"document_path":         nilIfEmpty(in.DocumentPath),
 			"document_path_back":    nilIfEmpty(in.DocumentBack),
 		}
+		if in.OcrYear != nil && (*in.OcrYear < 1900 || *in.OcrYear > 2100) {
+			return "", apperr.New(400, "ocrYear must be between 1900 and 2100")
+		}
 		legacySQL = `UPDATE public.vehicles SET
 			registration_number = COALESCE($2, registration_number),
 			emission_date = COALESCE($3, emission_date),
 			registration_expiry = COALESCE($4, registration_expiry),
 			registration_photo_front = COALESCE($5, registration_photo_front),
-			registration_photo_back = COALESCE($6, registration_photo_back)
+			registration_photo_back = COALESCE($6, registration_photo_back),
+			registration_ocr_year = COALESCE($7, registration_ocr_year)
 			WHERE id = $1::uuid`
 		legacyArgs = []any{v.ID, nilIfEmpty(in.CardNumber), dateOrNil(toDateOnly(in.IssuedAt)),
-			dateOrNil(toDateOnly(in.DeclaredValidUntil)), nilIfEmpty(in.DocumentPath), nilIfEmpty(in.DocumentBack)}
+			dateOrNil(toDateOnly(in.DeclaredValidUntil)), nilIfEmpty(in.DocumentPath), nilIfEmpty(in.DocumentBack),
+			in.OcrYear}
 
 	case "insurance":
 		ct := in.CoverageType

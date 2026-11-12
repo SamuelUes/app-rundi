@@ -541,7 +541,7 @@ const createStyles = (colors: any, isDark: boolean) => {
       borderRadius: 20,
       paddingVertical: 16,
       paddingHorizontal: 16,
-      backgroundColor: 'rgba(242, 242, 242, 0.32)',
+      backgroundColor: isDark ? 'rgba(118, 118, 118, 0.32)' : 'rgba(242, 242, 242, 0.52)',
       borderWidth: 0,
       borderColor: colors.border,
       shadowColor: colors.border,

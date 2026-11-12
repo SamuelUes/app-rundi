@@ -84,6 +84,9 @@ export type ClientStackParamList = {
   RideHistory: undefined;
   Rating: {
     rideId: string;
+    role?: 'client';
+    captainRated?: boolean;
+    followerRated?: boolean;
   };
   PaymentMethods: undefined;
   Settings: undefined;
@@ -219,8 +222,8 @@ export default function ClientStack() {
         }}
       />
       <Stack.Screen name="ClientHome" component={HomeScreen} />
-      <Stack.Screen name="HomeOffers" component={HomeScreenOffers} options={{ headerShown: false }} />
-      <Stack.Screen name="SearchRide" component={SearchRideScreenNewDesign} options={{ headerShown: false, title: 'Buscar viaje' }} />
+      <Stack.Screen name="HomeOffers" component={HomeScreenOffers} options={{ headerShown: false, animation: 'fade', animationDuration: 180 }} />
+      <Stack.Screen name="SearchRide" component={SearchRideScreenNewDesign} options={{ headerShown: false, title: 'Buscar viaje', animation: 'fade', animationDuration: 180 }} />
       <Stack.Screen name="RecurringRides" component={RecurringRidesScreen} options={{ headerShown: false, title: 'Viajes recurrentes' }} />
       <Stack.Screen name="RecurringRideForm" component={RecurringRideFormScreen} options={{ headerShown: false, title: 'Viaje recurrente' }} />
       {/* <Stack.Screen name="RideConfirmation" component={RideConfirmationScreen} options={{ headerShown: true, title: 'Confirmación de Viaje' }} /> */}

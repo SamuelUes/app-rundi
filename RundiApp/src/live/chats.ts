@@ -1,8 +1,8 @@
 /**
  * Chats — mensajes por viaje (REALTIME_chats/{chatId}/messages).
  * El doc del chat lo crea el backend (POST /v1/chats, participants desde SQL);
- * los mensajes los escribe el participante por SDK según las reglas
- * (from==uid, text<=4000, solo keys permitidas).
+ * los mensajes y sus eventos los crea la API tras validar al participante
+ * y limitar la frecuencia de comandos por usuario.
  */
 import {
   collection,
@@ -12,16 +12,14 @@ import {
   onSnapshot,
   orderBy,
   query,
-  serverTimestamp,
   startAfter,
-  writeBatch,
   type QueryDocumentSnapshot,
   type Unsubscribe,
 } from 'firebase/firestore';
 
 import { getFirebaseFirestore } from '../config/firebase';
 import { FS_COL } from '../constants/firestore';
-import { pokeConsumer } from '../api/events';
+import client from '../api/client';
 
 export interface ChatMessage {
   id: string;
@@ -31,30 +29,21 @@ export interface ChatMessage {
   sentAt?: unknown;
 }
 
+const pendingMessageIds = new Map<string, string>();
+
 /** sendChatMessage — mensaje + pending event 'chat_message' atómico (push a
  * los demás participantes vía consumer; port de onSupportChatMessage). */
 export async function sendChatMessage(chatId: string, from: string, text: string): Promise<string> {
   const db = await getFirebaseFirestore();
-  const batch = writeBatch(db);
-  const msgRef = doc(collection(db, FS_COL.chats, chatId, 'messages'));
-  batch.set(msgRef, {
-    from,
-    text,
-    type: 'text',
-    sentAt: serverTimestamp(),
-  });
-  batch.set(doc(db, FS_COL.pendingEvents, `chat-${chatId}-${msgRef.id}`), {
-    eventType: 'chat_message',
-    aggregateType: 'chat',
-    aggregateId: chatId,
-    payload: { chatId, uid: from },
-    status: 'pending',
-    source: 'client',
-    createdAt: serverTimestamp(),
-  });
-  await batch.commit();
-  pokeConsumer();
-  return msgRef.id;
+  const key = JSON.stringify([chatId, from, text]);
+  const messageId = pendingMessageIds.get(key) ?? doc(collection(db, FS_COL.chats, chatId, 'messages')).id;
+  if (pendingMessageIds.size >= 100 && !pendingMessageIds.has(key)) {
+    pendingMessageIds.delete(pendingMessageIds.keys().next().value!);
+  }
+  pendingMessageIds.set(key, messageId);
+  await client.post('/client-events/chat', { chatId, messageId, text });
+  pendingMessageIds.delete(key);
+  return messageId;
 }
 
 /** Ventana por defecto del listener — historial completo via loadOlderChatMessages. */

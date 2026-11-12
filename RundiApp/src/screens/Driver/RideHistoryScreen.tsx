@@ -46,9 +46,15 @@ interface HistoricalRide {
 
 const STATUS_KEY_MAP: Record<string, string> = {
   completed: 'completed',
+  rating_completed: 'ratingCompleted',
+  rating_skipped: 'ratingSkipped',
   canceled: 'canceled',
   in_progress: 'inProgress',
+  pending_payment: 'pendingPayment',
   requested: 'requested',
+  driver_offered: 'driverOffered',
+  driver_on_route: 'driverOnRoute',
+  driver_arrived: 'driverArrived',
   accepted: 'accepted',
 };
 
@@ -86,7 +92,9 @@ export default function RideHistoryScreen({ navigation }: any) {
       hasMultipleStops: typeof item.hasMultipleStops === 'boolean' ? item.hasMultipleStops : false,
       waypointsCount: typeof item.waypointsCount === 'number' ? item.waypointsCount : 0,
       estimatedDistance: typeof item.estimatedDistance === 'number' ? item.estimatedDistance : 0,
-      estimatedFare: typeof item.estimatedFare === 'number' || typeof item.estimatedFare === 'string' ? item.estimatedFare : 0,
+      estimatedFare: typeof item.estimatedFare === 'number' || typeof item.estimatedFare === 'string'
+        ? item.estimatedFare
+        : item.estimatedPrice ?? 0,
       finalFare: item.finalFare && (typeof item.finalFare === 'number' || typeof item.finalFare === 'string') ? item.finalFare : null,
       status: typeof item.status === 'string' ? item.status : 'unknown',
       rideType: typeof item.rideType === 'string' ? item.rideType : 'auto',
@@ -98,8 +106,16 @@ export default function RideHistoryScreen({ navigation }: any) {
       designatedDriverVehicle: item.designatedDriverVehicle ?? null,
       passengers: typeof item.passengers === 'number' ? item.passengers : 1,
       rating: typeof item.rating === 'number' ? item.rating : null,
-      client: item.client && typeof item.client.name === 'string' ? item.client : null,
-      driver: item.driver && typeof item.driver.name === 'string' ? item.driver : null,
+      client: item.client && typeof item.client.name === 'string'
+        ? item.client
+        : typeof item.clientName === 'string' && item.clientName
+          ? { name: item.clientName }
+          : null,
+      driver: item.driver && typeof item.driver.name === 'string'
+        ? item.driver
+        : typeof item.driverName === 'string' && item.driverName
+          ? { name: item.driverName, rating: item.driverRating ?? null }
+          : null,
       createdAt: item.createdAt || null,
       updatedAt: item.updatedAt || null,
     };
@@ -276,7 +292,7 @@ export default function RideHistoryScreen({ navigation }: any) {
         )}
 
         {/* Botón de calificar si no tiene rating */}
-        {item.status === 'completed' && !item.rating && (
+        {['completed', 'rating_completed', 'rating_skipped'].includes(item.status) && !item.rating && (
           <TouchableOpacity
             style={styles.rateButton}
             activeOpacity={0.85}
@@ -436,7 +452,7 @@ const createStyles = (colors: any) =>
       width: 42,
       height: 42,
       borderRadius: 21,
-      borderWidth: 1,
+      borderWidth: 0.3,
       borderColor: colors.border,
       backgroundColor: colors.surface || colors.background,
       alignItems: 'center',
@@ -451,9 +467,9 @@ const createStyles = (colors: any) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: 4,
-      padding: 3,
+      padding: 5,
       borderRadius: 14,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: colors.border,
       backgroundColor: colors.surface || colors.background,
     },
@@ -495,11 +511,11 @@ const createStyles = (colors: any) =>
       paddingBottom: 18,
     },
     rideCard: {
-      backgroundColor: colors.card,
+      backgroundColor: colors.surface,
       borderRadius: 18,
       padding: 16,
       marginBottom: 12,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: colors.border,
     },
     rideHeader: {

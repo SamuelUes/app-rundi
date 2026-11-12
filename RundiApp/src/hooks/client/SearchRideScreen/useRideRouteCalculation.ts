@@ -421,6 +421,30 @@ export function useRideRouteCalculation({
     [vehicleType, designatedDriverMode, estimatedDistance, estimatedDuration, selectedFeatureCodes, scheduledAt],
   );
 
+  // Recalcula el batch de los 4 variantes con los features vigentes por
+  // servicio: refresca el precio de TODAS las tarjetas (no solo la actual).
+  const recalcEstimates = useCallback(
+    async (originCoords: Coords | null, gpsCoords: Coords | null, stopsCount: number) => {
+      const start = originCoords || gpsCoords;
+      if (!start || estimatedDistance <= 0) return;
+      const requestId = ++priceOnlyRequestRef.current;
+      setCalculatingPrice(true);
+      setPriceCalculationError(false);
+      try {
+        await updateVehicleEstimates(
+          Math.max(1, Math.round(estimatedDistance * 1000)),
+          Math.max(1, Math.round(estimatedDuration * 60)),
+          stopsCount,
+          start,
+          routeRequestRef.current,
+        );
+      } finally {
+        if (requestId === priceOnlyRequestRef.current) setCalculatingPrice(false);
+      }
+    },
+    [estimatedDistance, estimatedDuration, updateVehicleEstimates],
+  );
+
   return {
     calculatingRoute,
     routeCoordinates,
@@ -438,6 +462,7 @@ export function useRideRouteCalculation({
     calculateSimpleRoute,
     recomputeRoute,
     recalcPriceOnly,
+    recalcEstimates,
     setEstimatedPrice,
     setPriceBreakdown,
   };

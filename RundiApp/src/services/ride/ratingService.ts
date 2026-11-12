@@ -1,6 +1,7 @@
 import {
   getDriverPublicInsights,
   getDriverRatings as getDriverRatingsV2,
+  skipRating,
   submitRating,
 } from '../../api/ratings';
 import { sqlRideIdForTrip } from '../../live/tripIds';
@@ -48,8 +49,7 @@ export interface DriverRatingsResponse {
 class RatingService {
   async submitRideRating(input: SubmitRideRatingInput): Promise<void> {
     if (!input.toUserId) {
-      console.warn('[ratingService] submitRideRating sin toUserId — v2 lo requiere');
-      return;
+      throw new Error('No se pudo identificar a la persona a calificar. Inténtalo de nuevo.');
     }
     const sqlRideId = await sqlRideIdForTrip(input.rideId);
     await submitRating({
@@ -69,9 +69,9 @@ class RatingService {
   }
 
   async skipRideRating(rideId: string): Promise<void> {
-    // v2: rating_skipped vía submit con skip (requiere toUserId del viaje).
-    // Sin toUserId disponible aquí, se omite sin fila — el flujo cierra por timeout del backend.
-    console.warn('[ratingService.skipRideRating] skip sin toUserId — rating queda pendiente', { rideId });
+    // v2: rating_skipped vía submit con skip.
+    // El backend registra la decisión por participante.
+    await skipRating(await sqlRideIdForTrip(rideId));
   }
 
   async getDriverRatings(driverId: string): Promise<DriverRatingsResponse> {

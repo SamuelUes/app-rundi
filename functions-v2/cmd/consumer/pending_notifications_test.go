@@ -60,6 +60,32 @@ func TestPendingChatNotificationFailureIntegration(t *testing.T) {
 	}
 }
 
+func TestPendingCallNotificationFailureIntegration(t *testing.T) {
+	if !strings.HasPrefix(os.Getenv("FIRESTORE_EMULATOR_HOST"), "127.0.0.1:") {
+		t.Skip("requires a local Firestore emulator")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client, err := firestore.NewClient(ctx, "demo-rundi-"+uuid.NewString()[:8])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	callID := "test-" + uuid.NewString()
+	if _, err := client.Collection(fs.ColCalls).Doc(callID).Set(ctx, map[string]any{
+		"callerUid": "caller", "calleeUid": "callee",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want := errors.New("notification unavailable")
+	_, err = applyPendingEvent(ctx, nil, client, failingPendingNotifier{want}, nil, "call_initiated", map[string]any{
+		"payload": map[string]any{"callId": callID, "uid": "caller"},
+	})
+	if !errors.Is(err, want) {
+		t.Fatalf("got error %v, want %v", err, want)
+	}
+}
+
 func TestPendingProximityNotificationRetriesIntegration(t *testing.T) {
 	if !strings.HasPrefix(os.Getenv("FIRESTORE_EMULATOR_HOST"), "127.0.0.1:") {
 		t.Skip("requires a local Firestore emulator")

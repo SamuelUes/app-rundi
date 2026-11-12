@@ -12,6 +12,7 @@ import {
   negotiateRidePrice,
   rejectRide,
 } from '../../api/rides';
+import { activateAvailability } from '../../api/compliance';
 import { listenRideOffers, listenTripLive } from '../../live/listeners';
 import { sqlRideIdForTrip } from '../../live/tripIds';
 import { hideOverlayBubble } from './proximityService';
@@ -40,6 +41,29 @@ function currentUid(): string {
 class PriceNegotiationService {
   private tr(path: string, options?: Record<string, any>) {
     return i18n.t(`services.priceNegotiationService.${path}`, options) as string;
+  }
+
+  /**
+   * DRIVER_REACTIVATION_REQUIRED → reactiva la sesión y reintenta una vez.
+   * No es bypass del cerco: la activación re-evalúa compliance (o reusa la
+   * decisión del día). Solo para llamadas del conductor (el gate de sesión
+   * no aplica al cliente).
+   */
+  private async withReactivationRetry<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (error: any) {
+      if (error?.response?.status !== 409 ||
+          error?.response?.data?.error !== 'DRIVER_REACTIVATION_REQUIRED') {
+        throw error;
+      }
+      const activation = await activateAvailability();
+      if (!activation.allowed) {
+        const reason = activation.reasons?.find((r) => r.blocking || r.status === 'fail');
+        throw new Error(reason?.message || 'DRIVER_REACTIVATION_REQUIRED');
+      }
+      return fn();
+    }
   }
 
   /**
@@ -163,7 +187,8 @@ class PriceNegotiationService {
       const validation = this.validatePrice(suggestedPrice, estimatedPrice, dynamicMinimumFare);
       if (!validation.valid) throw new Error(validation.error);
 
-      const { ride } = await negotiateRidePrice(rideId, { offeredPrice: suggestedPrice });
+      const call = () => negotiateRidePrice(rideId, { offeredPrice: suggestedPrice });
+      const { ride } = _role === 'driver' ? await this.withReactivationRetry(call) : await call();
       return ride;
     } catch (error: any) {
       const serverMessage = typeof error?.response?.data?.error === 'string'
@@ -183,7 +208,7 @@ class PriceNegotiationService {
   async acceptClientPrice(rideId: string) {
     try {
       const driverId = currentUid();
-      const response = await acceptRide(rideId, { driverId });
+      const response = await this.withReactivationRetry(() => acceptRide(rideId, { driverId }));
       await hideOverlayBubble('acceptedRide');
       return { success: true, ride: response.ride };
     } catch (error: any) {
@@ -216,7 +241,9 @@ class PriceNegotiationService {
         const { ride } = await confirmDriver(rideId, target);
         return ride;
       }
-      const { ride } = await acceptRide(rideId, { driverId: driverId ?? currentUid() });
+      const { ride } = await this.withReactivationRetry(
+        () => acceptRide(rideId, { driverId: driverId ?? currentUid() }),
+      );
       await hideOverlayBubble('acceptedRide');
       return ride;
     } catch (error: any) {
@@ -241,7 +268,9 @@ class PriceNegotiationService {
     try {
       const validation = this.validatePrice(offerPrice, estimatedPrice);
       if (!validation.valid) throw new Error(validation.error);
-      const { ride } = await negotiateRidePrice(rideId, { offeredPrice: offerPrice });
+      const { ride } = await this.withReactivationRetry(
+        () => negotiateRidePrice(rideId, { offeredPrice: offerPrice }),
+      );
       return { success: true, ride };
     } catch (error: any) {
       console.error('Error enviando oferta:', error);

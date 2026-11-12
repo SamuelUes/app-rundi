@@ -8,6 +8,7 @@ import {
   Linking,
   ScrollView,
   Animated,
+  AppState,
 } from 'react-native';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -38,6 +39,7 @@ import { useCollapsiblePanel } from '../../hooks/shared/ride/useCollapsiblePanel
 import { useRideCancellation } from '../../hooks/shared/ride/useRideCancellation';
 import backgroundLocationService from '../../services/map/backgroundLocationService';
 import firebaseTrackingService from '../../services/ride/firebaseTrackingService';
+import { devRideTrackingStage } from '../../utils/devWriteMetrics';
 import { ActiveRideSheetHeader } from '../../components/driver/ActiveRide/ActiveRideSheetHeader';
 import { ActiveRideAddressesCard } from '../../components/driver/ActiveRide/ActiveRideAddressesCard';
 import { ActiveRideCTAButtons } from '../../components/driver/ActiveRide/ActiveRideCTAButtons';
@@ -208,60 +210,78 @@ export default function ActiveRideScreen({ route, navigation }: any) {
 
   // Tracking por viaje: mientras el viaje está vivo la app debe publicar la
   // posición en activeRides/{rideId}/driverLocation además del shard global
-  // (driverLocationsByArea). Si el tracking global ya venía corriendo desde
-  // DriverHome solo vinculamos el rideId — sin reiniciar la tarea.
+  // (driverLocationsByArea). El escritor foreground siempre queda habilitado;
+  // el gate compartido evita duplicar entregas del task nativo.
   const rideLive = isAccepted || isDriverOnRoute || isDriverArrived || isInProgress || isPendingPayment;
   useEffect(() => {
     if (!rideId || !rideLive || !user?.id) return;
-    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+    let foregroundInterval: ReturnType<typeof setInterval> | null = null;
+    let includeDriverLive = false;
+    let disposed = false;
+
+    const publishRideLocation = () => {
+      const c = coordsRef.current;
+      if (!c) return;
+      void firebaseTrackingService
+        .updateRideTracking(rideId, {
+          driverLocation: {
+            latitude: c.latitude,
+            longitude: c.longitude,
+            speed: c.speed ?? undefined,
+            heading: c.heading ?? undefined,
+            accuracy: c.accuracy ?? undefined,
+            timestamp: c.timestamp ?? Date.now(),
+          },
+        })
+        .catch(() => {});
+    };
+
+    const publishDriverLive = () => {
+      const c = coordsRef.current;
+      if (!c) return;
+      void firebaseTrackingService
+        .updateDriverLocation(user.id, {
+          latitude: c.latitude,
+          longitude: c.longitude,
+          speed: c.speed ?? undefined,
+          heading: c.heading ?? undefined,
+          accuracy: c.accuracy ?? undefined,
+        })
+        .catch(() => {});
+    };
+
     (async () => {
       try {
         const active = await backgroundLocationService.isTrackingActive();
+        if (disposed) return;
         if (active) {
+          devRideTrackingStage('tracking_already_active');
           await backgroundLocationService.updateTrackingRideId(rideId, 'captain');
-          return;
+        } else {
+          const started = await backgroundLocationService.startBackgroundLocationTracking(
+            user.id,
+            'driver',
+            rideId,
+          );
+          devRideTrackingStage(started ? 'tracking_started' : 'tracking_fallback');
+          includeDriverLive = !started;
         }
-        const started = await backgroundLocationService.startBackgroundLocationTracking(
-          user.id,
-          'driver',
-          rideId,
-        );
-        if (!started) {
-          // Fallback foreground: sin permiso de ubicación en segundo plano la
-          // posición del conductor quedaría congelada para el cliente durante
-          // todo el viaje. Solo escribe cuando el background task no arrancó.
-          fallbackInterval = setInterval(() => {
-            const c = coordsRef.current;
-            if (!c) return;
-            void firebaseTrackingService
-              .updateDriverLocation(user.id, {
-                latitude: c.latitude,
-                longitude: c.longitude,
-                speed: c.speed ?? undefined,
-                heading: c.heading ?? undefined,
-                accuracy: c.accuracy ?? undefined,
-              })
-              .catch(() => {});
-            void firebaseTrackingService
-              .updateRideTracking(rideId, {
-                driverLocation: {
-                  latitude: c.latitude,
-                  longitude: c.longitude,
-                  speed: c.speed ?? undefined,
-                  heading: c.heading ?? undefined,
-                  accuracy: c.accuracy ?? undefined,
-                  timestamp: c.timestamp ?? Date.now(),
-                },
-              })
-              .catch(() => {});
-          }, 8000);
-        }
+        if (disposed) return;
+        publishRideLocation();
+        if (includeDriverLive) publishDriverLive();
+        foregroundInterval = setInterval(() => {
+          if (AppState.currentState !== 'active') return;
+          if (includeDriverLive) publishDriverLive();
+          publishRideLocation();
+        }, 8000);
       } catch (error) {
+        devRideTrackingStage('tracking_setup_failed');
         console.warn('[ActiveRide] No se pudo vincular el viaje al tracking:', error);
       }
     })();
     return () => {
-      if (fallbackInterval) clearInterval(fallbackInterval);
+      disposed = true;
+      if (foregroundInterval) clearInterval(foregroundInterval);
       // No detenemos el tracking global (proximidad/disponibilidad del
       // conductor): solo desvinculamos el rideId para que deje de escribir en
       // el nodo del viaje y evitar permission_denied tras el archivado.
@@ -765,22 +785,8 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       return;
     }
 
-    // Viajes normales (auto/moto): el conductor pide al cliente el código de
-    // 4 dígitos que ve en su app antes de poder iniciar el viaje.
-    if (!isDesignatedRide) {
-      setVerificationError(null);
-      setShowVerificationModal(true);
-      return;
-    }
-
-    try {
-      setUpdating(true);
-      await ridesService.updateRideStatus(rideId, 'in_progress');
-    } catch (error: any) {
-      alertService.showErrorAlert(error?.message || t('driver.activeRide.alerts.startRideError'));
-    } finally {
-      setUpdating(false);
-    }
+    setVerificationError(null);
+    setShowVerificationModal(true);
   };
 
   const handleSubmitPickupCode = async (code: string) => {
@@ -905,7 +911,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       key = 'completeRide';
       icon = 'check-circle';
       onPress = handleCompleteRide;
-    } else if (isDesignatedRide && isDriverOnRoute) {
+    } else if (isDriverOnRoute) {
       key = 'markArrived';
       icon = 'flag';
       onPress = handleMarkDriverArrived;

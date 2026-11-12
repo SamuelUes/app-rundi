@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"time"
 
+	"cloud.google.com/go/firestore"
 	firebase "firebase.google.com/go/v4"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -24,10 +25,11 @@ import (
 type Service struct {
 	pool *pgxpool.Pool
 	app  *firebase.App
+	fs   *firestore.Client
 }
 
-func NewService(pool *pgxpool.Pool, app *firebase.App) *Service {
-	return &Service{pool: pool, app: app}
+func NewService(pool *pgxpool.Pool, app *firebase.App, fsClient *firestore.Client) *Service {
+	return &Service{pool: pool, app: app, fs: fsClient}
 }
 
 func versionNow() float64 { return float64(time.Now().UnixMicro()) / 1000 }
@@ -64,8 +66,8 @@ func (s *Service) Register(ctx context.Context, uid string, in RegisterDriverInp
 		INSERT INTO public.drivers
 			(user_id, license_number, license_expiry, profile_photo,
 			 license_photo_front, license_photo_back, department, municipality,
-			 account_status)
-		VALUES ($1,$2,$3::date,$4,$5,$6,$7,$8,'pending')
+			 account_status, biometric_registration_id)
+		VALUES ($1,$2,$3::date,$4,$5,$6,$7,$8,'pending',gen_random_uuid())
 		RETURNING id::text`,
 		uid, in.LicenseNumber, in.LicenseExpiry, in.ProfilePhoto,
 		in.LicensePhotoFront, in.LicensePhotoBack, in.Department, in.Municipality,
@@ -163,14 +165,15 @@ func (s *Service) GetMe(ctx context.Context, uid string) (map[string]any, error)
 		createdAt, updatedAt                      time.Time
 	)
 	err := s.pool.QueryRow(ctx, `
-		SELECT id::text, account_status::text, documents_status::text,
-		       designated_role_status::text, license_number, license_expiry,
-		       profile_photo, license_photo_front, license_photo_back,
-		       department, municipality, verified_at, total_rides,
-		       average_rating, total_earnings, current_recharge_balance,
-		       created_at, updated_at
-		FROM public.drivers
-		WHERE user_id = $1 AND deleted_at IS NULL`, uid).
+		SELECT d.id::text, d.account_status::text, d.documents_status::text,
+		       d.designated_role_status::text, d.license_number, d.license_expiry,
+		       COALESCE(d.profile_photo, u.profile_photo), d.license_photo_front,
+		       d.license_photo_back, d.department, d.municipality, d.verified_at,
+		       d.total_rides, d.average_rating, d.total_earnings,
+		       d.current_recharge_balance, d.created_at, d.updated_at
+		FROM public.drivers d
+		LEFT JOIN public.users u ON u.id = d.user_id
+		WHERE d.user_id = $1 AND d.deleted_at IS NULL`, uid).
 		Scan(&id, &accountStatus, &docsStatus, &designated, &license, &expiry,
 			&photo, &lFront, &lBack, &dept, &muni, &verifiedAt, &totalRides,
 			&rating, &earnings, &balance, &createdAt, &updatedAt)
@@ -698,7 +701,7 @@ func (s *Service) emitDriverEvent(ctx context.Context, tx pgx.Tx, driverUID, eve
 	)
 	err := tx.QueryRow(ctx, `
 		SELECT d.account_status::text, d.designated_role_status::text,
-		       d.department, d.municipality, d.profile_photo,
+		       d.department, d.municipality, COALESCE(d.profile_photo, u.profile_photo),
 		       d.total_rides, d.average_rating, u.name
 		FROM public.drivers d
 		LEFT JOIN public.users u ON u.id = d.user_id

@@ -13,6 +13,14 @@ import {
 import { getFirebaseFirestore } from '../config/firebase';
 import { FS_COL } from '../constants/firestore';
 import { liveTripDocId } from './tripIds';
+import { devRideTrackingStage, devWriteAttempt } from '../utils/devWriteMetrics';
+import {
+  claimTripLocationWrite,
+  confirmTripLocationWrite,
+  createTripLocationWriteGate,
+  releaseTripLocationWrite,
+  type TripLocationWriteGate,
+} from '../utils/ride/tripLocationWriteGate';
 
 export interface DriverLivePatch {
   latitude?: number;
@@ -38,6 +46,7 @@ export async function writeDriverLiveLocation(
 ): Promise<void> {
   const db = await getFirebaseFirestore();
   const hasCoords = typeof patch.latitude === 'number' && typeof patch.longitude === 'number';
+  devWriteAttempt('driver_live');
   await setDoc(
     doc(db, FS_COL.driversLive, driverUid),
     {
@@ -53,12 +62,33 @@ export async function writeDriverLiveLocation(
   );
 }
 
+/**
+ * Toggle de modo conductor designado → drivers_live/{uid}.designatedMode.
+ * Paridad v1 driversInfo.isDesignatedDriverMode: el matching de viajes
+ * designados (serviceCode designated_driver_*) lo exige true server-side.
+ * status/activeServiceCodes siguen siendo autoridad del backend — este flag
+ * solo modula los servicios designados ya aprobados en driver_services.
+ */
+export async function writeDriverDesignatedMode(
+  driverUid: string,
+  isActive: boolean,
+): Promise<void> {
+  const db = await getFirebaseFirestore();
+  devWriteAttempt('driver_live');
+  await setDoc(
+    doc(db, FS_COL.driversLive, driverUid),
+    { designatedMode: isActive },
+    { merge: true },
+  );
+}
+
 /** Presencia online/offline → REALTIME_presence/{uid} (heartbeat del cliente). */
 export async function writePresence(
   uid: string,
   state: 'online' | 'offline' | 'away',
 ): Promise<void> {
   const db = await getFirebaseFirestore();
+  devWriteAttempt('presence');
   await setDoc(
     doc(db, FS_COL.presence, uid),
     { state, lastSeen: serverTimestamp(), heartbeatAt: serverTimestamp() },
@@ -81,6 +111,7 @@ export async function writeUserSession(
   patch: UserSessionPatch,
 ): Promise<void> {
   const db = await getFirebaseFirestore();
+  devWriteAttempt('session');
   await setDoc(
     doc(db, FS_COL.userSessions, uid),
     {
@@ -92,6 +123,18 @@ export async function writeUserSession(
   );
 }
 
+const tripLocationWriteGates = new Map<string, TripLocationWriteGate>();
+
+const gateForTripLocation = (liveId: string, uid: string): TripLocationWriteGate => {
+  const key = `${liveId}:${uid}`;
+  let gate = tripLocationWriteGates.get(key);
+  if (!gate) {
+    gate = createTripLocationWriteGate();
+    tripLocationWriteGates.set(key, gate);
+  }
+  return gate;
+};
+
 /** GPS del participante dentro de un viaje → trips_live/{liveId}/locations/{uid}.
  * Acepta el id SQL o el doc id vivo — se resuelve antes de escribir (la regla
  * del subdoc exige participación en el doc padre real). */
@@ -101,11 +144,31 @@ export async function writeTripParticipantLocation(
   latitude: number,
   longitude: number,
 ): Promise<void> {
-  const db = await getFirebaseFirestore();
-  const liveId = await liveTripDocId(tripId);
-  await setDoc(
-    doc(db, FS_COL.tripsLive, liveId, 'locations', uid),
-    { latitude, longitude, updatedAt: serverTimestamp() },
-    { merge: true },
-  );
+  devRideTrackingStage('trip_write_start');
+  try {
+    const db = await getFirebaseFirestore();
+    const liveId = await liveTripDocId(tripId);
+    devRideTrackingStage('trip_id_resolved');
+    const gate = gateForTripLocation(liveId, uid);
+    if (!claimTripLocationWrite(gate, Date.now())) {
+      devRideTrackingStage('trip_write_skipped');
+      return;
+    }
+    try {
+      devWriteAttempt('trip_location');
+      await setDoc(
+        doc(db, FS_COL.tripsLive, liveId, 'locations', uid),
+        { latitude, longitude, updatedAt: serverTimestamp() },
+        { merge: true },
+      );
+      confirmTripLocationWrite(gate, Date.now());
+      devRideTrackingStage('trip_write_confirmed');
+    } catch (error) {
+      releaseTripLocationWrite(gate);
+      throw error;
+    }
+  } catch (error) {
+    devRideTrackingStage('trip_write_failed');
+    throw error;
+  }
 }

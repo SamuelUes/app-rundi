@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ExpoImagePicker from 'expo-image-picker';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
+import { useAuthStore } from '../../stores/authStore';
 import backendConfig from '../../config/backendConfig';
 import alertService from '../../services/notification/alertService';
 import accountLinkingService from '../../services/auth/accountLinkingService';
@@ -235,12 +236,12 @@ export default function AccountScreen({ navigation }: any) {
       marginBottom: 16,
       backgroundColor: colors.card,
       borderRadius: 20,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: colors.border,
       padding: 16,
       shadowColor: '#000',
-      shadowOpacity: 0.08,
-      shadowRadius: 10,
+      shadowOpacity: 0.2,
+      shadowRadius: 8,
       shadowOffset: { width: 0, height: 4 },
       elevation: 4,
     },
@@ -378,7 +379,7 @@ export default function AccountScreen({ navigation }: any) {
     },
     input: {
       minHeight: 50,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: colors.border,
       borderRadius: 12,
       paddingHorizontal: 15,
@@ -429,6 +430,10 @@ export default function AccountScreen({ navigation }: any) {
 
   const updateLocalUserCache = async (data: Record<string, any>) => {
     try {
+      const { user: currentUser, setUser } = useAuthStore.getState();
+      const nextUser = currentUser ? { ...currentUser, ...data } : null;
+      if (nextUser) setUser(nextUser);
+
       const stored = await AsyncStorage.getItem('user');
       if (!stored) return;
       const parsed = JSON.parse(stored);

@@ -14,7 +14,7 @@
 import { Platform } from 'react-native';
 import { INSURANCE_COMPANIES } from '../../../constants/insuranceCompanies';
 
-export type DocumentOcrType = 'license' | 'registration' | 'insurance';
+export type DocumentOcrType = 'license' | 'registration' | 'insurance' | 'inspection' | 'emissions';
 
 export interface ExtractedDocumentFields {
   licenseNumber?: string;
@@ -32,6 +32,10 @@ export interface ExtractedDocumentFields {
   insuranceNumber?: string;
   insuranceCompany?: string;
   insuranceExpiry?: string;
+  inspectionDate?: string;
+  inspectionValidUntil?: string;
+  emissionsTestedAt?: string;
+  emissionsValidUntil?: string;
   vin?: string;
   motor?: string;
   chasis?: string;
@@ -565,6 +569,23 @@ function extractInsuranceFields(text: string): ExtractedDocumentFields {
   return fields;
 }
 
+function extractPeriodicFields(text: string, type: 'inspection' | 'emissions'): ExtractedDocumentFields {
+  const dateAfterLabel = (label: RegExp) => {
+    for (const line of text.split('\n')) {
+      const match = label.exec(line);
+      if (!match) continue;
+      const dates = findDates(line.slice(match.index + match[0].length));
+      if (dates.length) return dates[0].iso;
+    }
+    return undefined;
+  };
+  const issued = dateAfterLabel(/(?:fecha\s+(?:de\s+)?(?:inspecci[oó]n|prueba|realizaci[oó]n|emisi[oó]n)|emitid[oa]|expedid[oa]|desde)\s*[:.-]?\s*/i);
+  const expiry = dateAfterLabel(/(?:vencimiento|vence|vigente\s+hasta|v[aá]lid[oa]\s+hasta|expiraci[oó]n|hasta)\s*[:.-]?\s*/i);
+  return type === 'inspection'
+    ? { inspectionDate: issued, inspectionValidUntil: expiry }
+    : { emissionsTestedAt: issued, emissionsValidUntil: expiry };
+}
+
 const PARSERS: Record<
   DocumentOcrType,
   (text: string) => ExtractedDocumentFields
@@ -572,6 +593,8 @@ const PARSERS: Record<
   license: extractLicenseFields,
   registration: extractRegistrationFields,
   insurance: extractInsuranceFields,
+  inspection: (text) => extractPeriodicFields(text, 'inspection'),
+  emissions: (text) => extractPeriodicFields(text, 'emissions'),
 };
 
 /**
@@ -604,5 +627,6 @@ export const __testing = {
   extractLicenseFields,
   extractRegistrationFields,
   extractInsuranceFields,
+  extractPeriodicFields,
   normalize,
 };

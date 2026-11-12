@@ -139,30 +139,18 @@ export function ProfileConfigSection({
 
       {/* Navegación — patrón DriverProfileOptions */}
       <View style={styles.section}>
-        <TouchableOpacity style={styles.optionCard} onPress={onNavigatePayments} accessibilityRole="button">
+        {/* <TouchableOpacity style={styles.optionCard} onPress={onNavigatePayments} accessibilityRole="button">
           <MaterialIcons name="payments" size={22} color={colors.primary} style={{ marginRight: 14 }} />
           <Text style={styles.optionText}>{t('shared.profile.config.payments')}</Text>
           <Text style={styles.optionArrow}>›</Text>
-        </TouchableOpacity>
+        </TouchableOpacity> */}
 
-        <TouchableOpacity style={styles.optionCard} onPress={onNavigateRideHistory} accessibilityRole="button">
+        <TouchableOpacity style={[styles.optionCard, styles.optionCardLast]} onPress={onNavigateRideHistory} accessibilityRole="button">
           <MaterialIcons name="receipt-long" size={22} color={colors.primary} style={{ marginRight: 14 }} />
           <Text style={styles.optionText}>{t('shared.profile.config.rideHistory')}</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
-
-        <TouchableOpacity style={styles.optionCard} onPress={onNavigateSettings} accessibilityRole="button">
-          <MaterialIcons name="settings" size={22} color={colors.primary} style={{ marginRight: 14 }} />
-          <Text style={styles.optionText}>{t('shared.profile.config.advanced')}</Text>
-          <Text style={styles.optionArrow}>›</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.optionCard} onPress={onNavigateHelp} accessibilityRole="button">
-          <MaterialIcons name="help-outline" size={22} color={colors.primary} style={{ marginRight: 14 }} />
-          <Text style={styles.optionText}>{t('shared.profile.config.help')}</Text>
-          <Text style={styles.optionArrow}>›</Text>
-        </TouchableOpacity>
-
+        
         <TouchableOpacity
           style={[styles.optionCard, styles.optionCardLast]}
           onPress={onNavigateSupport}
@@ -170,6 +158,18 @@ export function ProfileConfigSection({
         >
           <MaterialIcons name="support-agent" size={22} color={colors.primary} style={{ marginRight: 14 }} />
           <Text style={styles.optionText}>{t('shared.profile.support.title')}</Text>
+          <Text style={styles.optionArrow}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={[styles.optionCard, styles.optionCardLast]} onPress={onNavigateSettings} accessibilityRole="button">
+          <MaterialIcons name="settings" size={22} color={colors.primary} style={{ marginRight: 14 }} />
+          <Text style={styles.optionText}>{t('shared.profile.config.advanced')}</Text>
+          <Text style={styles.optionArrow}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={[styles.optionCard, styles.optionCardLast]} onPress={onNavigateHelp} accessibilityRole="button">
+          <MaterialIcons name="help-outline" size={22} color={colors.primary} style={{ marginRight: 14 }} />
+          <Text style={styles.optionText}>{t('shared.profile.config.help')}</Text>
           <Text style={styles.optionArrow}>›</Text>
         </TouchableOpacity>
       </View>

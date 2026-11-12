@@ -64,6 +64,11 @@ export const createStyles = (colors: any, isDark: boolean) => StyleSheet.create(
     justifyContent: 'center',
     alignItems: 'center',
   },
+  avatarImage: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+  },
   avatarText: {
     fontSize: 32,
     fontWeight: '800',
@@ -130,7 +135,7 @@ export const createStyles = (colors: any, isDark: boolean) => StyleSheet.create(
   section: {
     paddingHorizontal: 16,
     paddingVertical: 14,
-    marginBottom: 8,
+    marginBottom: 8,  
   },
   sectionTitle: {
     fontSize: 18,
@@ -294,12 +299,20 @@ export const createStyles = (colors: any, isDark: boolean) => StyleSheet.create(
   },
   // Rows de navegación (patrón DriverProfileOptions)
   optionCard: {
-    paddingVertical: 24,
+    paddingVertical: 18,
     paddingHorizontal: 20,
+    marginBottom: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 0.21,
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    shadowColor: colors.shadow,
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
   optionCardLast: {
     borderBottomWidth: 0,

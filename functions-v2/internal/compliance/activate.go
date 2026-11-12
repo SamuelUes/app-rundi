@@ -34,6 +34,19 @@ type ActivationResult struct {
 // El guardado de la caché es best-effort post-commit (si falla, la próxima
 // activación reevalúa — la autorización ya quedó registrada en SQL).
 func (s *Service) ActivateAvailability(ctx context.Context, uid string, store *DailyStore) (*ActivationResult, error) {
+	return s.activateAvailability(ctx, uid, store, nil)
+}
+
+// ActivateAvailabilityPostRide — misma activación pero marca el evento
+// driver.activated como reactivación post-viaje: la proyección puede bajar
+// un 'on_ride' obsoleto (tras el pago no puede existir viaje nuevo, el
+// conductor venía de offline). Es el regreso automático a 'online' una vez
+// terminado el proceso de viaje y de pago.
+func (s *Service) ActivateAvailabilityPostRide(ctx context.Context, uid string, store *DailyStore) (*ActivationResult, error) {
+	return s.activateAvailability(ctx, uid, store, map[string]any{"postRideReactivation": true})
+}
+
+func (s *Service) activateAvailability(ctx context.Context, uid string, store *DailyStore, extra map[string]any) (*ActivationResult, error) {
 	now := time.Now()
 	today, dayEnd := NicaraguaDayWindow(now)
 
@@ -92,7 +105,7 @@ func (s *Service) ActivateAvailability(ctx context.Context, uid string, store *D
 			decision = &d
 		}
 		sessionID, seq, err := s.authorizeSession(ctx, uid, dID, today, vehicleID,
-			serviceCodes, decision.Context.InputGenerations, expiresAt)
+			serviceCodes, decision.Context.InputGenerations, expiresAt, extra)
 		if err == nil {
 			if store != nil {
 				_ = store.Save(ctx, *decision)
@@ -114,7 +127,8 @@ func (s *Service) ActivateAvailability(ctx context.Context, uid string, store *D
 // de la tx que crea la sesión y el evento outbox. Si una mutación entró entre
 // la evaluación y la autorización, descarta con ErrSessionSignalsStale.
 func (s *Service) authorizeSession(ctx context.Context, uid, dID, today string,
-	vehicleID *string, serviceCodes []string, gens map[string]int64, expiresAt time.Time) (string, int64, error) {
+	vehicleID *string, serviceCodes []string, gens map[string]int64, expiresAt time.Time,
+	extra map[string]any) (string, int64, error) {
 
 	keys, err := signalKeysFromGenerations(gens)
 	if err != nil {
@@ -143,13 +157,17 @@ func (s *Service) authorizeSession(ctx context.Context, uid, dID, today string,
 	if err != nil {
 		return "", 0, err
 	}
+	payload := map[string]any{
+		"driverUid": uid, "driverId": dID, "sessionId": sessionID,
+		"sessionSeq": seq, "vehicleId": vehicleID, "serviceCodes": serviceCodes,
+		"day": today, "expiresAt": expiresAt.UTC().Format(time.RFC3339),
+	}
+	for k, v := range extra {
+		payload[k] = v
+	}
 	_, err = outbox.InsertReturning(ctx, tx, outbox.Event{
 		Type: "driver.activated", AggregateType: "driver", AggregateID: dID,
-		Payload: map[string]any{
-			"driverUid": uid, "driverId": dID, "sessionId": sessionID,
-			"sessionSeq": seq, "vehicleId": vehicleID, "serviceCodes": serviceCodes,
-			"day": today, "expiresAt": expiresAt.UTC().Format(time.RFC3339),
-		},
+		Payload: payload,
 	})
 	if err != nil {
 		return "", 0, err

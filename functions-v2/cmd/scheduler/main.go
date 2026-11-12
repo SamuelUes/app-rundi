@@ -83,6 +83,13 @@ func main() {
 		if err := expireOffers(ctx, fsClient, pool); err != nil {
 			slog.Error("offers sweep", "err", err)
 		}
+		// Invitaciones de crew vencidas (crew_invites + pendingInvite del
+		// capitán): no hay TTL nativo — el chip del capitán se libera aquí.
+		if n, err := crewSvc.SweepExpiredInvites(ctx); err != nil {
+			slog.Error("crew invites sweep", "err", err)
+		} else if n > 0 {
+			slog.Info("crew invites sweep", "expired", n)
+		}
 		if err := expireStaleCalls(ctx, pool, fsClient); err != nil {
 			slog.Error("calls sweep", "err", err)
 		}
@@ -101,6 +108,10 @@ func main() {
 		runProgrammed(ctx, progSvc, "scheduler")
 	}
 	if maintenance {
+		if _, err := pool.Exec(ctx, `DELETE FROM public.api_rate_limits WHERE ctid IN
+			(SELECT ctid FROM public.api_rate_limits WHERE last_seen < NOW() - interval '1 hour' LIMIT 10000)`); err != nil {
+			slog.Warn("rate limit cleanup", "err", err)
+		}
 		if n, err := progSvc.Cleanup(ctx); err == nil && n > 0 {
 			slog.Info("programmed cleanup", "deleted", n)
 		}

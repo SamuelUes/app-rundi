@@ -49,7 +49,18 @@ func Publish(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, ev Ev
 		if err := projectRide(ctx, pool, c, ev, p); err != nil {
 			return -1, err
 		}
-		if err := projectCounterOffers(ctx, pool, c, ev.AggregateID); err != nil {
+		if ev.EventType == "ride.completed" || ev.EventType == "rating.skipped" {
+			if err := projectPendingRatingForRide(ctx, pool, c, ev.AggregateID); err != nil {
+				return -1, err
+			}
+		}
+		if err := projectPickupCode(ctx, pool, c, ev.AggregateID); err != nil {
+			return -1, err
+		}
+		if err := projectCounterOffers(ctx, pool, c, ev.AggregateID, ev.EventType); err != nil {
+			return -1, err
+		}
+		if err := projectDispatchOfferPrices(ctx, pool, c, ev.AggregateID, ev.EventType); err != nil {
 			return -1, err
 		}
 		if ev.EventType == "ride.completed" || ev.EventType == "ride.status_changed" || ev.EventType == "rating.skipped" {
@@ -72,9 +83,19 @@ func Publish(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, ev Ev
 		return -1, nil
 
 	case "payment":
-		return projectPayment(ctx, pool, c, ev, p)
+		rev, err := projectPayment(ctx, pool, c, ev, p)
+		if err != nil {
+			return -1, err
+		}
+		if err := projectPaymentCashCode(ctx, pool, c, ev.AggregateID); err != nil {
+			return -1, err
+		}
+		return rev, nil
 
 	case "driver":
+		if ev.EventType == "driver.biometric_registered" {
+			return -1, projectDriverBiometric(ctx, pool, c, ev.AggregateID)
+		}
 		if ev.EventType == "driver.recharge" {
 			return -1, projectDriverWallet(ctx, pool, c, ev, p)
 		}
@@ -84,7 +105,7 @@ func Publish(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, ev Ev
 		if ev.EventType == "driver.ride_finished" {
 			return -1, projectDriverRideFinished(ctx, c, p)
 		}
-		features, err := drivers.NewService(pool, nil).MyFeatureCapabilities(ctx, ev.AggregateID)
+		features, err := drivers.NewService(pool, nil, nil).MyFeatureCapabilities(ctx, ev.AggregateID)
 		if err != nil {
 			return -1, err
 		}
@@ -109,6 +130,9 @@ func Publish(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, ev Ev
 		if err := applyVersioned(ctx, c, mainRef, p, data); err != nil {
 			return -1, err
 		}
+		if err := projectDriverBiometric(ctx, pool, c, ev.AggregateID); err != nil {
+			return -1, err
+		}
 		return revision, projectPublicDriver(ctx, pool, c, ev.AggregateID)
 
 	case "vehicle":
@@ -127,6 +151,20 @@ func Publish(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, ev Ev
 				data[k] = v
 			}
 		}
+		// Badge premium del propio vehículo (misma regla que drivers_live):
+		// el payload no trae el año OCR — se re-lee la fila autoritativa.
+		var ocrYear *int
+		var ocrType string
+		vehErr := pool.QueryRow(ctx, `
+			SELECT registration_ocr_year, COALESCE(type, '')
+			FROM public.vehicles WHERE id = $1::uuid AND deleted_at IS NULL`,
+			ev.AggregateID).Scan(&ocrYear, &ocrType)
+		if vehErr != nil && !errors.Is(vehErr, pgx.ErrNoRows) {
+			return -1, vehErr
+		}
+		for k, v := range premiumVehicleFields(ocrType, ocrYear) {
+			data[k] = v
+		}
 		ref := c.Collection(fs.ColVehicles).Doc(ev.AggregateID)
 		if err := applyVersioned(ctx, c, ref, p, data); err != nil {
 			return -1, err
@@ -141,11 +179,19 @@ func Publish(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, ev Ev
 		return revision, projectPublicDriver(ctx, pool, c, uid)
 
 	case "rating":
+		if rideID, ok := p["rideId"].(string); ok {
+			if err := projectPendingRatingForRide(ctx, pool, c, rideID); err != nil {
+				return -1, err
+			}
+		}
 		if p["ratedRole"] == "client" {
 			return -1, nil
 		}
 		uid, _ := p["toUserId"].(string)
 		return -1, projectPublicDriver(ctx, pool, c, uid)
+
+	case "rating_pending":
+		return -1, projectPendingRating(ctx, pool, c, ev.AggregateID)
 
 	case "driver_public":
 		return -1, projectPublicDriver(ctx, pool, c, ev.AggregateID)
@@ -187,6 +233,22 @@ func Publish(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, ev Ev
 	}
 }
 
+func projectDriverBiometric(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, uid string) error {
+	var registrationID *string
+	err := pool.QueryRow(ctx, `
+		SELECT biometric_registration_id::text FROM public.drivers
+		WHERE user_id = $1 AND deleted_at IS NULL`, uid).Scan(&registrationID)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && registrationID == nil) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = c.Collection(fs.ColDriversLive).Doc(uid).Collection("private").Doc("biometric").
+		Set(ctx, map[string]any{"registrationId": *registrationID})
+	return err
+}
+
 // rowRevision — revision actual de la fila (monotona en orden de commit);
 // -1 si no se puede leer (la fila aun no existe, p.ej.).
 func rowRevision(ctx context.Context, pool *pgxpool.Pool, table, idCol, id string) int64 {
@@ -197,6 +259,34 @@ func rowRevision(ctx context.Context, pool *pgxpool.Pool, table, idCol, id strin
 		return -1
 	}
 	return rev
+}
+
+// premiumVehicleFields — ventana/badge premium derivado del año OCR.
+// Espejo de public.vehicle_premium_eligible (solo sedan/suv/pickup);
+// Managua es UTC-6 sin horario de verano. Claves siempre presentes para
+// que el merge limpie un badge obsoleto.
+func premiumVehicleFields(vehicleType string, year *int) map[string]any {
+	fields := map[string]any{
+		"ocrYear": nil, "premiumBadge": nil,
+		"premiumFrom": nil, "premiumGraceFrom": nil, "premiumUntil": nil,
+	}
+	if year != nil {
+		fields["ocrYear"] = *year
+	}
+	switch strings.ToLower(strings.TrimSpace(vehicleType)) {
+	case "sedan", "suv", "pickup":
+	default:
+		return fields
+	}
+	if year == nil || *year < 1900 || *year > 2100 {
+		return fields
+	}
+	loc := time.FixedZone("America/Managua", -6*60*60)
+	fields["premiumBadge"] = "premium"
+	fields["premiumFrom"] = time.Date(*year, 1, 1, 0, 0, 0, 0, loc)
+	fields["premiumGraceFrom"] = time.Date(*year+5, 1, 1, 0, 0, 0, 0, loc)
+	fields["premiumUntil"] = time.Date(*year+5, 7, 1, 0, 0, 0, 0, loc)
+	return fields
 }
 
 // Re-read SQL so delayed vehicle events cannot restore a previously selected vehicle.
@@ -211,21 +301,16 @@ func projectActiveVehicle(ctx context.Context, pool *pgxpool.Pool, c *firestore.
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
-	data := map[string]any{"vehicleId": nil, "plate": nil, "type": nil, "ocrYear": nil, "premiumBadge": nil,
-		"premiumFrom": nil, "premiumGraceFrom": nil, "premiumUntil": nil,
+	data := map[string]any{"vehicleId": nil, "plate": nil, "type": nil,
 		"appliedVersion": p["version"], "updatedAt": firestore.ServerTimestamp}
 	if err == nil {
 		data["vehicleId"], data["plate"], data["type"] = id, plate, vehicleType
-		if year != nil {
-			data["ocrYear"] = *year
+		for k, v := range premiumVehicleFields(vehicleType, year) {
+			data[k] = v
 		}
-		if year != nil && *year >= 1900 && *year <= 2100 && vehicleType != "" && !strings.Contains(strings.ToLower(vehicleType), "moto") {
-			// Managua is UTC-6 and does not currently observe daylight saving time.
-			loc := time.FixedZone("America/Managua", -6*60*60)
-			data["premiumBadge"] = "premium"
-			data["premiumFrom"] = time.Date(*year, 1, 1, 0, 0, 0, 0, loc)
-			data["premiumGraceFrom"] = time.Date(*year+5, 1, 1, 0, 0, 0, 0, loc)
-			data["premiumUntil"] = time.Date(*year+5, 7, 1, 0, 0, 0, 0, loc)
+	} else {
+		for k, v := range premiumVehicleFields("", nil) {
+			data[k] = v
 		}
 	}
 	ref := c.Collection(fs.ColDriversLive).Doc(uid).Collection("vehicles").Doc("active")
@@ -843,7 +928,11 @@ func projectDriverSession(ctx context.Context, c *firestore.Client, p map[string
 			"updatedAt":  firestore.ServerTimestamp,
 		}
 		if online {
-			if existingStatus != "on_ride" && existingStatus != "busy" {
+			// postRideReactivation: reactivación automática tras cerrar viaje+pago;
+			// un 'on_ride' proyectado es obsoleto (el conductor venía de offline,
+			// no pudo tomar otro viaje) — el flag lo baja a 'online'.
+			forceOnline, _ := p["postRideReactivation"].(bool)
+			if forceOnline || (existingStatus != "on_ride" && existingStatus != "busy") {
 				data["status"] = "online"
 			}
 			data["sessionId"], _ = p["sessionId"].(string)

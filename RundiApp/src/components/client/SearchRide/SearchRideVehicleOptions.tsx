@@ -190,22 +190,6 @@ export function SearchRideVehicleOptions({
     return feature.name;
   };
 
-  const featureImpact = (feature: ServiceFeatureOption) => {
-    if (feature.pricingType === 'multiplier') {
-      const percent = Math.round((feature.pricingValue - 1) * 100);
-      return tr('features.percentImpact', {
-        sign: percent < 0 ? '-' : '+',
-        value: Math.abs(percent),
-      });
-    }
-    if (feature.pricingType === 'discount') {
-      return tr('features.discountImpact', { value: Math.round(feature.pricingValue) });
-    }
-    if (feature.pricingType === 'surcharge') {
-      return tr('features.surchargeImpact', { value: Math.round(feature.pricingValue) });
-    }
-    return tr('features.noPriceImpact');
-  };
 
   return (
     <View style={styles.vehicleSection}>
@@ -376,7 +360,6 @@ export function SearchRideVehicleOptions({
                               accessibilityState={{ selected, disabled: conditionDisabled }}
                               accessibilityLabel={tr('features.accessibilityOption', {
                                 name: featureTitle(feature),
-                                impact: featureImpact(feature),
                                 state: conditionDisabled
                                   ? tr('features.unavailable')
                                   : selected
@@ -394,9 +377,11 @@ export function SearchRideVehicleOptions({
                                 <Text style={styles.vehicleFeatureCardTitle} numberOfLines={1}>
                                   {featureTitle(feature)}
                                 </Text>
-                                <Text style={styles.vehicleFeatureCardMeta} numberOfLines={1}>
-                                  {`${featureImpact(feature)}${statusHint ? ` · ${statusHint}` : ''}`}
-                                </Text>
+                                {statusHint ? (
+                                  <Text style={styles.vehicleFeatureCardMeta} numberOfLines={1}>
+                                    {statusHint}
+                                  </Text>
+                                ) : null}
                               </View>
                               {conditionDisabled ? null : (
                                 <View

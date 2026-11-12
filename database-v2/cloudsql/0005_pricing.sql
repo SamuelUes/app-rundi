@@ -355,10 +355,10 @@ GROUP BY s.id, s.code, s.name;
 -- ============================================
 INSERT INTO public.services (id, name, description, code, commission_rate, base_price, price_per_km, price_per_minute, minimum_fare, vehicle_types, requires_special_license, max_distance_km, available_hours, icon, color, display_order, is_active, is_featured)
 VALUES
-  ('e1cdd47c-9f57-4ed4-93a0-59cdfdffff8a', 'Viaje Normal', 'Servicio estándar de transporte urbano', 'normal', 0.1500, 50.00, 10.00, 0.00, 50.00, '["auto"]'::jsonb, FALSE, NULL, NULL, 'car', '#0A84FF', 1, TRUE, TRUE),
-  ('5e88177d-38f2-4864-addc-272dda26ef28', 'Viaje en Moto', 'Transporte rápido en motocicleta', 'motorcycle', 0.0750, 50.00, 8.00, 0.00, 50.00, '["motorcycle"]'::jsonb, FALSE, NULL, NULL, 'motorcycle', '#FFAA00', 2, TRUE, FALSE),
-  ('b3c69940-2e43-459f-8c2e-459773c56f8e', 'Conductor Designado Auto', 'Servicio de conductor para auto designado para eventos', 'designated_driver_auto', 0.2500, 50.00, 13.00, 0.00, 50.00, '["auto"]'::jsonb, TRUE, NULL, NULL, 'bar', '#8E44AD', 3, TRUE, TRUE),
-  ('f7a4b2c1-3d56-4e89-9f01-2c5b6e7d8a9f', 'Conductor Designado Moto', 'Servicio de conductor designado para moto para eventos', 'designated_driver_moto', 0.1250, 50.00, 13.00, 0.00, 50.00, '["motorcycle"]'::jsonb, TRUE, NULL, NULL, 'bar', '#ad7f44', 4, TRUE, TRUE),
+  ('e1cdd47c-9f57-4ed4-93a0-59cdfdffff8a', 'Viaje en Auto', 'Servicio estándar de transporte urbano', 'normal', 0.1500, 60.00, 12.00, 1.20, 60.00, '["auto"]'::jsonb, FALSE, NULL, NULL, 'car', '#0A84FF', 1, TRUE, TRUE),
+  ('5e88177d-38f2-4864-addc-272dda26ef28', 'Viaje en Moto', 'Transporte rápido en motocicleta', 'motorcycle', 0.0750, 40.00, 8.00, 1.20, 40.00, '["motorcycle"]'::jsonb, FALSE, NULL, NULL, 'motorcycle', '#FFAA00', 2, TRUE, FALSE),
+  ('b3c69940-2e43-459f-8c2e-459773c56f8e', 'Conductor Designado Auto', 'Servicio de conductor para auto designado para eventos', 'designated_driver_auto', 0.2500, 80.00, 13.00, 1.60, 80.00, '["auto"]'::jsonb, TRUE, NULL, NULL, 'bar', '#8E44AD', 3, TRUE, TRUE),
+  ('f7a4b2c1-3d56-4e89-9f01-2c5b6e7d8a9f', 'Conductor Designado Moto', 'Servicio de conductor designado para moto para eventos', 'designated_driver_moto', 0.1250, 80.00, 13.00, 1.60, 80.00, '["motorcycle"]'::jsonb, TRUE, NULL, NULL, 'bar', '#ad7f44', 4, TRUE, TRUE),
   ('691f8f01-3faf-4e39-aeb7-1bc4dda3fc19', 'Viaje Nocturno (legacy)', 'Legacy reference retained for historical rides; use the night Feature for new rides.', 'night', 0.1200, 40.00, 12.00, 0.00, 40.00, '["auto"]'::jsonb, FALSE, NULL, '{"start": "22:00", "end": "04:00"}'::jsonb, 'moon', '#2C3E50', 5, FALSE, FALSE)
 ON CONFLICT (code) DO UPDATE
 SET
@@ -378,7 +378,21 @@ SET
   display_order = EXCLUDED.display_order,
   is_active = EXCLUDED.is_active,
   is_featured = EXCLUDED.is_featured,
-  updated_at = NOW();
+  updated_at = NOW()
+-- Sin cambio real no se escribe: un UPDATE no-op dispara
+-- compliance_signals_services (rules:global) e invalida TODAS las
+-- sesiones driver_sessions vivas (ErrSessionSignalsStale → 409).
+WHERE (services.name, services.description, services.commission_rate,
+       services.base_price, services.price_per_km, services.price_per_minute,
+       services.minimum_fare, services.vehicle_types, services.requires_special_license,
+       services.max_distance_km, services.available_hours, services.icon,
+       services.color, services.display_order, services.is_active, services.is_featured)
+  IS DISTINCT FROM
+      (EXCLUDED.name, EXCLUDED.description, EXCLUDED.commission_rate,
+       EXCLUDED.base_price, EXCLUDED.price_per_km, EXCLUDED.price_per_minute,
+       EXCLUDED.minimum_fare, EXCLUDED.vehicle_types, EXCLUDED.requires_special_license,
+       EXCLUDED.max_distance_km, EXCLUDED.available_hours, EXCLUDED.icon,
+       EXCLUDED.color, EXCLUDED.display_order, EXCLUDED.is_active, EXCLUDED.is_featured);
 
 -- Features/promos (proyección → DATA-MAIN_features)
 INSERT INTO public.features (
@@ -399,7 +413,7 @@ INSERT INTO public.features (
    'none', 'none', '{"defaultSelected":false}'::jsonb),
   ('premium', 'Premium',
    'Viaje premium en auto; requiere que el vehículo cumpla una regla o insignia aprobada.',
-   TRUE, NULL, NULL, 'America/Managua', 'none', 0, 40, TRUE,
+   TRUE, NULL, NULL, 'America/Managua', 'multiplier', 1.38, 40, TRUE,
    'vehicle', 'hybrid', '{"defaultSelected":false}'::jsonb),
   ('pet_friendly', 'Mascotas',
    'Viaje en auto con un conductor habilitado para transportar mascotas.',
@@ -463,9 +477,10 @@ ON CONFLICT (min_demand_supply_ratio) DO UPDATE SET
   enabled = TRUE,
   updated_at = NOW();
 
--- 'night' legacy queda inactivo (referencia histórica; el feature 'night' lo reemplaza)
+-- 'night' legacy queda inactivo (referencia histórica; el feature 'night' lo reemplaza).
+-- Guarda is_active: un UPDATE no-op bumpea rules:global (ver nota en el upsert).
 UPDATE public.services
 SET is_active = FALSE, updated_at = NOW()
-WHERE code = 'night';
+WHERE code = 'night' AND is_active;
 
 COMMIT;

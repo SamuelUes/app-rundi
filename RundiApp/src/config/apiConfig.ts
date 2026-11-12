@@ -12,16 +12,19 @@ const IS_PRODUCTION = (process.env.NODE_ENV || 'development') === 'production';
 const USE_FIREBASE_EMULATORS = process.env.USE_FIREBASE_EMULATORS === 'true';
 
 const LOCAL_API_URL = USE_FIREBASE_EMULATORS
-  ? `http://${resolveLocalEmulatorHost(process.env.FIREBASE_EMULATOR_HOST || 'localhost', Platform.OS)}:8080`
+  ? `http://${resolveLocalEmulatorHost(process.env.FIREBASE_EMULATOR_HOST || 'localhost', Platform.OS)}:${process.env.API_LOCAL_PORT || '8080'}`
   : '';
 
 export const apiConfig = {
   /** Base URL del API v1 del servicio Go (functions-v2/cmd/api). */
-  apiUrl:
-    (IS_PRODUCTION
-      ? process.env.API_BASE_URL_V2_PRODUCTION || process.env.API_BASE_URL_V2
-      : process.env.API_BASE_URL_V2) ||
-    LOCAL_API_URL,
+  apiUrl: IS_PRODUCTION
+    ? process.env.API_BASE_URL_V2_PRODUCTION || process.env.API_BASE_URL_V2 || ''
+    : USE_FIREBASE_EMULATORS
+      // Modo emulador: SIEMPRE el backend local — un API_BASE_URL_V2 remoto
+      // en .env nunca debe ganar aquí (el valor podría llegar al bundle antes
+      // que el env del runner). Override explícito: API_BASE_URL_V2_LOCAL.
+      ? process.env.API_BASE_URL_V2_LOCAL || LOCAL_API_URL
+      : process.env.API_BASE_URL_V2 || LOCAL_API_URL,
   /** Prefijo de versión montado en el router Go. */
   apiPrefix: '/v1',
 } as const;

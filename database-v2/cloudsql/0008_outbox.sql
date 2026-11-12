@@ -82,14 +82,16 @@ CREATE INDEX IF NOT EXISTS idx_outbox_created_at ON public.outbox_events(created
 
 -- ============================================
 -- SEED de eventos outbox: proyectar el catálogo sembrado (0005) a Firestore
--- al arrancar el sweeper. version=0 → aplica siempre que el doc no tenga
--- una versión mayor. Requiere outbox_events — por eso vive aquí y no en 0005.
+-- al arrancar el sweeper. version=epoch_millis (misma escala que versionNow()
+-- de los upserts admin) → cada re-run de migraciones re-proyecta el catálogo;
+-- version=0 quedaría por debajo del appliedVersion existente y applyVersioned
+-- lo saltaría. Requiere outbox_events — por eso vive aquí y no en 0005.
 -- ============================================
 -- Outbox: proyectar el catálogo a Firestore al arrancar el sweeper
--- (version=0 → aplica siempre que el doc no tenga una versión mayor).
+-- (version=epoch_millis → aplica siempre que el doc no tenga una versión mayor).
 INSERT INTO public.outbox_events (event_type, aggregate_type, aggregate_id, payload, schema_version, status)
 SELECT 'service.upserted', 'service', s.code,
-       jsonb_build_object('code', s.code, 'version', 0), 1, 'pending'
+       jsonb_build_object('code', s.code, 'version', (extract(epoch from now()) * 1000)::bigint), 1, 'pending'
 FROM public.services s
 WHERE NOT EXISTS (SELECT 1 FROM public.outbox_events e
                   WHERE e.aggregate_type = 'service' AND e.aggregate_id = s.code
@@ -97,7 +99,7 @@ WHERE NOT EXISTS (SELECT 1 FROM public.outbox_events e
 
 INSERT INTO public.outbox_events (event_type, aggregate_type, aggregate_id, payload, schema_version, status)
 SELECT 'feature.upserted', 'feature', f.code,
-       jsonb_build_object('code', f.code, 'version', 0), 1, 'pending'
+       jsonb_build_object('code', f.code, 'version', (extract(epoch from now()) * 1000)::bigint), 1, 'pending'
 FROM public.features f
 WHERE NOT EXISTS (SELECT 1 FROM public.outbox_events e
                   WHERE e.aggregate_type = 'feature' AND e.aggregate_id = f.code
@@ -105,7 +107,7 @@ WHERE NOT EXISTS (SELECT 1 FROM public.outbox_events e
 
 INSERT INTO public.outbox_events (event_type, aggregate_type, aggregate_id, payload, schema_version, status)
 SELECT 'surge_rules.changed', 'pricing', 'surge',
-       jsonb_build_object('version', 0), 1, 'pending'
+       jsonb_build_object('version', (extract(epoch from now()) * 1000)::bigint), 1, 'pending'
 WHERE NOT EXISTS (SELECT 1 FROM public.outbox_events e
                   WHERE e.aggregate_type = 'pricing' AND e.aggregate_id = 'surge'
                     AND e.status = 'pending');

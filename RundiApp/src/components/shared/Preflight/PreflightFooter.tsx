@@ -35,13 +35,14 @@ export function PreflightFooter({
       {role === 'driver' && (
         <Pressable
           accessibilityRole="button"
-          style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
+          style={({ pressed }) => [styles.continueClientButton, pressed && styles.buttonPressed]}
           onPress={onSwitchMode}
         >
-          <Text style={styles.secondaryButtonText}>
+          <Text style={styles.continueClientButtonText}>
             {userMode === 'client'
-              ? t('shared.preflight.buttons.continueAsClient')
-              : t('shared.preflight.buttons.useAsClient')}
+              ? 
+                t('shared.preflight.buttons.useAsClient')
+              : t('shared.preflight.buttons.continueAsClient')}
           </Text>
         </Pressable>
       )}

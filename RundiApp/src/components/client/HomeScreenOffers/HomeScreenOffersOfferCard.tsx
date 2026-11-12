@@ -16,6 +16,8 @@ interface HomeScreenOffersOfferCardProps {
   driverPriceLabel: string;
   hasDriverPrice: boolean;
   negotiationLabel: string | null;
+  driverAcceptedMyPrice: boolean;
+  confirming: boolean;
   displayName: string;
   vehicleType: string | null;
   ratingLabel: string | null;
@@ -24,6 +26,7 @@ interface HomeScreenOffersOfferCardProps {
   onSelect: () => void;
   onMessageDriver: () => void;
   onOpenNegotiation: () => void;
+  onConfirmDriver: () => void;
   styles: any;
   t: TFunction;
 }
@@ -48,6 +51,8 @@ export function HomeScreenOffersOfferCard({
   driverPriceLabel,
   hasDriverPrice,
   negotiationLabel,
+  driverAcceptedMyPrice,
+  confirming,
   displayName,
   vehicleType,
   ratingLabel,
@@ -56,6 +61,7 @@ export function HomeScreenOffersOfferCard({
   onSelect,
   onMessageDriver,
   onOpenNegotiation,
+  onConfirmDriver,
   styles,
   t,
 }: HomeScreenOffersOfferCardProps) {
@@ -114,11 +120,11 @@ export function HomeScreenOffersOfferCard({
               : '#F5F5F5',
           borderColor: selected
             ? isDark
-              ? 'rgba(255,255,255,0.10)'
-              : '#E3C592'
+              ? 'rgba(255,255,255,0.3)'
+              : 'rgba(227, 197, 146, 0.1)'
             : isDark
               ? 'rgba(255,255,255,0.06)'
-              : 'rgba(0,0,0,0.06)',
+              : 'rgba(0,0,0,0.0)',
         },
         pressed && { opacity: 0.96, transform: [{ scale: 0.99 }] },
       ]}
@@ -313,13 +319,41 @@ export function HomeScreenOffersOfferCard({
                   {t('client.homeOffers.list.acceptedPrimary')}
                 </Text>
               </Animated.View>
+            ) : driverAcceptedMyPrice ? (
+              <TouchableOpacity
+                onPress={onConfirmDriver}
+                style={[
+                  styles.negotiatePill,
+                  {
+                    backgroundColor: isDark ? 'rgba(76,175,80,0.18)' : 'rgba(76,175,80,0.14)',
+                    borderColor: isDark ? 'rgba(129,199,132,0.5)' : 'rgba(76,175,80,0.35)',
+                  },
+                ]}
+                activeOpacity={0.85}
+                disabled={confirming}
+                accessibilityRole="button"
+              >
+                <Ionicons
+                  name="checkmark-circle"
+                  size={18}
+                  color={isDark ? '#A5D6A7' : '#2E7D32'}
+                />
+                <Text
+                  style={[
+                    styles.negotiateText,
+                    { color: isDark ? '#A5D6A7' : '#2E7D32' },
+                  ]}
+                >
+                  {t('client.homeOffers.primaryAction.confirmDriver')}
+                </Text>
+              </TouchableOpacity>
             ) : (
               <TouchableOpacity
                 onPress={onOpenNegotiation}
                 style={[
                   styles.negotiatePill,
                   {
-                    backgroundColor: isDark ? 'rgba(179,135,55,0.16)' : 'rgba(209, 150, 41, 0.42)',
+                    backgroundColor: isDark ? 'rgba(87, 103, 206, 0.16)' : 'rgba(209, 150, 41, 0.42)',
                     borderColor: isDark ? 'rgba(179,135,55,0.45)' : 'rgba(179,135,55,0.30)',
                   },
                 ]}

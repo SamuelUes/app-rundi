@@ -3,11 +3,8 @@ import { getFirebaseAuth, getFirebaseFirestore } from '../../../config/firebase'
 import { onAuthStateChanged, Unsubscribe } from 'firebase/auth';
 import {
   collection,
-  doc,
   onSnapshot,
   query,
-  serverTimestamp,
-  updateDoc,
   where,
   type Unsubscribe as FirestoreUnsubscribe,
 } from 'firebase/firestore';
@@ -221,13 +218,8 @@ export function useCalls(complaintId: string | null = null, options?: { handleNa
     setLoading(true);
     setError(null);
     try {
-      const db = await getFirebaseFirestore();
       if (status === 'accepted') {
-        // El participante actualiza su estado (identidades inmutables por reglas).
-        await updateDoc(doc(db, FS_COL.calls, callId), {
-          status,
-          updatedAt: serverTimestamp(),
-        });
+        // La API valida al destinatario y actualiza el estado y la señal.
         await pushCallEvent(callId, resolvedUid || '', 'accepted');
       } else {
         // Estado terminal + pending event 'call_ended' (batch atómico v2).

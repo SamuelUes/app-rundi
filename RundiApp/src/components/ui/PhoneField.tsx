@@ -41,8 +41,8 @@ const PhoneField: React.FC<PhoneFieldProps> = ({
   autoFocus,
   accessibilityLabel,
 }) => {
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const [isFocused, setIsFocused] = useState(false);
 
   const maxDigits = maxDigitsOverride ?? getCountryLocalNumberLength(selectedCountry);
@@ -129,16 +129,16 @@ const PhoneField: React.FC<PhoneFieldProps> = ({
 
 export default PhoneField;
 
-const createStyles = (colors: any) =>
+const createStyles = (colors: any, isDark: boolean) =>
   StyleSheet.create({
     field: {
       minHeight: 56,
       flexDirection: 'row',
       alignItems: 'center',
       borderRadius: 14,
-      borderWidth: 1.5,
+      borderWidth: 0,
       borderColor: colors.border,
-      backgroundColor: colors.card,
+      backgroundColor: isDark ? colors.background : 'rgba(246, 246, 246, 0.8)',
     },
     fieldFocused: {
       borderColor: colors.primary,

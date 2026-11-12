@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Image, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { collection, documentId, onSnapshot, query as fsQuery, where } from 'firebase/firestore';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../../hooks/shared/theme/useTheme';
@@ -7,7 +8,9 @@ import { LoadingIcon } from '../../ui/LoadingIcon';
 import alertService from '../../../services/notification/alertService';
 import designatedCrewService from '../../../services/driver/designatedCrewService';
 import { isCandidateSelectable } from '../../../utils/driver/designatedCrew';
-import type { CrewCandidate } from '../../../types/designatedCrew';
+import { getFirebaseFirestore } from '../../../config/firebase';
+import { FS_COL } from '../../../constants/firestore';
+import type { CrewCandidate, CrewCandidateStatus } from '../../../types/designatedCrew';
 
 interface Props {
   visible: boolean;
@@ -23,6 +26,15 @@ const normalizeText = (value: string) =>
     .trim();
 
 const normalizeLicense = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/gi, '');
+
+// drivers_live.status → status de candidato (misma regla que el backend);
+// paired/not_eligible/self se conservan del REST (membership no es legible
+// por reglas para terceros).
+const liveToCandidateStatus = (live: string | undefined): CrewCandidateStatus => {
+  const s = String(live || '').trim().toLowerCase();
+  if (s === 'on_ride' || s === 'busy') return 'busy';
+  return s === 'online' || s === 'available' ? 'available' : 'offline';
+};
 
 function matchesQuery(candidate: CrewCandidate, query: string): boolean {
   if (!query) return true;
@@ -97,10 +109,42 @@ export function DesignatedCrewSearchModal({ visible, serviceAreaId, onClose }: P
     }
   }, [visible]);
 
+  // Realtime: status de cada candidato sigue drivers_live (el REST es una
+  // foto; sin esto un conductor que se desconecta seguiría invitable hasta
+  // refrescar manualmente). `in` soporta ≤30 ids — el endpoint devuelve ≤20.
+  const candidateIdsKey = (allCandidates ?? []).map((c) => c.driverId).sort().join(',');
+  useEffect(() => {
+    if (!candidateIdsKey) return;
+    const ids = candidateIdsKey.split(',');
+    let cancelled = false;
+    let unsubscribe: (() => void) | null = null;
+    (async () => {
+      const db = await getFirebaseFirestore();
+      if (cancelled) return;
+      unsubscribe = onSnapshot(
+        fsQuery(collection(db, FS_COL.driversLive), where(documentId(), 'in', ids)),
+        (snapshot) => {
+          const live = new Map(snapshot.docs.map((d) => [d.id, d.data()?.status as string | undefined]));
+          setAllCandidates((prev) =>
+            prev?.map((c) =>
+              c.status === 'paired' || c.status === 'invited' || c.status === 'not_eligible' || c.status === 'self'
+                ? c
+                : { ...c, status: liveToCandidateStatus(live.get(c.driverId)) },
+            ) ?? null,
+          );
+        },
+      );
+    })();
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [candidateIdsKey]);
+
   const results = useMemo(() => {
     if (!allCandidates) return null;
     const filtered = allCandidates.filter((c) => matchesQuery(c, query));
-    const order: Record<string, number> = { available: 0, busy: 1, offline: 2, paired: 3, not_eligible: 4, self: 5 };
+    const order: Record<string, number> = { available: 0, invited: 1, busy: 2, offline: 3, paired: 4, not_eligible: 5, self: 6 };
     return filtered.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
   }, [allCandidates, query]);
 
@@ -108,12 +152,17 @@ export function DesignatedCrewSearchModal({ visible, serviceAreaId, onClose }: P
     setInvitingId(candidate.driverId);
     try {
       await designatedCrewService.sendInvite(candidate.driverId);
+      // El modal queda abierto y la fila pasa a 'invited' (botón deshabilitado)
+      // para no repetir la invitación; el REST la confirma al re-abrir.
+      setAllCandidates((prev) =>
+        prev?.map((c) => (c.driverId === candidate.driverId ? { ...c, status: 'invited' as const } : c)) ?? prev,
+      );
       alertService.showSuccessAlert(t('driver.crew.search.title'), t('driver.crew.search.inviteSent', { name: candidate.name }));
-      setAllCandidates(null);
-      setQuery('');
-      onClose();
-    } catch {
-      alertService.showErrorAlert(t('driver.crew.errors.generic'));
+    } catch (error: any) {
+      const msg = String(error?.message || '');
+      alertService.showErrorAlert(
+        /pending invite|already paired/i.test(msg) ? t('driver.crew.errors.pendingInvite') : t('driver.crew.errors.generic'),
+      );
     } finally {
       setInvitingId(null);
     }
@@ -132,7 +181,7 @@ export function DesignatedCrewSearchModal({ visible, serviceAreaId, onClose }: P
             ★ {item.rating.toFixed(1)} · {t('driver.crew.search.license', { license: item.licenseNumber || '—' })}
           </Text>
           <Text style={[styles.status, selectable ? styles.statusOk : styles.statusOff]}>
-            {t(`driver.crew.search.status.${item.status}`)}
+            {t(`driver.crew.search.status.${item.status || 'offline'}`)}
           </Text>
         </View>
         <Pressable
@@ -144,6 +193,8 @@ export function DesignatedCrewSearchModal({ visible, serviceAreaId, onClose }: P
         >
           {invitingId === item.driverId ? (
             <LoadingIcon size={16} color="#241A09" />
+          ) : item.status === 'invited' ? (
+            <Text style={styles.invitedLabel}>{t('driver.crew.search.status.invited')}</Text>
           ) : (
             <Text style={styles.inviteLabel}>{t('driver.crew.search.invite')}</Text>
           )}
@@ -161,19 +212,28 @@ export function DesignatedCrewSearchModal({ visible, serviceAreaId, onClose }: P
               <Text style={styles.title}>{t('driver.crew.search.title')}</Text>
               <Text style={styles.subtitle}>{t('driver.crew.search.subtitle')}</Text>
             </View>
-            {serviceAreaId && (
+            <View style={styles.headerActions}>
+              {serviceAreaId && (
+                <Pressable
+                  onPress={() => void loadAreaCandidates(serviceAreaId)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('driver.crew.search.button')}
+                  style={styles.iconButton}
+                >
+                  <Ionicons name="refresh" size={18} color={colors.text} />
+                </Pressable>
+              )}
               <Pressable
-                onPress={() => void loadAreaCandidates(serviceAreaId)}
+                onPress={onClose}
                 hitSlop={8}
                 accessibilityRole="button"
-                style={styles.refreshButton}
+                accessibilityLabel={t('common.close')}
+                style={styles.iconButton}
               >
-                <Ionicons name="refresh" size={20} color={colors.text} />
+                <Ionicons name="close" size={20} color={colors.text} />
               </Pressable>
-            )}
-            <Pressable onPress={onClose} hitSlop={8} accessibilityRole="button">
-              <Ionicons name="close" size={22} color={colors.text} />
-            </Pressable>
+            </View>
           </View>
           <View style={styles.searchRow}>
             <View style={styles.inputWrap}>
@@ -209,7 +269,7 @@ export function DesignatedCrewSearchModal({ visible, serviceAreaId, onClose }: P
           {results && results.length === 0 && (
             <Text style={styles.empty}>{t(query ? 'driver.crew.search.emptyFiltered' : 'driver.crew.search.empty')}</Text>
           )}
-          <FlatList data={results ?? []} keyExtractor={(item) => item.driverId} renderItem={renderItem} />
+          <FlatList data={results ?? []} keyExtractor={(item, index) => item.driverId || String(index)} renderItem={renderItem} />
         </View>
       </View>
     </Modal>
@@ -220,10 +280,14 @@ const createStyles = (colors: any, isDark: boolean) =>
   StyleSheet.create({
     overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
     sheet: { maxHeight: '80%', minHeight: '45%', backgroundColor: colors.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, gap: 14 },
-    header: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+    header: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    iconButton: {
+      width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(28,25,23,0.06)',
+    },
     title: { fontSize: 18, fontWeight: '700', color: colors.text },
     subtitle: { fontSize: 13, color: colors.textSecondary, marginTop: 4 },
-    refreshButton: { padding: 4 },
     searchRow: { flexDirection: 'row', gap: 10 },
     inputWrap: {
       flex: 1, height: 46, borderRadius: 14, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8,
@@ -247,4 +311,5 @@ const createStyles = (colors: any, isDark: boolean) =>
     inviteButton: { paddingHorizontal: 14, height: 36, borderRadius: 18, backgroundColor: '#B38737', alignItems: 'center', justifyContent: 'center' },
     inviteButtonDisabled: { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(28,25,23,0.1)' },
     inviteLabel: { fontSize: 14, fontWeight: '700', color: '#241A09' },
+    invitedLabel: { fontSize: 12, fontWeight: '700', color: colors.textSecondary, textAlign: 'center' },
   });

@@ -31,8 +31,11 @@ type Config struct {
 	DBStatementTimeout     time.Duration
 
 	// Tasks / Scheduler
-	CloudTasksQueue   string
-	CloudTasksSAEmail string
+	CloudTasksQueue        string
+	CloudTasksSAEmail      string
+	CloudTasksEmulatorHost string
+	CloudTasksLocalAuth    bool
+	CloudTasksLocalToken   string
 
 	// Operación
 	APIBaseURL            string
@@ -42,6 +45,9 @@ type Config struct {
 	MatchRadiusKm         float64
 	MatchMaxOffers        int
 	AppCheckEnforce       string // "off" | "monitor" | "enforce"
+	RateLimitMode         string
+	RateLimitPublicMode   string
+	RateLimitLimits       map[string]int
 	AdminAllowedOrigins   []string
 	LogLevel              string
 	FirebaseStorageBucket string
@@ -79,8 +85,13 @@ func Load() (*Config, error) {
 		DBPassword:               os.Getenv("DB_PASSWORD"),
 		CloudTasksQueue:          os.Getenv("CLOUD_TASKS_QUEUE"),
 		CloudTasksSAEmail:        os.Getenv("CLOUD_TASKS_SA_EMAIL"),
+		CloudTasksEmulatorHost:   os.Getenv("CLOUD_TASKS_EMULATOR_HOST"),
+		CloudTasksLocalAuth:      os.Getenv("CLOUD_TASKS_LOCAL_AUTH") == "true",
+		CloudTasksLocalToken:     os.Getenv("CLOUD_TASKS_LOCAL_TOKEN"),
 		APIBaseURL:               os.Getenv("API_BASE_URL"),
 		AppCheckEnforce:          getEnv("APP_CHECK_ENFORCE", "monitor"),
+		RateLimitMode:            getEnv("RATE_LIMIT_MODE", "monitor"),
+		RateLimitPublicMode:      getEnv("RATE_LIMIT_PUBLIC_MODE", "monitor"),
 		AdminAllowedOrigins:      splitCSV(os.Getenv("ADMIN_ALLOWED_ORIGINS")),
 		LogLevel:                 getEnv("LOG_LEVEL", "info"),
 		FirebaseStorageBucket:    os.Getenv("FIREBASE_STORAGE_BUCKET"),
@@ -94,6 +105,12 @@ func Load() (*Config, error) {
 	}
 	if c.CloudTasksAudience == "" {
 		c.CloudTasksAudience = c.APIBaseURL
+	}
+	// Defensa: el bypass de auth para la cola local jamás aplica sin emulador —
+	// una var mal configurada en producción no puede desactivar el OIDC real.
+	if c.CloudTasksEmulatorHost == "" {
+		c.CloudTasksLocalAuth = false
+		c.CloudTasksLocalToken = ""
 	}
 
 	var err error
@@ -118,6 +135,30 @@ func Load() (*Config, error) {
 	if c.MatchMaxOffers, err = getInt("MATCH_MAX_OFFERS", 10); err != nil {
 		return nil, err
 	}
+	c.RateLimitLimits = make(map[string]int)
+	for _, policy := range []struct {
+		name, env string
+		def       int
+	}{
+		{"read", "RATE_LIMIT_READ_PER_MINUTE", 180},
+		{"mutation", "RATE_LIMIT_MUTATION_PER_MINUTE", 60},
+		{"rides", "RATE_LIMIT_RIDES_PER_MINUTE", 60},
+		{"ride_request", "RATE_LIMIT_RIDE_REQUEST_PER_MINUTE", 15},
+		{"negotiation", "RATE_LIMIT_NEGOTIATION_PER_MINUTE", 30},
+		{"payments", "RATE_LIMIT_PAYMENTS_PER_MINUTE", 30},
+		{"calls", "RATE_LIMIT_CALLS_PER_MINUTE", 30},
+		{"chats", "RATE_LIMIT_CHATS_PER_MINUTE", 60},
+		{"client_events", "RATE_LIMIT_CLIENT_EVENTS_PER_MINUTE", 60},
+		{"arrival_photo", "RATE_LIMIT_ARRIVAL_PHOTO_PER_MINUTE", 15},
+		{"emergency", "RATE_LIMIT_EMERGENCY_PER_MINUTE", 30},
+		{"availability", "RATE_LIMIT_AVAILABILITY_PER_MINUTE", 300},
+	} {
+		n, err := getInt(policy.env, policy.def)
+		if err != nil || n < 1 || n > 100000 {
+			return nil, fmt.Errorf("config: %s debe estar entre 1 y 100000", policy.env)
+		}
+		c.RateLimitLimits[policy.name] = n
+	}
 
 	for _, req := range []struct{ name, val string }{
 		{"GCP_PROJECT_ID", c.ProjectID},
@@ -133,6 +174,16 @@ func Load() (*Config, error) {
 	case "off", "monitor", "enforce":
 	default:
 		return nil, fmt.Errorf("config: APP_CHECK_ENFORCE inválido %q", c.AppCheckEnforce)
+	}
+	switch c.RateLimitMode {
+	case "off", "monitor", "enforce":
+	default:
+		return nil, fmt.Errorf("config: RATE_LIMIT_MODE inválido %q", c.RateLimitMode)
+	}
+	switch c.RateLimitPublicMode {
+	case "off", "monitor", "enforce":
+	default:
+		return nil, fmt.Errorf("config: RATE_LIMIT_PUBLIC_MODE inválido %q", c.RateLimitPublicMode)
 	}
 	return c, nil
 }

@@ -10,7 +10,10 @@ import (
 
 	cloudtasks "cloud.google.com/go/cloudtasks/apiv2"
 	"cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
+	"google.golang.org/api/option"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -21,10 +24,18 @@ import (
 type Producer struct {
 	client *cloudtasks.Client
 	cfg    *config.Config
+	wake   wakeCoalescer
 }
 
 func NewProducer(ctx context.Context, cfg *config.Config) (*Producer, error) {
-	c, err := cloudtasks.NewClient(ctx)
+	var opts []option.ClientOption
+	if cfg.CloudTasksEmulatorHost != "" {
+		opts = append(opts,
+			option.WithEndpoint(cfg.CloudTasksEmulatorHost),
+			option.WithoutAuthentication(),
+			option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())))
+	}
+	c, err := cloudtasks.NewClient(ctx, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -39,6 +50,12 @@ func (p *Producer) Close() error { return p.client.Close() }
 // colapsan en uno solo (AlreadyExists = éxito), acotando las ejecuciones del
 // job a ~2/minuto bajo carga y a 0 en reposo.
 func (p *Producer) WakeConsumer(ctx context.Context) error {
+	return p.wake.Do(time.Now().Unix()/30, func() error {
+		return p.wakeConsumer(ctx)
+	})
+}
+
+func (p *Producer) wakeConsumer(ctx context.Context) error {
 	req, err := consumerWakeupRequest(p.cfg)
 	if err != nil {
 		return err

@@ -13,6 +13,7 @@ import { getFirebaseFirestore } from '../../config/firebase';
 import { FS_COL } from '../../constants/firestore';
 import { writeDriverLiveLocation, writeTripParticipantLocation } from '../../live/driverLive';
 import { getPreflightResult } from '../../stores/preflightStore';
+import { devRideTrackingStage } from '../../utils/devWriteMetrics';
 
 interface Location {
   latitude: number;
@@ -180,17 +181,27 @@ class FirebaseTrackingService {
    */
   async updateRideTracking(rideId: string, data: Partial<RideTracking>): Promise<void> {
     const uid = currentUid();
-    if (!uid) return;
+    if (!uid) {
+      devRideTrackingStage('trip_no_auth');
+      return;
+    }
+    devRideTrackingStage('trip_auth_ready');
     const loc = data.driverLocation ?? data.clientLocation;
     if (loc) {
       await writeTripParticipantLocation(rideId, uid, loc.latitude, loc.longitude);
+    } else {
+      devRideTrackingStage('trip_no_location');
     }
   }
 
   /** Seguidor de crew: su propio subdoc de ubicación en trips_live. */
   async updateFollowerRideLocation(rideId: string, location: Location): Promise<void> {
     const uid = currentUid();
-    if (!uid) return;
+    if (!uid) {
+      devRideTrackingStage('trip_no_auth');
+      return;
+    }
+    devRideTrackingStage('trip_auth_ready');
     await writeTripParticipantLocation(rideId, uid, location.latitude, location.longitude);
   }
 

@@ -11,7 +11,6 @@ import {
   TextInput,
   TouchableOpacity,
   Alert,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
 } from 'react-native';
@@ -134,11 +133,11 @@ const GooglePhoneScreen: React.FC<GooglePhoneScreenProps> = ({ navigation, route
   };
 
   return (
-    <KeyboardAvoidingView
+    <ScrollView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      contentContainerStyle={styles.scrollContent}
+      automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.content}>
           <Text style={styles.title}>
             {t('authScreens.googlePhone.title')}
@@ -224,8 +223,7 @@ const GooglePhoneScreen: React.FC<GooglePhoneScreenProps> = ({ navigation, route
             </TouchableOpacity>
           </View>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+    </ScrollView>
   );
 };
 

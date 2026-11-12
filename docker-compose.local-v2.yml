@@ -1,0 +1,155 @@
+name: rundi-local-v2
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: rundi
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d rundi"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    image: postgres:17-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: postgres
+    volumes:
+      - ./database-v2/cloudsql:/migrations:ro
+      - ./local-dev/local-seed.sql:/seed/local-seed.sql:ro
+      - ./local-dev/db-init.sql:/seed/db-init.sql:ro
+    command:
+      - sh
+      - -ceu
+      - |
+        psql -h postgres -U postgres -d rundi -v ON_ERROR_STOP=1 -f /seed/db-init.sql
+        for f in /migrations/*.sql; do
+          echo "migrate: $$(basename "$$f")"
+          psql -h postgres -U postgres -d rundi -v ON_ERROR_STOP=1 -f "$$f"
+        done
+        psql -h postgres -U postgres -d rundi -v ON_ERROR_STOP=1 -f /seed/local-seed.sql
+    restart: "no"
+
+  firebase:
+    build:
+      context: ./local-dev/firebase-emulator
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./database-v2:/emulators/database-v2:ro
+      - firebase-data:/emulator-data
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:9099:9099"
+      - "127.0.0.1:9199:9199"
+      - "127.0.0.1:4000:4000"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8080 && nc -z 127.0.0.1 9099 && nc -z 127.0.0.1 9199"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    stop_grace_period: 45s
+
+  firebase-seed:
+    build:
+      context: .
+      dockerfile: local-dev/firebase-seed/Dockerfile
+    depends_on:
+      firebase:
+        condition: service_healthy
+    environment:
+      GCP_PROJECT_ID: demo-rundi
+      GOOGLE_CLOUD_PROJECT: demo-rundi
+      FIRESTORE_EMULATOR_HOST: firebase:8080
+      FIREBASE_AUTH_EMULATOR_HOST: firebase:9099
+      FIREBASE_STORAGE_EMULATOR_HOST: firebase:9199
+    restart: "no"
+
+  tasks:
+    build:
+      context: ./functions-v2
+      dockerfile: Dockerfile.dev
+      args:
+        SERVICE: taskemulator
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      firebase:
+        condition: service_healthy
+    environment:
+      GCP_PROJECT_ID: demo-rundi
+      GOOGLE_CLOUD_PROJECT: demo-rundi
+      REGION: local
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: rundi
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      FIRESTORE_EMULATOR_HOST: firebase:8080
+      FIREBASE_AUTH_EMULATOR_HOST: firebase:9099
+      ALLOW_NO_FCM: "true"
+      CLOUD_TASKS_LOCAL_TOKEN: local-tasks-token
+      LOCAL_TASKS_STATE: /data/tasks.json
+      LOCAL_TASKS_MAX_ATTEMPTS: "5"
+      LOCAL_TASKS_RETRY_DELAY: 1s
+      LOCAL_CONSUMER_TICK_SECONDS: "10"
+      LOCAL_PROGRAMMED_TICK_SECONDS: "60"
+      LOCAL_SCHEDULER_TICK_SECONDS: "300"
+      LOG_LEVEL: debug
+    volumes:
+      - tasks-data:/data
+    ports:
+      - "127.0.0.1:8090:8090"
+      - "127.0.0.1:8091:8091"
+  api:
+    build:
+      context: ./functions-v2
+      args:
+        SERVICE: api
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      firebase:
+        condition: service_healthy
+      tasks:
+        condition: service_started
+    environment:
+      GCP_PROJECT_ID: demo-rundi
+      GOOGLE_CLOUD_PROJECT: demo-rundi
+      REGION: local
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: rundi
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      FIRESTORE_EMULATOR_HOST: firebase:8080
+      FIREBASE_AUTH_EMULATOR_HOST: firebase:9099
+      FIREBASE_STORAGE_BUCKET: demo-rundi.appspot.com
+      APP_CHECK_ENFORCE: "off"
+      LOG_LEVEL: debug
+      PORT: "8080"
+      API_BASE_URL: http://api:8080
+      RIDE_SHARE_SECRET: dev-share-secret
+      CLOUD_TASKS_EMULATOR_HOST: tasks:8090
+      CLOUD_TASKS_QUEUE: local-queue
+      CLOUD_TASKS_SA_EMAIL: local-tasks@example.test
+      CLOUD_TASKS_AUDIENCE: http://api:8080
+      CLOUD_TASKS_LOCAL_AUTH: "true"
+      CLOUD_TASKS_LOCAL_TOKEN: local-tasks-token
+    ports:
+      - "127.0.0.1:8082:8080"
+volumes:
+  pgdata:
+  firebase-data:
+  tasks-data:

@@ -15,7 +15,8 @@ func TestAppCheckModes(t *testing.T) {
 		calls       int
 	}{
 		{"off", "", 204, 0}, {"off", "bad", 204, 0},
-		{"monitor", "", 204, 0}, {"monitor", "bad", 204, 0},
+		{"monitor", "", 204, 0}, {"monitor", "bad", 204, 1},
+		{"monitor", "valid", 204, 1},
 		{"enforce", "", 401, 0}, {"enforce", "bad", 401, 1},
 		{"enforce", "valid", 204, 1},
 	} {

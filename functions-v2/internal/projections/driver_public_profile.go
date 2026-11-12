@@ -36,7 +36,7 @@ func projectPublicDriver(ctx context.Context, pool *pgxpool.Pool, c *firestore.C
 				WHERE to_user_id = $1 AND deleted_at IS NULL
 				  AND (rated_role IN ('driver', 'captain', 'follower') OR rated_role IS NULL)
 			)
-			SELECT u.name, d.profile_photo,
+			SELECT u.name, COALESCE(d.profile_photo, u.profile_photo),
 			       (SELECT ROUND(AVG(rating), 2) FROM driver_ratings),
 			       (SELECT COUNT(*) FROM driver_ratings),
 			       (SELECT COUNT(*) FROM public.rides r
@@ -82,7 +82,7 @@ func projectPublicDriver(ctx context.Context, pool *pgxpool.Pool, c *firestore.C
 		if err := json.Unmarshal(complimentsJSON, &compliments); err != nil {
 			return err
 		}
-		features, err := drivers.NewService(pool, nil).MyFeatureCapabilities(ctx, uid)
+		features, err := drivers.NewService(pool, nil, nil).MyFeatureCapabilities(ctx, uid)
 		if err != nil {
 			return err
 		}

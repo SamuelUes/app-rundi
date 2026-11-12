@@ -19,11 +19,13 @@ export function DriverProfileInsurance({
 
   const vehicle = vehicles[0];
 
+
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{t('driver.profile.insurance.title')}</Text>
 
       <View style={styles.insuranceCard}>
+       <View style={[styles.insuranceRowCard]}>
         <View style={styles.insuranceRow}>
           <Text style={styles.insuranceLabel}>{t('driver.profile.insurance.company')}</Text>
           <Text style={styles.insuranceValue}>{vehicle.insuranceCompany}</Text>
@@ -42,6 +44,7 @@ export function DriverProfileInsurance({
             </Text>
           </View>
         )}
+       </View>
 
         {vehicle.insurancePhoto && (
           <View style={styles.insurancePhotoContainer}>

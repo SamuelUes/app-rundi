@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { RideEarning } from '../../../services/driver/earningsService';
 import { formatApproxAmount } from '../../../utils/driver/designatedCrew';
@@ -29,7 +30,7 @@ export function EarningsRideList({
       {!rides || rides.length === 0 ? (
         <View style={styles.emptyState}>
           <View style={styles.emptyIconWrap}>
-            <MaterialIcons name="receipt-long" size={26} color={colors.textSecondary} />
+            <Ionicons name="receipt-outline" size={26} color={colors.textSecondary} />
           </View>
           <Text style={styles.emptyStateText}>{t('driver.earnings.rides.empty')}</Text>
         </View>

@@ -120,7 +120,6 @@ const createStyles = (colors: any) =>
       padding: 12,
       borderRadius: 12,
       backgroundColor: colors.surface,
-      borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
     },
     permissionTitle: {

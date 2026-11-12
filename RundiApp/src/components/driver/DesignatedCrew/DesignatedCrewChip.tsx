@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { TFunction } from 'i18next';
@@ -15,7 +15,34 @@ interface DesignatedCrewChipProps {
 }
 
 export function DesignatedCrewChip({ membership, partner, disabled, onAdd, onUnpair, styles, t }: DesignatedCrewChipProps) {
-  if (!membership) {
+  const pendingInviteRaw = membership?.pendingInvite;
+  const [, setNowTick] = useState(0);
+
+  // Al llegar expiresAt re-renderiza solo → "Solicitud enviada" vuelve a
+  // "Agregar colega" aunque el sweep del backend aún no haya limpiado el doc.
+  useEffect(() => {
+    if (!pendingInviteRaw?.expiresAt) return;
+    const ms = pendingInviteRaw.expiresAt - Date.now();
+    if (ms <= 0) return;
+    const timer = setTimeout(() => setNowTick((n) => n + 1), ms + 100);
+    return () => clearTimeout(timer);
+  }, [pendingInviteRaw?.expiresAt]);
+
+  const pendingInvite = pendingInviteRaw && pendingInviteRaw.expiresAt > Date.now() ? pendingInviteRaw : null;
+
+  // Membresía solo con pendingInvite (invitación emitida, aún sin aceptar) →
+  // "Solicitud enviada" no presionable hasta que acepten o expire.
+  if (membership && !membership.partnerId && pendingInvite) {
+    return (
+      <View style={[styles.designatedChip, styles.designatedChipDisabled]} accessibilityLabel={t('driver.crew.requestSent')}>
+        <Ionicons name="paper-plane" size={14} color="#efc069" />
+        <Text style={styles.designatedChipLabel} numberOfLines={1}>{t('driver.crew.requestSent')}</Text>
+        <Ionicons name="time-outline" size={14} color="#efc069" />
+      </View>
+    );
+  }
+
+  if (!membership || !membership.partnerId) {
     return (
       <Pressable
         style={({ pressed }) => [styles.designatedChip, disabled && styles.designatedChipDisabled, pressed && { opacity: 0.85 }]}

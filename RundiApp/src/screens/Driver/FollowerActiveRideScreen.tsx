@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { useKeepAwake } from 'expo-keep-awake';
-import { StyleSheet, Text, View } from 'react-native';
+import { AppState, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTranslation } from 'react-i18next';
 import DynamicMap from '../../components/map/DynamicMap';
@@ -11,6 +11,8 @@ import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useLocation, DRIVER_LOCATION_OPTIONS } from '../../hooks/shared/location/useLocation';
 import { useRideData } from '../../hooks/shared/ride/useRideData';
 import backgroundLocationService from '../../services/map/backgroundLocationService';
+import firebaseTrackingService from '../../services/ride/firebaseTrackingService';
+import { devRideTrackingStage } from '../../utils/devWriteMetrics';
 import { ensureVehicleIconSource, extractVehicleTypeFromInfo } from '../../utils/driver/vehicleIcons';
 import { isFollowerWaitingPayment, shouldShowSeparateCrewMarkers } from '../../utils/driver/designatedCrew';
 
@@ -22,6 +24,10 @@ export default function FollowerActiveRideScreen({ route, navigation }: any) {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useAuth();
   const { coords } = useLocation(DRIVER_LOCATION_OPTIONS);
+  const coordsRef = useRef(coords);
+  useEffect(() => {
+    coordsRef.current = coords;
+  }, [coords]);
   const { ride, loading, normalizedStatus } = useRideData(
     rideId,
     t('driver.activeRide.alerts.rideNotFound'),
@@ -37,16 +43,50 @@ export default function FollowerActiveRideScreen({ route, navigation }: any) {
       void backgroundLocationService.updateTrackingRideId(null);
       return;
     }
+    let foregroundInterval: ReturnType<typeof setInterval> | null = null;
+    let disposed = false;
+
+    const publishFollowerLocation = () => {
+      const c = coordsRef.current;
+      if (!c) return;
+      void firebaseTrackingService
+        .updateFollowerRideLocation(rideId, {
+          latitude: c.latitude,
+          longitude: c.longitude,
+          speed: c.speed ?? undefined,
+          heading: c.heading ?? undefined,
+          accuracy: c.accuracy ?? undefined,
+          timestamp: c.timestamp ?? Date.now(),
+        })
+        .catch(() => {});
+    };
+
     (async () => {
-      const tracking = await backgroundLocationService.isTrackingActive();
-      if (tracking) {
-        await backgroundLocationService.updateTrackingRideId(rideId, 'follower');
-      } else {
-        await backgroundLocationService.startBackgroundLocationTracking(user.id, 'driver', rideId);
-        await backgroundLocationService.updateTrackingRideId(rideId, 'follower');
+      try {
+        const tracking = await backgroundLocationService.isTrackingActive();
+        if (disposed) return;
+        if (tracking) {
+          devRideTrackingStage('tracking_already_active');
+          await backgroundLocationService.updateTrackingRideId(rideId, 'follower');
+        } else {
+          const started = await backgroundLocationService.startBackgroundLocationTracking(user.id, 'driver', rideId);
+          devRideTrackingStage(started ? 'tracking_started' : 'tracking_fallback');
+          await backgroundLocationService.updateTrackingRideId(rideId, 'follower');
+        }
+        if (disposed) return;
+        publishFollowerLocation();
+        foregroundInterval = setInterval(() => {
+          if (AppState.currentState !== 'active') return;
+          publishFollowerLocation();
+        }, 8000);
+      } catch (error) {
+        devRideTrackingStage('tracking_setup_failed');
+        console.warn('[FollowerActiveRide] No se pudo vincular el viaje al tracking:', error);
       }
     })();
     return () => {
+      disposed = true;
+      if (foregroundInterval) clearInterval(foregroundInterval);
       void backgroundLocationService.updateTrackingRideId(null);
     };
   }, [rideId, user?.id, isActive]);

@@ -1,7 +1,9 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
-import { formatCurrency } from '../../utils/driver/driverProfileHelpers';
+import { formatCurrency } from '../../../utils/driver/driverProfileHelpers';
 import type { TFunction } from 'i18next';
+import Ionicons from '@expo/vector-icons/Ionicons';
+
 
 interface DriverProfileStatsProps {
   totalEarnings: number;
@@ -35,7 +37,7 @@ export function DriverProfileStats({
         <View style={styles.earningsCardsRowTop}>
           <View style={[styles.profileEarningCard, styles.profileEarningCardTop]}>
             <View style={styles.profileEarningIcon}>
-              <Text style={styles.earningCardIconText}>💵</Text>
+             <Ionicons name="wallet" size={24} color="#c58541" />
             </View>
             <Text
               style={styles.earningCardValue}
@@ -56,7 +58,7 @@ export function DriverProfileStats({
           </View>
           <View style={[styles.profileEarningCard, styles.profileEarningCardTop]}>
             <View style={styles.profileEarningIcon}>
-              <Text style={styles.earningCardIconText}>💰</Text>
+               <Ionicons name="cash-sharp" size={24} color="#8ac156" />
             </View>
             <Text
               style={styles.earningCardValue}

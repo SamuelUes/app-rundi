@@ -53,8 +53,11 @@ interface GoogleMapProps {
   longitude: number;
   style?: any;
   onMapPress?: (event: { latitude: number; longitude: number }) => void;
-  onRegionChangeCenter?: (center: { latitude: number; longitude: number; altitude?: number }) => void;
-  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number; altitude?: number }) => void;
+  onPanDrag?: () => void;
+  scrollEnabled?: boolean;
+  zoomEnabled?: boolean;
+  onRegionChangeCenter?: (center: { latitude: number; longitude: number; altitude?: number; isGesture?: boolean }) => void;
+  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number; altitude?: number; isGesture?: boolean }) => void;
   showMarker?: boolean;
   markerPosition?: { latitude: number; longitude: number } | null;
   markerType?: MarkerType;
@@ -95,6 +98,8 @@ interface GoogleMapProps {
   onMarkerDragStart?: (location: { latitude: number; longitude: number }) => void;
   // Small address bubbles
   originLabel?: string;
+  originBubbleCompact?: boolean;
+  originBubbleDark?: boolean;
   destinationLabel?: string;
   originTitle?: string;
   destinationTitle?: string;
@@ -119,6 +124,9 @@ export default function GoogleMap({
   longitude,
   style,
   onMapPress,
+  onPanDrag,
+  scrollEnabled = true,
+  zoomEnabled = true,
   onRegionChangeCenter,
   onRegionChangeCompleteCenter,
   onDriverPress,
@@ -157,6 +165,8 @@ export default function GoogleMap({
   requestPinScale = 1,
   onMarkerDragStart,
   originLabel,
+  originBubbleCompact,
+  originBubbleDark,
   destinationLabel,
   originTitle,
   destinationTitle,
@@ -520,6 +530,9 @@ export default function GoogleMap({
           heading: 0,
         }}
         onPress={handleMapPress}
+        onPanDrag={onPanDrag}
+        scrollEnabled={scrollEnabled}
+        zoomEnabled={zoomEnabled}
         onRegionChange={handleRegionChange}
         onRegionChangeComplete={handleRegionChangeComplete}
         mapType={mapType || 'standard'}
@@ -645,7 +658,9 @@ export default function GoogleMap({
                 bubbleTitle={originTitle}
                 bubbleText={originLabel}
                 bubbleMeta={originMeta}
-                bubbleAccentColor="#2196F3"
+                bubbleAccentColor={originBubbleCompact ? '#0F172A' : '#2196F3'}
+                bubbleCompact={originBubbleCompact}
+                bubbleDark={originBubbleDark}
                 showBubble={showPinBubbles && isManualOriginMarker && !isMarkerHeld}
                 draggable={!!draggableMarker}
                 onDragStart={handleMarkerDragStart}
@@ -793,4 +808,3 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
-

@@ -37,6 +37,9 @@ export function useDriverAvailability({
   const [isDesignatedDriverMode, setIsDesignatedDriverMode] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const enforcingAvailabilityRef = useRef<boolean>(false);
+  // Guarda síncrona anti multi-tap: updatingStatus (state) no bloquea taps
+  // que llegan en el mismo frame antes del re-render.
+  const toggleInFlightRef = useRef<boolean>(false);
   const rechargeAlertShownRef = useRef<boolean>(false);
   const availabilityRevisionRef = useRef(0);
 
@@ -66,15 +69,21 @@ export function useDriverAvailability({
         if (!isActive || revision !== availabilityRevisionRef.current) return;
         const status = String(statusSnapshot.data()?.status || 'offline').trim().toLowerCase();
         const isOnline = status === 'online' || status === 'available' || status === 'on_ride' || status === 'busy';
+        // drivers_live.designatedMode es la fuente cross-device; AsyncStorage
+        // queda de fallback para docs aún sin el campo.
+        const docDesignated = statusSnapshot.data()?.designatedMode;
+        const designated = typeof docDesignated === 'boolean'
+          ? docDesignated
+          : Boolean(savedState?.isDesignatedDriverMode);
 
         setIsAvailable(isOnline);
-        setIsDesignatedDriverMode(isOnline && Boolean(savedState?.isDesignatedDriverMode));
+        setIsDesignatedDriverMode(isOnline && designated);
 
         if (savedState) {
           await driverAvailabilityService.saveAvailabilityState({
             ...savedState,
             isAvailable: isOnline,
-            isDesignatedDriverMode: isOnline && savedState.isDesignatedDriverMode,
+            isDesignatedDriverMode: isOnline && designated,
             lastUpdate: new Date().toISOString(),
             coords: { latitude: coords.latitude, longitude: coords.longitude },
           });
@@ -119,7 +128,11 @@ export function useDriverAvailability({
             if (cancelled || revision !== availabilityRevisionRef.current) return;
             if (restoreDesignatedMode) {
               restoreDesignatedMode = false;
-              if (online && saved?.isAvailable && saved.isDesignatedDriverMode) {
+              const docDesignated = snapshot.data()?.designatedMode;
+              const designated = typeof docDesignated === 'boolean'
+                ? docDesignated
+                : Boolean(saved?.isDesignatedDriverMode);
+              if (online && saved?.isAvailable && designated) {
                 setIsDesignatedDriverMode(true);
               }
             }
@@ -249,7 +262,7 @@ export function useDriverAvailability({
       return;
     }
 
-    if (updatingStatus) {
+    if (updatingStatus || toggleInFlightRef.current || enforcingAvailabilityRef.current) {
       return;
     }
 
@@ -277,6 +290,7 @@ export function useDriverAvailability({
     }
 
     availabilityRevisionRef.current++;
+    toggleInFlightRef.current = true;
     setUpdatingStatus(true);
     try {
       const status = nextValue ? 'available' : 'offline';
@@ -328,6 +342,7 @@ export function useDriverAvailability({
         err?.message || tr('driver.home.alerts.availabilityUpdateFailed'),
       );
     } finally {
+      toggleInFlightRef.current = false;
       setUpdatingStatus(false);
     }
   }, [userId, coords, updatingStatus, hasInsufficientFunds, rechargeFundsSummary, isAvailable, isDesignatedDriverMode, userRole, tr, navigation]);
@@ -351,6 +366,9 @@ export function useDriverAvailability({
         coords: coordsSnapshot,
       });
     } catch (err) {
+      // La escritura a drivers_live falló: revertir el estado local para no
+      // divergir del gate server-side (matching exige el flag en el doc).
+      setIsDesignatedDriverMode(isDesignatedDriverMode);
       console.error('❌ Error actualizando modo designado:', err);
     }
   }, [userRole, isAvailable, userId, isDesignatedDriverMode, coords]);

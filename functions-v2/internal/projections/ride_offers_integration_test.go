@@ -46,13 +46,36 @@ func TestCounterOfferProjection(t *testing.T) {
 		VALUES ($1, $2, 'driver_offered') RETURNING id::text`, clientID, "offer-ride-"+suffix).Scan(&rideID); err != nil {
 		t.Fatal(err)
 	}
+	ref := client.Collection(fs.ColDriverOffers).Doc(rideID + "_" + driverID)
+	t.Cleanup(func() { _, _ = ref.Delete(ctx) })
+	if _, err := pool.Exec(ctx, `INSERT INTO public.ride_offers(ride_id, driver_id, kind, status)
+		VALUES ($1::uuid, $2, 'offer', 'sent')`, rideID, driverID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ref.Set(ctx, map[string]any{"status": "pending", "clientSuggestedPrice": 100}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE public.rides SET client_suggested_price = 120, version = version + 1 WHERE id = $1::uuid`, rideID); err != nil {
+		t.Fatal(err)
+	}
+	if err := projectDispatchOfferPrices(ctx, pool, client, rideID, "ride.price_suggested"); err != nil {
+		t.Fatal(err)
+	}
+	dispatch, err := ref.Get(ctx)
+	if err != nil || dispatch.Data()["clientSuggestedPrice"] != float64(120) || dispatch.Data()["status"] != "pending" {
+		t.Fatalf("dispatch price not updated: %v, %v", dispatch, err)
+	}
+	if dispatch.Data()["lastOfferBy"] != "client" {
+		t.Fatalf("lastOfferBy=%v want client", dispatch.Data()["lastOfferBy"])
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO public.ride_offers(ride_id, driver_id, kind, status, offered_price)
 		VALUES ($1::uuid, $2, 'counter_offer', 'sent', 143)`, rideID, driverID); err != nil {
 		t.Fatal(err)
 	}
-	ref := client.Collection(fs.ColDriverOffers).Doc(rideID + "_" + driverID)
-	t.Cleanup(func() { _, _ = ref.Delete(ctx) })
-	if err := projectCounterOffers(ctx, pool, client, rideID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE public.rides SET version = version + 1 WHERE id = $1::uuid`, rideID); err != nil {
+		t.Fatal(err)
+	}
+	if err := projectCounterOffers(ctx, pool, client, rideID, "ride.price_offered"); err != nil {
 		t.Fatal(err)
 	}
 	snap, err := ref.Get(ctx)
@@ -64,6 +87,9 @@ func TestCounterOfferProjection(t *testing.T) {
 		data["status"] != "pending" || data["offeredPrice"] != float64(143) {
 		t.Fatalf("unexpected offer: %#v", data)
 	}
+	if data["lastOfferBy"] != "driver" {
+		t.Fatalf("lastOfferBy=%v want driver", data["lastOfferBy"])
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO public.ride_offers(ride_id, driver_id, kind, status, offered_price, created_at)
 		VALUES ($1::uuid, $2, 'counter_offer', 'sent', 150, NOW() + interval '1 second')`, rideID, driverID); err != nil {
 		t.Fatal(err)
@@ -71,7 +97,7 @@ func TestCounterOfferProjection(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE public.rides SET version = version + 1 WHERE id = $1::uuid`, rideID); err != nil {
 		t.Fatal(err)
 	}
-	if err := projectCounterOffers(ctx, pool, client, rideID); err != nil {
+	if err := projectCounterOffers(ctx, pool, client, rideID, "ride.price_offered"); err != nil {
 		t.Fatal(err)
 	}
 	snap, err = ref.Get(ctx)
@@ -81,11 +107,14 @@ func TestCounterOfferProjection(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE public.rides SET status = 'canceled', version = version + 1 WHERE id = $1::uuid`, rideID); err != nil {
 		t.Fatal(err)
 	}
-	if err := projectCounterOffers(ctx, pool, client, rideID); err != nil {
+	if err := projectCounterOffers(ctx, pool, client, rideID, "ride.canceled"); err != nil {
 		t.Fatal(err)
 	}
 	snap, err = ref.Get(ctx)
 	if err != nil || snap.Data()["status"] != "canceled" {
 		t.Fatalf("offer not canceled: %v, %v", snap, err)
+	}
+	if snap.Data()["lastOfferBy"] != "driver" {
+		t.Fatalf("lastOfferBy=%v want preserved driver", snap.Data()["lastOfferBy"])
 	}
 }

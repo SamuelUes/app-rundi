@@ -7,6 +7,8 @@ import { getMyDriverProfile, getMyVehicles } from '../../api/drivers';
 import { getPendingPayments } from '../../api/payments';
 import { getMyProgrammedRides } from '../../api/programmed';
 import { getMyRides } from '../../api/rides';
+import { getPendingRating } from '../../api/ratings';
+import { getProjectedPendingRating } from '../../live/pendingRating';
 import type { GetPreflightDataRequest, GetPreflightDataResponse, TermsDocumentType } from '../../types/preflight';
 import {
   forceRefreshIdTokenOrSignOut,
@@ -59,13 +61,15 @@ async function composePreflightResponse(
   role: GetPreflightDataRequest['role'],
   uid: string,
 ): Promise<GetPreflightDataResponse> {
-  const [termsData, rides, programmed, pending, driverProfile, vehicles] = await Promise.all([
+  const [termsData, rides, programmed, pending, driverProfile, vehicles, pendingRating, projectedRating] = await Promise.all([
     getPlatformPreflight(),
     getMyRides({ role: role === 'driver' ? 'driver' : 'client', limit: 20 }),
     getMyProgrammedRides({ role }),
     getPendingPayments(),
     role === 'driver' ? getMyDriverProfile() : Promise.resolve(null),
     role === 'driver' ? getMyVehicles() : Promise.resolve([]),
+    role === 'client' ? getPendingRating() : Promise.resolve(null),
+    role === 'client' ? getProjectedPendingRating(uid).catch(() => null) : Promise.resolve(null),
   ]);
 
   const active = (rides ?? []).find((r: any) => ACTIVE_RIDE_STATUSES.has(r.status));
@@ -145,12 +149,29 @@ async function composePreflightResponse(
     activeRide,
     programmedRide,
     pendingPayments,
+    pendingRating: pendingRating?.status === 'pending'
+      ? projectedRating?.rideId === pendingRating.rideId && projectedRating.version === pendingRating.version
+        ? projectedRating
+        : pendingRating
+      : null,
     penalties: null,
     rechargeFunds,
   };
 }
 
 const preflightService = {
+  async refreshClientPendingRating() {
+    const [rating, pending, rides] = await Promise.all([
+      getPendingRating(),
+      getPendingPayments(),
+      getMyRides({ role: 'client', limit: 20 }),
+    ]);
+    if (pending.payments.length > 0 || rides.some((ride) => ACTIVE_RIDE_STATUSES.has(ride.status))) {
+      return null;
+    }
+    return rating?.status === 'pending' ? rating : null;
+  },
+
   clearCache() {
     generation += 1;
   },

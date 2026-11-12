@@ -18,6 +18,7 @@ import (
 	"github.com/rundi/functions-v2/internal/apperr"
 	"github.com/rundi/functions-v2/internal/fs"
 	"github.com/rundi/functions-v2/internal/outbox"
+	"github.com/rundi/functions-v2/internal/pickupcode"
 )
 
 // Ventanas de v1 (processProgrammedRides).
@@ -353,6 +354,11 @@ func (s *Service) promote(ctx context.Context, ref *firestore.DocumentRef, d map
 	).Scan(&rideID)
 	if err != nil {
 		return fmt.Errorf("promote insert: %w", err)
+	}
+	if status == "accepted" {
+		if err := pickupcode.Create(ctx, tx, rideID); err != nil {
+			return err
+		}
 	}
 
 	// Ruta contratada desde el doc programado: origin order 0, waypoints,

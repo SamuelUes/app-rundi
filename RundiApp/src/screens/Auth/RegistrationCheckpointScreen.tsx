@@ -166,35 +166,6 @@ const RegistrationCheckpointScreen: React.FC<Props> = ({ navigation }) => {
     }
   };
 
-  const isDriverDataComplete = (driverData?: any, vehicleData?: any) => {
-    if (!driverData || !vehicleData) {
-      return false;
-    }
-
-    const licenseComplete =
-      Boolean(driverData.licenseNumber) &&
-      Boolean(driverData.licenseExpiry) &&
-      Boolean(driverData.department) &&
-      Boolean(driverData.municipality) &&
-      Boolean(driverData.profilePhoto) &&
-      Boolean(driverData.licensePhotoFront) &&
-      Boolean(driverData.licensePhotoBack);
-
-    const vehicleComplete =
-      Boolean(vehicleData.plate) &&
-      Boolean(vehicleData.brand) &&
-      Boolean(vehicleData.model) &&
-      Boolean(vehicleData.year) &&
-      Boolean(vehicleData.color) &&
-      Boolean(vehicleData.type) &&
-      Boolean(vehicleData.insurancePhoto) &&
-      Boolean(vehicleData.registrationPhotoFront) &&
-      Boolean(vehicleData.registrationPhotoBack) &&
-      Boolean(vehicleData.vehiclePhoto);
-
-    return licenseComplete && vehicleComplete;
-  };
-
   const confirmStartOver = async () => {
     setStartingOver(true);
 
@@ -262,24 +233,24 @@ const RegistrationCheckpointScreen: React.FC<Props> = ({ navigation }) => {
 
     const step: RegistrationLastStep = lastStep || 'register';
 
-    if (step === 'register') {
-      if ((authProvider === 'email/password' || authProvider === 'google') && email && !emailVerified) {
-        navigation.replace('EmailVerification', {
-          name,
-          email,
-          phone,
-          password,
-          role,
-          method,
-          authProvider,
-          googleIdToken,
-          phoneVerified: Boolean(phoneVerified),
-          emailVerified: Boolean(emailVerified),
-          context: authProvider === 'google' ? 'register_google' : 'register_email',
-        });
-        return;
-      }
+    if ((authProvider === 'email/password' || authProvider === 'google') && email && !emailVerified) {
+      navigation.replace('EmailVerification', {
+        name,
+        email,
+        phone,
+        password,
+        role,
+        method,
+        authProvider,
+        googleIdToken,
+        phoneVerified: Boolean(phoneVerified),
+        emailVerified: false,
+        context: authProvider === 'google' ? 'register_google' : 'register_email',
+      });
+      return;
+    }
 
+    if (step === 'register') {
       if (method === 'phone' && phone && !phoneVerified) {
         navigation.replace('PhoneVerification', {
           name,
@@ -310,23 +281,6 @@ const RegistrationCheckpointScreen: React.FC<Props> = ({ navigation }) => {
     }
 
     if (step === 'roleSelection') {
-      if ((authProvider === 'email/password' || authProvider === 'google') && email && !emailVerified) {
-        navigation.replace('EmailVerification', {
-          name,
-          email,
-          phone,
-          password,
-          role,
-          method,
-          authProvider,
-          googleIdToken,
-          phoneVerified: Boolean(phoneVerified),
-          emailVerified: Boolean(emailVerified),
-          context: authProvider === 'google' ? 'register_google' : 'register_email',
-        });
-        return;
-      }
-
       if (method === 'phone' && phone && !phoneVerified) {
         navigation.replace('PhoneVerification', {
           name,
@@ -359,23 +313,6 @@ const RegistrationCheckpointScreen: React.FC<Props> = ({ navigation }) => {
     if (step === 'googlePhone') {
       if (!phone || !googleIdToken) {
         navigation.replace('RegisterNew');
-        return;
-      }
-
-      if (email && !emailVerified) {
-        navigation.replace('EmailVerification', {
-          name,
-          email,
-          phone,
-          password,
-          role,
-          method,
-          authProvider,
-          googleIdToken,
-          phoneVerified: Boolean(phoneVerified),
-          emailVerified: Boolean(emailVerified),
-          context: 'register_google',
-        });
         return;
       }
 
@@ -482,32 +419,13 @@ const RegistrationCheckpointScreen: React.FC<Props> = ({ navigation }) => {
         authProvider,
         googleIdToken,
         phoneVerified: Boolean(phoneVerified),
-        emailVerified: true,
+        emailVerified: Boolean(emailVerified),
       });
       return;
     }
 
-    if (step === 'driverData') {
+    if (step === 'driverData' || step === 'registerConfirm') {
       if (role === 'driver' && phone) {
-        const complete = isDriverDataComplete(driverData, vehicleData);
-        if (complete) {
-          navigation.replace('RegisterConfirm', {
-            name,
-            email,
-            phone,
-            password,
-            role: 'driver',
-            method,
-            authProvider,
-            googleIdToken,
-            phoneVerified: Boolean(phoneVerified),
-            emailVerified: Boolean(emailVerified),
-            driverData,
-            vehicleData,
-          });
-          return;
-        }
-
         navigation.replace('DriverData', {
           name,
           email,
@@ -522,49 +440,6 @@ const RegistrationCheckpointScreen: React.FC<Props> = ({ navigation }) => {
           driverData,
           vehicleData,
           context: 'register_driver',
-        });
-        return;
-      }
-
-      navigation.replace('RegisterNew');
-      return;
-    }
-
-    if (step === 'registerConfirm') {
-      if (role === 'driver' && phone) {
-        const complete = isDriverDataComplete(driverData, vehicleData);
-        if (!complete) {
-          navigation.replace('DriverData', {
-            name,
-            email,
-            phone,
-            password,
-            role: 'driver',
-            method,
-            authProvider,
-            googleIdToken,
-            phoneVerified: Boolean(phoneVerified),
-            emailVerified: Boolean(emailVerified),
-            driverData,
-            vehicleData,
-            context: 'register_driver',
-          });
-          return;
-        }
-
-        navigation.replace('RegisterConfirm', {
-          name,
-          email,
-          phone,
-          password,
-          role: 'driver',
-          method,
-          authProvider,
-          googleIdToken,
-          phoneVerified: Boolean(phoneVerified),
-          emailVerified: Boolean(emailVerified),
-          driverData,
-          vehicleData,
         });
         return;
       }
@@ -621,7 +496,7 @@ const RegistrationCheckpointScreen: React.FC<Props> = ({ navigation }) => {
               title={t('authScreens.registrationCheckpoint.buttons.continue')}
               onPress={handleContinue}
               size="large"
-              iconName="arrow-forward"
+              // iconName="arrow-forward"
               color={colors.primary}
               style={styles.actionButton}
               textStyle={styles.actionButtonText}
@@ -632,7 +507,7 @@ const RegistrationCheckpointScreen: React.FC<Props> = ({ navigation }) => {
               onPress={handleStartOver}
               size="large"
               variant="outline"
-              iconName="restart-alt"
+              // iconName="restart-alt"
               color={readableGold}
               style={styles.actionButton}
               textStyle={styles.actionButtonText}
@@ -674,7 +549,7 @@ const createStyles = (colors: any, isDark: boolean) => {
       paddingVertical: 32,
       paddingHorizontal: 24,
       backgroundColor: colors.card,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: colors.border,
       alignItems: 'center',
       gap: 14,

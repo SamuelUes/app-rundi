@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,9 @@ import {
   Linking,
   Alert,
   Pressable,
+  Animated,
+  Easing,
+  PanResponder,
 } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import * as Haptics from 'expo-haptics';
@@ -23,9 +26,15 @@ interface EmergencyButtonProps {
   rideId?: string;
   style?: any;
   onOpen?: () => void;
+  onClose?: () => void;
   onReady?: (openHandler: (() => void) | null) => void;
 }
-export default function EmergencyButton({ rideId, style, onOpen, onReady }: EmergencyButtonProps) {
+
+const SHEET_TRAVEL = 420;
+const DISMISS_DISTANCE = 110;
+const DISMISS_VELOCITY = 0.6;
+
+export default function EmergencyButton({ rideId, style, onOpen, onClose, onReady }: EmergencyButtonProps) {
   const { coords } = useLocation();
   const { colors } = useTheme();
   const { user } = useAuth();
@@ -34,11 +43,16 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
   const [modalVisible, setModalVisible] = useState(false);
   const [calling, setCalling] = useState(false);
 
+  const sheetY = useRef(new Animated.Value(SHEET_TRAVEL)).current;
+  const closingRef = useRef(false);
+
   const handleEmergencyPress = useCallback(() => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     onOpen?.();
+    closingRef.current = false;
+    sheetY.setValue(SHEET_TRAVEL);
     setModalVisible(true);
-  }, [onOpen]);
+  }, [onOpen, sheetY]);
 
   useEffect(() => {
     if (onReady) {
@@ -48,6 +62,89 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
       };
     }
   }, [handleEmergencyPress, onReady]);
+
+  useEffect(() => {
+    if (!modalVisible) return;
+    Animated.spring(sheetY, {
+      toValue: 0,
+      damping: 26,
+      stiffness: 300,
+      mass: 1,
+      useNativeDriver: true,
+    }).start();
+  }, [modalVisible, sheetY]);
+
+  const closeSheet = useCallback(
+    (flingVelocity = 0) => {
+      if (closingRef.current) return;
+      closingRef.current = true;
+      const finish = () => {
+        setModalVisible(false);
+        closingRef.current = false;
+        onClose?.();
+      };
+      if (flingVelocity > DISMISS_VELOCITY) {
+        Animated.spring(sheetY, {
+          toValue: SHEET_TRAVEL,
+          velocity: flingVelocity,
+          damping: 30,
+          stiffness: 240,
+          mass: 0.9,
+          useNativeDriver: true,
+        }).start(finish);
+        return;
+      }
+      Animated.timing(sheetY, {
+        toValue: SHEET_TRAVEL,
+        duration: 230,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }).start(finish);
+    },
+    [sheetY, onClose],
+  );
+
+  const closeSheetRef = useRef(closeSheet);
+  closeSheetRef.current = closeSheet;
+
+  const dismissPanResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_event, gesture) =>
+        gesture.dy > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+      onPanResponderMove: (_event, gesture) => {
+        sheetY.setValue(Math.max(0, gesture.dy));
+      },
+      onPanResponderRelease: (_event, gesture) => {
+        if (gesture.dy > DISMISS_DISTANCE || gesture.vy > DISMISS_VELOCITY) {
+          closeSheetRef.current(gesture.vy);
+          return;
+        }
+        Animated.spring(sheetY, {
+          toValue: 0,
+          damping: 24,
+          stiffness: 320,
+          mass: 0.9,
+          velocity: gesture.vy,
+          useNativeDriver: true,
+        }).start();
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(sheetY, {
+          toValue: 0,
+          damping: 24,
+          stiffness: 320,
+          mass: 0.9,
+          useNativeDriver: true,
+        }).start();
+      },
+    }),
+  ).current;
+
+  const backdropOpacity = sheetY.interpolate({
+    inputRange: [0, SHEET_TRAVEL],
+    outputRange: [1, 0],
+    extrapolate: 'clamp',
+  });
 
   const getEmergencyDetails = (type: 'police' | 'ambulance') => ({
     title: t(`common.components.emergencyButton.options.${type}.title`),
@@ -60,7 +157,7 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
 
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     setCalling(true);
-    setModalVisible(false);
+    closeSheet();
 
     try {
       console.log('🚨 Registrando llamada de emergencia...');
@@ -133,8 +230,15 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
     },
     modalOverlay: {
       flex: 1,
-      backgroundColor: 'rgba(0, 0, 0, 0.55)',
       justifyContent: 'flex-end',
+    },
+    backdrop: {
+      position: 'absolute' as const,
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.55)',
     },
     sheet: {
       backgroundColor: colors.card,
@@ -148,13 +252,16 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
       borderRightWidth: 1,
       borderColor: colors.border,
     },
+    sheetHandleZone: {
+      alignItems: 'center',
+      paddingTop: 4,
+      paddingBottom: 12,
+    },
     sheetHandle: {
-      alignSelf: 'center',
       width: 36,
       height: 4,
       borderRadius: 2,
       backgroundColor: colors.border,
-      marginBottom: 14,
     },
     sheetHeader: {
       flexDirection: 'row',
@@ -193,7 +300,7 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
       padding: 14,
       borderRadius: 16,
       marginBottom: 10,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: colors.border,
       minHeight: 64,
     },
@@ -234,12 +341,12 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
       fontVariant: ['tabular-nums'],
     },
     cancelButton: {
-      backgroundColor: colors.surface,
+      backgroundColor: colors.surface2,
       paddingVertical: 15,
       borderRadius: 16,
       alignItems: 'center',
       marginTop: 6,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: colors.border,
       minHeight: 52,
       justifyContent: 'center',
@@ -270,13 +377,18 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
       <Modal
         visible={modalVisible}
         transparent
-        animationType="slide"
-        onRequestClose={() => setModalVisible(false)}
+        animationType="none"
+        statusBarTranslucent
+        onRequestClose={() => closeSheet()}
       >
         <View style={styles.modalOverlay}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setModalVisible(false)} />
-          <View style={styles.sheet}>
-            <View style={styles.sheetHandle} />
+          <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => closeSheet()} />
+          </Animated.View>
+          <Animated.View style={[styles.sheet, { transform: [{ translateY: sheetY }] }]}>
+            <View style={styles.sheetHandleZone} {...dismissPanResponder.panHandlers}>
+              <View style={styles.sheetHandle} />
+            </View>
 
             <View style={styles.sheetHeader}>
               <View style={styles.sheetIconDisc}>
@@ -336,14 +448,14 @@ export default function EmergencyButton({ rideId, style, onOpen, onReady }: Emer
 
             <TouchableOpacity
               style={styles.cancelButton}
-              onPress={() => setModalVisible(false)}
+              onPress={() => closeSheet()}
               activeOpacity={0.8}
             >
               <Text style={styles.cancelButtonText}>
                 {t('common.components.emergencyButton.cancelLabel')}
               </Text>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
     </>

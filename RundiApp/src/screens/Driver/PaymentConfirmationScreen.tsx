@@ -20,7 +20,7 @@ import { AnimatedButton } from '../../components/ui/AnimatedButton';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { getFirebaseFirestore } from '../../config/firebase';
 import { FS_COL } from '../../constants/firestore';
-import { cancelCashPayment, confirmCashPayment } from '../../api/payments';
+import { cancelCashPayment, confirmCashPayment, generateCashCode } from '../../api/payments';
 import { initializeFirebase } from '../../config/firebase';
 import cardsService from '../../services/payment/cardsService';
 import alertService from '../../services/notification/alertService';
@@ -149,10 +149,10 @@ export default function PaymentConfirmationScreen({
   const [clientConfirmed, setClientConfirmed] = useState(false);
   const [hasCardOnFile, setHasCardOnFile] = useState<boolean | null>(null);
 
-  // Código de confirmación (flujo "code")
-  const [code, setCode] = useState<string | null>(null);
+  // Código de confirmación: el cliente lo ostenta (payments_live/private/cash),
+  // el conductor lo digita; la validación es server-side en confirm-cash.
+  const [codeSent, setCodeSent] = useState(false);
   const [codeDigits, setCodeDigits] = useState(['', '', '', '']);
-  const [isCodeValidated, setIsCodeValidated] = useState(false);
   const completionHandledRef = useRef(false);
   const lastPaymentStatusRef = useRef<string | null>(null);
 
@@ -249,13 +249,12 @@ export default function PaymentConfirmationScreen({
               setPaymentMethod('cash');
             }
 
-            // Verificar confirmación del cliente
-            setClientConfirmed(data.confirmedByClient === true || data.clientConfirmed === true);
-
-            // Código generado por backend (flujo code)
-            if (data.code && typeof data.code === 'string') {
-              setCode(data.code);
-            }
+            // Confirmación del cliente: status pending_confirmation (register-cash)
+            setClientConfirmed(
+              data.status === 'pending_confirmation' ||
+              data.confirmedByClient === true ||
+              data.clientConfirmed === true
+            );
 
             // Si el pago fue completado (terminal canónico o legacy)
             if (
@@ -307,19 +306,32 @@ export default function PaymentConfirmationScreen({
     setupListener();
   }, [rideId]);
 
+  // (Re)generar código: el backend lo proyecta a payments_live/private/cash,
+  // legible solo por el cliente — el conductor nunca lo ve.
+  const handleRequestCode = async () => {
+    try {
+      setConfirming(true);
+      const { app } = await initializeFirebase();
+      if (!app) throw new Error('Firebase no inicializado');
+
+      await generateCashCode(rideId);
+      setCodeSent(true);
+      alertService.showInfoAlert(
+        t('driver.paymentConfirmation.alerts.codeSentTitle'),
+        t('driver.paymentConfirmation.alerts.codeSentMessage')
+      );
+    } catch (e: any) {
+      console.error('❌ Error generando código:', e);
+      alertService.showErrorAlert(e.message || 'No se pudo generar el código');
+    } finally {
+      setConfirming(false);
+    }
+  };
+
   // Confirmar pago en efectivo
   const handleConfirmCashPayment = async () => {
-    // Si no hay código, se mantiene la validación normal de confirmación del cliente
-    if (!code && !clientConfirmed) {
-      alertService.showInfoAlert(
-        alertsTexts.waitTitle,
-        alertsTexts.waitMessage
-      );
-      return;
-    }
-
-    // Si hay código, debe estar validado antes de confirmar
-    if (code && !isCodeValidated) {
+    const entered = codeDigits.join('');
+    if (entered.length !== 4) {
       alertService.showInfoAlert(
         alertsTexts.codeRequiredTitle,
         alertsTexts.codeRequiredMessage
@@ -334,11 +346,9 @@ export default function PaymentConfirmationScreen({
       const { app } = await initializeFirebase();
       if (!app) throw new Error('Firebase no inicializado');
 
-      // ✅ CORRECCIÓN: SIEMPRE usar rideId (Firebase ID), NO pgRideId
-      // pgRideId es para PostgreSQL, confirmCashPayment necesita el Firebase rideId
-      console.log(`💳 [PaymentConfirmation] Usando Firebase rideId: ${rideId} (pgRideId: ${pgRideId})`);
+      console.log(`💳 [PaymentConfirmation] Confirmando con código, rideId: ${rideId}`);
 
-      const payment = await confirmCashPayment(rideId);
+      const payment = await confirmCashPayment(rideId, entered);
       console.log('✅ Pago confirmado:', payment);
 
       if (payment.status === 'confirmed' || payment.status === 'completed') {
@@ -350,7 +360,14 @@ export default function PaymentConfirmationScreen({
       }
     } catch (error: any) {
       console.error('❌ Error confirmando pago:', error);
-      alertService.showErrorAlert(error.message || 'No se pudo confirmar el pago');
+      const msg = String(error?.message || '');
+      if (msg.includes('incorrect cash code') || msg.includes('cash code')) {
+        // Código incorrecto/bloqueado: limpiar dígitos para reintentar.
+        setCodeDigits(['', '', '', '']);
+        alertService.showErrorAlert(alertsTexts.codeErrorMessage);
+      } else {
+        alertService.showErrorAlert(error.message || 'No se pudo confirmar el pago');
+      }
     } finally {
       setConfirming(false);
     }
@@ -513,20 +530,15 @@ export default function PaymentConfirmationScreen({
           />
 
           <PaymentConfirmationCodeInput
-            rideId={rideId}
-            code={code}
+            codeSent={codeSent}
             codeDigits={codeDigits}
-            isCodeValidated={isCodeValidated}
             confirming={confirming}
             switching={switching}
             buttonTexts={buttonTexts}
-            alertsTexts={alertsTexts}
             colors={colors}
             t={t}
-            onSetCode={setCode}
             onSetCodeDigits={setCodeDigits}
-            onSetIsCodeValidated={setIsCodeValidated}
-            onSetConfirming={setConfirming}
+            onRequestCode={handleRequestCode}
             styles={styles}
           />
 
@@ -604,7 +616,7 @@ const createStyles = (colors: any, accentAlt: string) => StyleSheet.create({
     borderRadius: 20,
     padding: 20,
     marginBottom: 16,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -666,7 +678,7 @@ const createStyles = (colors: any, accentAlt: string) => StyleSheet.create({
     alignSelf: 'center',
     gap: 7,
     backgroundColor: accentAlt + '14',
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: accentAlt + '33',
     borderRadius: 999,
     paddingVertical: 7,
@@ -761,7 +773,7 @@ const createStyles = (colors: any, accentAlt: string) => StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     marginBottom: 20,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
   },
   instructionsTitleRow: {
@@ -787,7 +799,7 @@ const createStyles = (colors: any, accentAlt: string) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     marginBottom: 16,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
   },
   infoIcon: {

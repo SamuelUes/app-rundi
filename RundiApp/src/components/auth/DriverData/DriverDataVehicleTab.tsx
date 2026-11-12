@@ -27,6 +27,8 @@ interface DriverDataVehicleTabProps {
   registrationPhotoFront: string | null;
   registrationPhotoBack: string | null;
   vehiclePhoto: string | null;
+  inspectionPhoto: string | null;
+  emissionsPhoto: string | null;
   inspectionDate: string;
   inspectionValidUntil: string;
   emissionsTestedAt: string;
@@ -60,6 +62,8 @@ interface DriverDataVehicleTabProps {
   onTakeRegistrationPhotoFront: () => void;
   onTakeRegistrationPhotoBack: () => void;
   onTakeVehiclePhoto: () => void;
+  onTakeInspectionPhoto: () => void;
+  onTakeEmissionsPhoto: () => void;
   ocrReading?: boolean;
   ocrMessage?: string | null;
   fieldsExpanded?: boolean;
@@ -88,6 +92,8 @@ export function DriverDataVehicleTab({
   registrationPhotoFront,
   registrationPhotoBack,
   vehiclePhoto,
+  inspectionPhoto,
+  emissionsPhoto,
   inspectionDate,
   inspectionValidUntil,
   emissionsTestedAt,
@@ -121,6 +127,8 @@ export function DriverDataVehicleTab({
   onTakeRegistrationPhotoFront,
   onTakeRegistrationPhotoBack,
   onTakeVehiclePhoto,
+  onTakeInspectionPhoto,
+  onTakeEmissionsPhoto,
   ocrReading = false,
   ocrMessage = null,
   fieldsExpanded = false,
@@ -188,6 +196,22 @@ export function DriverDataVehicleTab({
           photoUri={vehiclePhoto}
           loading={loading}
           onTakePhoto={onTakeVehiclePhoto}
+          styles={styles}
+          t={t}
+        />
+        <DriverDataPhotoField
+          title={t('authScreens.driverData.photos.inspectionTitle')}
+          photoUri={inspectionPhoto}
+          loading={loading}
+          onTakePhoto={onTakeInspectionPhoto}
+          styles={styles}
+          t={t}
+        />
+        <DriverDataPhotoField
+          title={t('authScreens.driverData.photos.emissionsTitle')}
+          photoUri={emissionsPhoto}
+          loading={loading}
+          onTakePhoto={onTakeEmissionsPhoto}
           styles={styles}
           t={t}
         />

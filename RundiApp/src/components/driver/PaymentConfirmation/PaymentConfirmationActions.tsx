@@ -38,7 +38,7 @@ export function PaymentConfirmationActions({
         onPress={onConfirmCash}
         loading={confirming}
         disabled={confirming || switching}
-        iconName="check-circle"
+        // iconName="check-circle"
         size="large"
         style={styles.confirmButton}
       />

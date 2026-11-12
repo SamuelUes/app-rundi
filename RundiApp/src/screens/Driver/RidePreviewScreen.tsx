@@ -358,6 +358,7 @@ export default function RidePreviewScreen() {
     return (
       <RidePreviewNegotiation
         negotiationStatus={currentRide.negotiationStatus}
+        lastOfferBy={currentRide.lastOfferBy}
         driverOfferedPrice={currentRide.driverOfferedPrice}
         clientSuggestedPrice={currentRide.clientSuggestedPrice}
         estimatedPrice={currentRide.estimatedPrice}

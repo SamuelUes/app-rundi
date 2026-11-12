@@ -38,6 +38,7 @@ interface PinMarkerWithBubbleProps {
   bubbleLabel?: string | null;
   bubbleAccentColor?: string;
   bubbleCompact?: boolean;
+  bubbleDark?: boolean;
   showBubble?: boolean;
   zIndex?: number;
   onPress?: () => void;
@@ -81,6 +82,7 @@ export default React.memo(function PinMarkerWithBubble({
   bubbleLabel,
   bubbleAccentColor,
   bubbleCompact = false,
+  bubbleDark = false,
   showBubble = true,
   zIndex = 5,
   onPress,
@@ -159,6 +161,7 @@ export default React.memo(function PinMarkerWithBubble({
               label={bubbleLabel}
               accentColor={bubbleAccentColor}
               compact={bubbleCompact}
+              isDark={bubbleDark}
             />
             <View collapsable={false} style={{ height: lift, width: 1 }} />
           </View>

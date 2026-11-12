@@ -228,7 +228,7 @@ export function useDriverActiveRides({
               if (distance > RIDES_RADIUS_KM) return;
               const sqlId = ride.rideId ?? liveId;
               if (availableRides.some((item) => item.id === sqlId)) return;
-              availableRides.push({ ...ride, id: liveId, distance });
+              availableRides.push({ ...ride, id: sqlId, liveId, distance });
             });
           }
 

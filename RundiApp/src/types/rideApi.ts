@@ -74,6 +74,7 @@ export interface CompleteRideRequest {
 export interface TransitionRideRequest {
   from: RideStatus;
   to: RideStatus;
+  pickupCode?: string;
 }
 
 export type RideEvent =
