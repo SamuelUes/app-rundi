@@ -15,6 +15,7 @@ import (
 	"github.com/rundi/functions-v2/internal/apperr"
 	"github.com/rundi/functions-v2/internal/fs"
 	"github.com/rundi/functions-v2/internal/outbox"
+	"github.com/rundi/functions-v2/internal/rides"
 )
 
 type Service struct {
@@ -360,6 +361,9 @@ func (s *Service) AttachFollower(ctx context.Context, rideID, captainUID, reques
 	}
 	defer tx.Rollback(ctx)
 
+	if err := rides.EnsureDriverUnoccupied(ctx, tx, followerUID, rideID); err != nil {
+		return err
+	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE public.rides
 		SET follower_driver_id = $3, follower_status = 'active',

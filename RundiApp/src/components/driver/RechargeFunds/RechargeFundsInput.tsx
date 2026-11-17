@@ -44,7 +44,7 @@ export function RechargeFundsInput({
           value={amount}
           onChangeText={onSetAmount}
           placeholder={inputTexts.amountPlaceholder}
-          placeholderTextColor={colors.textSecondary}
+          //placeholderTextColor={colors.textSecondary}
           style={styles.input}
           keyboardType="decimal-pad"
         />
@@ -54,7 +54,7 @@ export function RechargeFundsInput({
           value={reference}
           onChangeText={onSetReference}
           placeholder={inputTexts.placeholder}
-          placeholderTextColor={colors.textSecondary}
+         // placeholderTextColor={colors.textSecondary}
           style={styles.input}
           autoCapitalize="characters"
           autoCorrect={false}

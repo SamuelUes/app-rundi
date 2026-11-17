@@ -61,7 +61,7 @@ type PendingOfferTarget = {
 };
 
 export default function DriverHomeScreenNewDesign({ navigation }: any) {
-  useKeepAwake();
+  useKeepAwake(undefined, { suppressDeactivateWarnings: true });
   const { t } = useTranslation();
   const { user, logout, logoutInProgress } = useAuth();
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
@@ -604,7 +604,6 @@ const createStyles = (
       backgroundColor: '#B38737',
     },
     retryButtonLabel: {
-      fontFamily: '',
       color: '#241A09',
       fontSize: 15,
       fontWeight: '700',

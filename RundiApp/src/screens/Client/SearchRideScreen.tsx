@@ -149,7 +149,8 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
     showSearchOverlay, setShowSearchOverlay,
     searchQuery, setSearchQuery,
     activeSelection, setActiveSelection,
-    recentLocations,
+    recentOriginLocations,
+    recentDestinationLocations,
     favoriteLocations,
     submittingRequest, setSubmittingRequest,
     bottomPanelExpanded, setBottomPanelExpanded,
@@ -1232,7 +1233,9 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
           searchError={searchError}
           searchResults={searchResults}
           favoriteLocations={favoriteLocations}
-          recentLocations={recentLocations}
+          recentLocations={
+            activeSelection === 'origin' ? recentOriginLocations : recentDestinationLocations
+          }
           activeSelection={activeSelection}
           colors={colors}
           onSetSearchQuery={setSearchQuery}
@@ -1541,7 +1544,7 @@ function createStyles(colors: any, isDark: boolean = false) {
       alignItems: 'center',
       justifyContent: 'center',
     },
-    vehicleOptionIconBubbleSelected: { backgroundColor: accentSoft },
+    vehicleOptionIconBubbleSelected: { backgroundColor: accentSoft, borderRadius: 8 },
     vehicleOptionIconImage: { width: 56, height: 42 },
     vehicleOptionTitleBlock: { flex: 1, minWidth: 0 },
     vehicleOptionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 },

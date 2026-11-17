@@ -164,6 +164,14 @@ const useRideStatus = (rideId: string) => {
   return { rideStatus, paymentMethod, finalFare, rideData, rideError, loading: rideLoading };
 };
 
+// Placeholders literales ('N/A', 'N/D') que llegan como params de navegación:
+// en v2 trips_live no proyecta vehículo, así que los callsites pasan estos
+// sentinels. Son truthy y bloquearían el gap-fill — tratarlos como vacío.
+const cleanVehicleField = (v: unknown): string => {
+  const s = String(v ?? '').trim();
+  return /^n\/?[ad]$/i.test(s) ? '' : s;
+};
+
 // Hook para datos del conductor y vehículo
 const useDriverAndVehicleData = (
   driverId: string,
@@ -177,10 +185,10 @@ const useDriverAndVehicleData = (
   });
 
   const [vehicleData, setVehicleData] = useState({
-    plate: initialData.vehiclePlate || '',
-    brand: initialData.vehicleBrand || '',
-    model: initialData.vehicleModel || '',
-    color: initialData.vehicleColor || '',
+    plate: cleanVehicleField(initialData.vehiclePlate),
+    brand: cleanVehicleField(initialData.vehicleBrand),
+    model: cleanVehicleField(initialData.vehicleModel),
+    color: cleanVehicleField(initialData.vehicleColor),
     type: null as string | null,
   });
 
@@ -203,10 +211,10 @@ const useDriverAndVehicleData = (
     if (profileVehicle && typeof profileVehicle === 'object') {
       setVehicleData(prev => ({
         ...prev,
-        plate: prev.plate || profileVehicle.plate || '',
-        brand: prev.brand || profileVehicle.brand || '',
-        model: prev.model || profileVehicle.model || '',
-        color: prev.color || profileVehicle.color || '',
+        plate: cleanVehicleField(prev.plate) || cleanVehicleField(profileVehicle.plate),
+        brand: cleanVehicleField(prev.brand) || cleanVehicleField(profileVehicle.brand),
+        model: cleanVehicleField(prev.model) || cleanVehicleField(profileVehicle.model),
+        color: cleanVehicleField(prev.color) || cleanVehicleField(profileVehicle.color),
         type: prev.type || profileVehicle.type || null,
       }));
     }
@@ -244,10 +252,10 @@ const useDriverAndVehicleData = (
 
         return {
           ...prev,
-          plate: rideVehicle?.plate || rideData.vehiclePlate || prev.plate,
-          brand: rideVehicle?.brand || rideData.vehicleBrand || prev.brand,
-          model: rideVehicle?.model || rideData.vehicleModel || prev.model,
-          color: rideVehicle?.color || rideData.vehicleColor || prev.color,
+          plate: cleanVehicleField(rideVehicle?.plate) || cleanVehicleField(rideData.vehiclePlate) || cleanVehicleField(prev.plate),
+          brand: cleanVehicleField(rideVehicle?.brand) || cleanVehicleField(rideData.vehicleBrand) || cleanVehicleField(prev.brand),
+          model: cleanVehicleField(rideVehicle?.model) || cleanVehicleField(rideData.vehicleModel) || cleanVehicleField(prev.model),
+          color: cleanVehicleField(rideVehicle?.color) || cleanVehicleField(rideData.vehicleColor) || cleanVehicleField(prev.color),
           type: resolvedType,
         };
       });
@@ -258,7 +266,7 @@ const useDriverAndVehicleData = (
 };
 
 export default function RideTrackingScreenNewDesign({ route, navigation }: RideTrackingScreenNewDesignProps) {
-  useKeepAwake();
+  useKeepAwake(undefined, { suppressDeactivateWarnings: true });
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
@@ -734,7 +742,7 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
             <View style={styles.paymentChip}>
               <MaterialIcons
                 name={paymentMethod === 'card' ? 'credit-card' : 'payments'}
-                size={12}
+                size={14}
                 color={colors.textSecondary}
               />
               <Text numberOfLines={1} style={[styles.paymentChipText, { color: colors.textSecondary }]}>
@@ -903,7 +911,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 5,
     borderRadius: 999,
-    borderWidth: 1,
+    borderWidth: 0.2,
     flexShrink: 1,
   },
   statusDot: {
@@ -932,12 +940,13 @@ const createStyles = (colors: any) => StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 4,
     borderRadius: 999,
-    borderWidth: 1,
+    borderWidth: 0.1,
+    backgroundColor: colors.surface2, 
     borderColor: colors.border,
     flexShrink: 1,
   },
   paymentChipText: {
-    fontSize: 11,
+    fontSize: 14,
     fontWeight: '600',
   },
 
@@ -1007,7 +1016,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     height: 40,
     borderRadius: 20,
     backgroundColor: colors.surface,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
     justifyContent: 'center',
     alignItems: 'center',

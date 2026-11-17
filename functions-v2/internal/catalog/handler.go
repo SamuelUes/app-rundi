@@ -21,11 +21,37 @@ func NewHandler(svc *Service) *Handler {
 // Rutas admin (montadas bajo /v1/admin/catalog con RequireRole admin/operator).
 func (h *Handler) Routes() chi.Router {
 	r := chi.NewRouter()
+	r.Get("/services", h.listServices)
 	r.Post("/services", h.upsertService)
+	r.Get("/features", h.listFeatures)
 	r.Post("/features", h.upsertFeature)
 	r.Post("/surge-rules", h.upsertSurgeRule)
 	r.Post("/service-features", h.assignFeature)
 	return r
+}
+
+func (h *Handler) listServices(w http.ResponseWriter, r *http.Request) {
+	if !h.adminOnly(w, r) {
+		return
+	}
+	out, err := h.svc.ListServices(r.Context())
+	if err != nil {
+		apperr.Write(w, err)
+		return
+	}
+	apperr.JSON(w, http.StatusOK, map[string]any{"services": out})
+}
+
+func (h *Handler) listFeatures(w http.ResponseWriter, r *http.Request) {
+	if !h.adminOnly(w, r) {
+		return
+	}
+	out, err := h.svc.ListFeatures(r.Context())
+	if err != nil {
+		apperr.Write(w, err)
+		return
+	}
+	apperr.JSON(w, http.StatusOK, map[string]any{"features": out})
 }
 
 func (h *Handler) ctx(r *http.Request) (string, string) {
@@ -34,7 +60,19 @@ func (h *Handler) ctx(r *http.Request) (string, string) {
 	return uid, rid
 }
 
+func (h *Handler) adminOnly(w http.ResponseWriter, r *http.Request) bool {
+	role, _ := r.Context().Value(middleware.CtxRole).(string)
+	if role == "admin" {
+		return true
+	}
+	apperr.Write(w, apperr.New(http.StatusForbidden, "admin role required"))
+	return false
+}
+
 func (h *Handler) upsertService(w http.ResponseWriter, r *http.Request) {
+	if !h.adminOnly(w, r) {
+		return
+	}
 	var body ServiceInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
@@ -49,6 +87,9 @@ func (h *Handler) upsertService(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) upsertFeature(w http.ResponseWriter, r *http.Request) {
+	if !h.adminOnly(w, r) {
+		return
+	}
 	var body FeatureInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
@@ -63,6 +104,9 @@ func (h *Handler) upsertFeature(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) upsertSurgeRule(w http.ResponseWriter, r *http.Request) {
+	if !h.adminOnly(w, r) {
+		return
+	}
 	var body SurgeRuleInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
@@ -77,6 +121,9 @@ func (h *Handler) upsertSurgeRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) assignFeature(w http.ResponseWriter, r *http.Request) {
+	if !h.adminOnly(w, r) {
+		return
+	}
 	var body AssignmentInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))

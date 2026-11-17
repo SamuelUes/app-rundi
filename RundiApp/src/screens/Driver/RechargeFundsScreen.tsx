@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -142,6 +142,8 @@ export default function RechargeFundsScreen({ navigation }: any) {
   const [historyPage, setHistoryPage] = useState(1);
   const [selectedMovement, setSelectedMovement] = useState<DriverRechargeHistoryItem | null>(null);
   const [invoiceVisible, setInvoiceVisible] = useState(false);
+  const liveBalance = useRef<number | null>(null);
+  const liveMovements = useRef<DriverRechargeHistoryItem[]>([]);
 
   useEffect(() => {
     const load = async () => {
@@ -149,9 +151,16 @@ export default function RechargeFundsScreen({ navigation }: any) {
         setLoading(true);
         const summaryResponse = await rechargeFundsService.getSummary(30);
 
-        setSummary(summaryResponse?.success ? summaryResponse : EMPTY_SUMMARY);
+        setSummary(() => {
+          let next = summaryResponse?.success ? summaryResponse : EMPTY_SUMMARY;
+          if (liveMovements.current.length) next = mergeLiveMovements(next, liveMovements.current);
+          if (liveBalance.current !== null) {
+            next = { ...next, availableBalance: liveBalance.current, blocked: liveBalance.current <= 0 };
+          }
+          return next;
+        });
       } catch (e) {
-        setSummary(EMPTY_SUMMARY);
+        setSummary((prev) => liveBalance.current === null ? EMPTY_SUMMARY : prev);
       } finally {
         setLoading(false);
       }
@@ -176,6 +185,7 @@ export default function RechargeFundsScreen({ navigation }: any) {
         unsubDoc = onSnapshot(walletRef, (snap) => {
           if (!snap.exists()) return;
           const balance = Number(snap.data().balance) || 0;
+          liveBalance.current = balance;
           setSummary((prev) => ({ ...prev, availableBalance: balance, blocked: balance <= 0 }));
         });
         const movsQ = query(
@@ -185,6 +195,7 @@ export default function RechargeFundsScreen({ navigation }: any) {
         );
         unsubMovs = onSnapshot(movsQ, (qs) => {
           const live = qs.docs.map((ds) => movementToHistoryItem(ds.id, ds.data(), uid));
+          liveMovements.current = live;
           if (live.length === 0) return;
           setSummary((prev) => mergeLiveMovements(prev, live));
         });
@@ -444,6 +455,14 @@ const createStyles = (colors: any, accentColor: string, isDark: boolean) =>
       borderWidth: 0.1,
       borderColor: colors.border,
       overflow: 'hidden',
+      shadowColor: '#000000',
+      shadowOffset: {
+        width: 0,
+        height: 1,
+      },
+      shadowOpacity: 0.05,
+      shadowRadius: 2,
+      elevation: 2,
     },
     summaryTitle: {
       fontSize: 17,
@@ -591,6 +610,14 @@ const createStyles = (colors: any, accentColor: string, isDark: boolean) =>
       borderRadius: 12,
       padding: 10,
       backgroundColor: colors.background,
+      shadowColor: '#000000',
+      shadowOffset: {
+        width: 0,
+        height: 1,
+      },
+      shadowOpacity: 0.05,
+      shadowRadius: 2,
+      elevation: 2,
     },
     cardItemSelected: {
       borderColor: colors.primary,
@@ -603,10 +630,18 @@ const createStyles = (colors: any, accentColor: string, isDark: boolean) =>
       padding: 16,
       borderWidth: 0.1,
       borderColor: colors.border,
+      shadowColor: '#000000',
+      shadowOffset: {
+        width: 0,
+        height: 1,
+      },
+      shadowOpacity: 0.05,
+      shadowRadius: 2,
+      elevation: 2,
     },
     inputLabel: { fontSize: 13, color: colors.textSecondary, marginBottom: 10 },
     input: {
-      backgroundColor: isDark ? colors.card : 'rgba(225, 225, 225, 0.87)',
+     backgroundColor: isDark ? colors.card : 'rgba(225, 225, 225, 0.87)',
       borderWidth: 0,
       borderColor: colors.border,
       borderRadius: 12,
@@ -643,6 +678,14 @@ const createStyles = (colors: any, accentColor: string, isDark: boolean) =>
       borderColor: colors.border,
       gap: 12,
       marginTop: 4,
+      shadowColor: '#000000',
+      shadowOffset: {
+        width: 0,
+        height: 1,
+      },
+      shadowOpacity: 0.05,
+      shadowRadius: 2,
+      elevation: 2,
     },
     historyHeader: {
       flexDirection: 'row',

@@ -48,7 +48,11 @@ func (h *Handler) Routes() chi.Router {
 // AdminRoutes — /v1/admin (RequireRole admin/operator montado fuera).
 func (h *Handler) AdminRoutes(r chi.Router) {
 	r.Post("/drivers/{id}/status", h.setStatus)
+	r.Get("/drivers/{id}/services", h.listDriverServices)
+	r.Post("/drivers/{id}/services", h.assignDriverService)
+	r.Get("/drivers/{id}/features", h.listDriverFeatures)
 	r.Post("/driver-services/{id}/approve", h.approveService)
+	r.Post("/driver-services/{id}/deactivate", h.deactivateDriverService)
 	r.Get("/drivers", h.listDrivers)
 	r.Post("/drivers/{id}/features/{code}", h.grantDriverFeature)
 	r.Delete("/drivers/{id}/features/{code}", h.revokeDriverFeature)
@@ -57,6 +61,19 @@ func (h *Handler) AdminRoutes(r chi.Router) {
 	r.Post("/drivers/{id}/recharges", h.createRecharge)
 	r.Get("/recharges", h.listRecharges)
 	r.Post("/recharges/{id}/confirm", h.confirmRecharge)
+}
+
+func ctxRole(r *http.Request) string {
+	role, _ := r.Context().Value(middleware.CtxRole).(string)
+	return role
+}
+
+func adminOnly(w http.ResponseWriter, r *http.Request) bool {
+	if ctxRole(r) == "admin" {
+		return true
+	}
+	apperr.Write(w, apperr.New(http.StatusForbidden, "admin role required"))
+	return false
 }
 
 func ctxUID(r *http.Request) string {
@@ -191,9 +208,66 @@ func (h *Handler) setStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) approveService(w http.ResponseWriter, r *http.Request) {
+	if !adminOnly(w, r) {
+		return
+	}
 	if err := h.svc.ApproveDriverService(r.Context(), ctxUID(r), chi.URLParam(r, "id"), ctxRID(r)); err != nil {
 		apperr.Write(w, err)
 		return
 	}
 	apperr.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) listDriverServices(w http.ResponseWriter, r *http.Request) {
+	if !adminOnly(w, r) {
+		return
+	}
+	out, err := h.svc.ListDriverServicesForAdmin(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		apperr.Write(w, err)
+		return
+	}
+	apperr.JSON(w, http.StatusOK, map[string]any{"services": out})
+}
+
+func (h *Handler) assignDriverService(w http.ResponseWriter, r *http.Request) {
+	if !adminOnly(w, r) {
+		return
+	}
+	var body struct {
+		ServiceCode string `json:"serviceCode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apperr.Write(w, apperr.New(400, "invalid body: "+err.Error()))
+		return
+	}
+	id, err := h.svc.AssignDriverService(r.Context(), ctxUID(r), chi.URLParam(r, "id"), body.ServiceCode, ctxRID(r))
+	if err != nil {
+		apperr.Write(w, err)
+		return
+	}
+	apperr.JSON(w, http.StatusCreated, map[string]string{"driverServiceId": id, "status": "pending"})
+}
+
+func (h *Handler) deactivateDriverService(w http.ResponseWriter, r *http.Request) {
+	if !adminOnly(w, r) {
+		return
+	}
+	if err := h.svc.DeactivateDriverServiceForAdmin(r.Context(), ctxUID(r), chi.URLParam(r, "id"), ctxRID(r)); err != nil {
+		apperr.Write(w, err)
+		return
+	}
+	apperr.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) listDriverFeatures(w http.ResponseWriter, r *http.Request) {
+	if !adminOnly(w, r) {
+		return
+	}
+	out, err := h.svc.ListDriverFeaturesForAdmin(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		apperr.Write(w, err)
+		return
+	}
+	apperr.JSON(w, http.StatusOK, map[string]any{"features": out})
 }

@@ -57,16 +57,69 @@ func (s *Service) activateAvailability(ctx context.Context, uid string, store *D
 	if !found {
 		return nil, ErrDriverNotFound
 	}
-	vehicleID, err := s.activeVehicleID(ctx, dID)
+
+	// La decisión diaria vive en Firestore (la lectura más lenta del camino):
+	// corre en paralelo al batch SQL de vehículo+servicios (un solo RTT).
+	type dailyLoad struct {
+		decision DailyDecision
+		found    bool
+	}
+	var loadCh chan dailyLoad
+	if store != nil {
+		loadCh = make(chan dailyLoad, 1)
+		go func() {
+			d, found, err := store.Load(ctx, dID)
+			loadCh <- dailyLoad{decision: d, found: err == nil && found}
+		}()
+	}
+
+	batch := &pgx.Batch{}
+	batch.Queue(`SELECT id::text FROM public.vehicles
+		WHERE driver_id = $1::uuid AND is_active = TRUE AND deleted_at IS NULL
+		ORDER BY created_at DESC, id DESC LIMIT 1`, dID)
+	batch.Queue(`SELECT s.code, ds.expires_at
+		FROM public.driver_services ds
+		JOIN public.services s ON s.id = ds.service_id AND s.is_active
+		WHERE ds.driver_id = $1::uuid AND ds.is_active AND ds.is_approved
+		  AND (ds.expires_at IS NULL OR ds.expires_at > clock_timestamp())
+		ORDER BY s.code`, dID)
+	br := s.pool.SendBatch(ctx, batch)
+	defer br.Close()
+
+	var vehicleID *string
+	{
+		var id string
+		err := br.QueryRow().Scan(&id)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+		case err != nil:
+			return nil, err
+		default:
+			vehicleID = &id
+		}
+	}
+	serviceRows, err := br.Query()
 	if err != nil {
+		return nil, err
+	}
+	var serviceCodes []string
+	var earliestExpiry *time.Time
+	for serviceRows.Next() {
+		var code string
+		var exp *time.Time
+		if err := serviceRows.Scan(&code, &exp); err != nil {
+			return nil, err
+		}
+		serviceCodes = append(serviceCodes, code)
+		if exp != nil && (earliestExpiry == nil || exp.Before(*earliestExpiry)) {
+			earliestExpiry = exp
+		}
+	}
+	if err := serviceRows.Err(); err != nil {
 		return nil, err
 	}
 	if vehicleID == nil {
 		return nil, ErrNoActiveVehicle
-	}
-	serviceCodes, earliestExpiry, err := s.enabledServiceCodes(ctx, dID)
-	if err != nil {
-		return nil, err
 	}
 	if len(serviceCodes) == 0 {
 		return &ActivationResult{Allowed: false, Status: "non_compliant", Reasons: []Reason{{
@@ -81,10 +134,10 @@ func (s *Service) activateAvailability(ctx context.Context, uid string, store *D
 
 	reused := false
 	var decision *DailyDecision
-	if store != nil {
-		if cached, found, err := store.Load(ctx, dID); err == nil && found &&
-			s.reusableAgainstCurrent(ctx, cached, dID, vehicleID, serviceCodes, now) {
-			decision = &cached
+	if loadCh != nil {
+		if loaded := <-loadCh; loaded.found &&
+			s.reusableAgainstCurrent(ctx, loaded.decision, dID, vehicleID, serviceCodes, now) {
+			decision = &loaded.decision
 			reused = true
 		}
 	}
@@ -310,55 +363,6 @@ func signalKeysFromGenerations(gens map[string]int64) ([]signalKey, error) {
 		keys = append(keys, signalKey{kind: kind, key: key})
 	}
 	return keys, nil
-}
-
-func (s *Service) activeVehicleID(ctx context.Context, driverUUID string) (*string, error) {
-	var id string
-	err := s.pool.QueryRow(ctx, `
-		SELECT id::text FROM public.vehicles
-		WHERE driver_id = $1::uuid AND is_active = TRUE AND deleted_at IS NULL
-		ORDER BY created_at DESC, id DESC LIMIT 1`, driverUUID).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &id, nil
-}
-
-// enabledServiceCodes — servicios operables del conductor (activo, aprobado,
-// servicio vigente, asignación no expirada) y el expires_at más cercano, que
-// puede acotar la autorización antes de medianoche.
-func (s *Service) enabledServiceCodes(ctx context.Context, driverUUID string) ([]string, *time.Time, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT s.code, ds.expires_at
-		FROM public.driver_services ds
-		JOIN public.services s ON s.id = ds.service_id AND s.is_active
-		WHERE ds.driver_id = $1::uuid AND ds.is_active AND ds.is_approved
-		  AND (ds.expires_at IS NULL OR ds.expires_at > clock_timestamp())
-		ORDER BY s.code`, driverUUID)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer rows.Close()
-	var codes []string
-	var earliest *time.Time
-	for rows.Next() {
-		var code string
-		var exp *time.Time
-		if err := rows.Scan(&code, &exp); err != nil {
-			return nil, nil, err
-		}
-		codes = append(codes, code)
-		if exp != nil && (earliest == nil || exp.Before(*earliest)) {
-			earliest = exp
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, err
-	}
-	return codes, earliest, nil
 }
 
 func strOrEmpty(p *string) string {

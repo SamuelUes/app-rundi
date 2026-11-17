@@ -1,6 +1,7 @@
 import { doc, getDoc } from 'firebase/firestore';
 import { getFirebaseAuth, getFirebaseFirestore } from '../../config/firebase';
 import { FS_COL } from '../../constants/firestore';
+import { fetchRidePreview } from '../ride/ridePreviewService';
 
 export interface ClientProfile {
   fullName?: string | null;
@@ -21,22 +22,57 @@ export async function fetchClientProfile(clientId?: string | null, rideId?: stri
   }
 
   try {
-    // v2: DATA-MAIN_users solo es legible por el owner u operator (reglas).
-    // Para un conductor viendo el perfil de su cliente no existe proyección
-    // pública en v2 → devuelve null salvo que el lector sea el propio cliente.
     const auth = await getFirebaseAuth();
-    if (auth.currentUser?.uid !== clientId) return null;
     const db = await getFirebaseFirestore();
-    const snap = await getDoc(doc(db, FS_COL.users, clientId));
-    if (snap.exists()) {
-      const d = snap.data() as any;
-      const profile: ClientProfile = {
-        fullName: d.name ?? d.fullName ?? null,
-        phone: d.phone ?? null,
-        photoUrl: d.profilePhoto ?? d.photoUrl ?? null,
-      };
-      profileCache.set(cacheKey, profile);
-      return profile;
+
+    // v2: DATA-MAIN_users solo es legible por el owner u operator (reglas) —
+    // el propio cliente leyendo su perfil.
+    if (auth.currentUser?.uid === clientId) {
+      const snap = await getDoc(doc(db, FS_COL.users, clientId));
+      if (snap.exists()) {
+        const d = snap.data() as any;
+        const profile: ClientProfile = {
+          fullName: d.name ?? d.fullName ?? null,
+          phone: d.phone ?? null,
+          photoUrl: d.profilePhoto ?? d.photoUrl ?? null,
+        };
+        profileCache.set(cacheKey, profile);
+        return profile;
+      }
+      profileCache.set(cacheKey, null);
+      return null;
+    }
+
+    // Conductor viendo a su cliente: la foto/nombre/teléfono viajan embebidos
+    // en el contexto del viaje (REALTIME_trips_live / REALTIME_driver_offers,
+    // proyectados por el backend desde users.profile_photo).
+    if (rideId) {
+      // trips_live es legible por participante (viaje ya asignado).
+      const liveSnap = await getDoc(doc(db, FS_COL.tripsLive, rideId)).catch(() => null);
+      if (liveSnap?.exists()) {
+        const d = liveSnap.data() as any;
+        if (!d.clientId || d.clientId === clientId) {
+          const profile: ClientProfile = {
+            fullName: d.clientName ?? null,
+            phone: d.clientPhone ?? null,
+            photoUrl: d.clientPhoto ?? null,
+          };
+          profileCache.set(cacheKey, profile);
+          return profile;
+        }
+      }
+
+      // Pre-asignación: el doc de oferta propio + listado de 'requested'.
+      const preview = await fetchRidePreview(rideId);
+      if (preview && (!preview.clientId || preview.clientId === clientId)) {
+        const profile: ClientProfile = {
+          fullName: preview.clientName ?? null,
+          phone: preview.clientPhone ?? null,
+          photoUrl: preview.clientPhoto ?? null,
+        };
+        profileCache.set(cacheKey, profile);
+        return profile;
+      }
     }
   } catch (error) {
     console.warn('[clientProfilesService] Error leyendo perfil de cliente:', error);

@@ -5,6 +5,7 @@ export interface DriverOfferCacheEntry {
   driverId: string;
   clientId: string;
   clientName?: string | null;
+  clientPhoto?: string | null;
   origin: {
     lat: number;
     lng: number;

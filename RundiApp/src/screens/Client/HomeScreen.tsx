@@ -681,6 +681,8 @@ export default function HomeScreen({ navigation }: any) {
         regionStatus={regionStatus}
         scheduledRideNotice={scheduledRideNotice}
         onRequestRide={handleRequestRide}
+        hasProgrammedRides={Boolean(upcomingProgrammedRide?.hasFutureRides)}
+        onProgrammedRides={() => navigation.navigate('ProgrammedRides')}
         recurringChips={
           <ClientRecurringRidesChips
             rides={recurringRides}
@@ -887,10 +889,10 @@ const createStyles = (
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(28,25,23,0.08)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: isDark ? 0.35 : 0.1,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: isDark ? 0.0135 : 0.01,
+    shadowRadius: 2,
+    elevation: 1,
   },
   navChipAdd: {
     backgroundColor: 'rgba(238, 217, 181, 0.9)',
@@ -982,6 +984,21 @@ const createStyles = (
     shadowOpacity: 0.28,
     shadowRadius: 16,
     elevation: 14,
+  },
+  requestActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  requestButtonFlexible: {
+    flex: 1,
+  },
+  programmedButton: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#B38737',
   },
   requestButtonDisabled: {
     opacity: 0.45,

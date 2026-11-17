@@ -18,6 +18,7 @@ import workManager from '../../native/workManager';
 import batteryOptimization from '../../native/batteryOptimization';
 import i18n from '../../i18n';
 import { devRideTrackingStage } from '../../utils/devWriteMetrics';
+import { beginTaskManagerWork, endTaskManagerWork, registerTaskManagerKeepAlive } from './taskManagerKeepAlive';
 
 // Constantes para las tareas en segundo plano
 const BACKGROUND_LOCATION_TASK = 'background-location-task';
@@ -36,7 +37,9 @@ const getBackgroundLocationOptions = (): any => {
     // nunca recibiría ticks para detectar viajes cercanos.
     distanceInterval: 0,
     deferredUpdatesInterval: 30000, // 30 segundos
-    deferredUpdatesDistance: 50, // 50 metros
+    // Android requires both the deferred interval and distance to be met.
+    // A stationary driver must still receive periodic proximity checks.
+    deferredUpdatesDistance: 0,
     showsBackgroundLocationIndicator: true, // Indicador en iOS
     pausesUpdatesAutomatically: false,
     foregroundService: {
@@ -210,8 +213,8 @@ const defineBackgroundTask = () => {
   if (isTaskDefined) return;
   
   try {
-    // @ts-ignore - La tipificación de Expo para TaskManagerTaskBody no es exacta
-    TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
+    registerTaskManagerKeepAlive();
+    const runLocationTask = async ({ data, error }: { data: unknown; error: unknown }) => {
       devRideTrackingStage('task_callback');
       console.log('🎯 [background-task] Tarea ejecutándose');
       
@@ -232,7 +235,11 @@ const defineBackgroundTask = () => {
       // Obtener ubicación y estado de tracking
       const locationData = data as { locations: any[] };
       const { locations } = locationData;
-      const location = locations[0];
+      const location = locations[locations.length - 1];
+      if (!location?.coords) {
+        console.warn('⚠️ [background-task] No hay ubicaciones válidas');
+        return;
+      }
 
       console.log('📍 [background-task] Ubicación recibida:', {
         lat: location.coords.latitude,
@@ -361,6 +368,14 @@ const defineBackgroundTask = () => {
         }
         console.error('Error actualizando ubicación en segundo plano:', error);
         return;
+      }
+    };
+    TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async (body) => {
+      beginTaskManagerWork();
+      try {
+        await runLocationTask(body);
+      } finally {
+        endTaskManagerWork();
       }
     });
     

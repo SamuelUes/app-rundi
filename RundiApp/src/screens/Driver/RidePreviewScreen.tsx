@@ -6,15 +6,22 @@ import React, {
   useState,
 } from 'react';
 import {
-  Animated,
-  Easing,
   Linking,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Reanimated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
@@ -46,6 +53,7 @@ import { useArrivalPhotoGate } from '../../hooks/driver/shared/useArrivalPhotoGa
 
 const PROXIMITY_AUTO_DISMISS_MS = 5000; // auto-cierre si no hay cambios ni interacción
 const PROXIMITY_DISMISS_POLL_MS = 500;
+const SHEET_SPRING = { damping: 26, stiffness: 300 };
 
 interface RidePreviewParams {
   ride: RidePreviewData;
@@ -93,6 +101,11 @@ export default function RidePreviewScreen() {
   const resolvedClientPhone = useMemo(
     () => clientProfile?.phone || currentRide.clientPhone || null,
     [clientProfile?.phone, currentRide.clientPhone]
+  );
+
+  const resolvedClientPhoto = useMemo(
+    () => currentRide.clientPhoto || clientProfile?.photoUrl || null,
+    [currentRide.clientPhoto, clientProfile?.photoUrl]
   );
 
   const isDesignatedRide = useMemo(
@@ -220,20 +233,19 @@ export default function RidePreviewScreen() {
   useAcceptedRideListener(navigation, currentRide.id);
 
   const [isSheetExpanded, setIsSheetExpanded] = useState(true);
-  const priceContentAnim = useRef(new Animated.Value(1)).current;
+  const sheetProgress = useSharedValue(1);
+  const dragStartProgress = useSharedValue(1);
   const [priceContentHeight, setPriceContentHeight] = useState(0);
 
-  const animatePriceContent = useCallback(
-    (expand: boolean, duration: number = 240) => {
-      Animated.timing(priceContentAnim, {
-        toValue: expand ? 1 : 0,
-        duration,
-        easing: expand ? Easing.out(Easing.cubic) : Easing.inOut(Easing.ease),
-        useNativeDriver: false,
-      }).start();
-    },
-    [priceContentAnim],
-  );
+  const expandSheet = useCallback(() => {
+    sheetProgress.value = withSpring(1, SHEET_SPRING);
+    setIsSheetExpanded(true);
+  }, [sheetProgress]);
+
+  const collapseSheet = useCallback(() => {
+    sheetProgress.value = withSpring(0, SHEET_SPRING);
+    setIsSheetExpanded(false);
+  }, [sheetProgress]);
 
   useRidePreviewVoice(
     voiceSettings.enabled,
@@ -245,11 +257,48 @@ export default function RidePreviewScreen() {
 
   const { routeCoordinates, loadingRoute } = useRidePreviewRoute(currentRide, t);
 
-  const toggleSheet = () => {
-    const next = !isSheetExpanded;
-    setIsSheetExpanded(next);
-    animatePriceContent(next);
-  };
+  const toggleSheet = useCallback(() => {
+    if (isSheetExpanded) collapseSheet();
+    else expandSheet();
+  }, [isSheetExpanded, collapseSheet, expandSheet]);
+
+  const sheetPan = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY([-8, 8])
+        .onStart(() => {
+          'worklet';
+          dragStartProgress.value = sheetProgress.value;
+        })
+        .onUpdate((e) => {
+          'worklet';
+          const denom = Math.max(priceContentHeight, 1);
+          const next = dragStartProgress.value - e.translationY / denom;
+          sheetProgress.value = Math.min(1, Math.max(0, next));
+        })
+        .onEnd((e) => {
+          'worklet';
+          const denom = Math.max(priceContentHeight, 1);
+          const projected = sheetProgress.value - (e.velocityY * 0.18) / denom;
+          const target = projected > 0.5 ? 1 : 0;
+          sheetProgress.value = withSpring(target, SHEET_SPRING);
+          runOnJS(setIsSheetExpanded)(target === 1);
+        }),
+    [priceContentHeight, sheetProgress, dragStartProgress],
+  );
+
+  const handleGesture = useMemo(() => {
+    const tap = Gesture.Tap().onEnd(() => {
+      'worklet';
+      runOnJS(toggleSheet)();
+    });
+    return Gesture.Exclusive(tap, sheetPan);
+  }, [sheetPan, toggleSheet]);
+
+  const collapsibleStyle = useAnimatedStyle(() => ({
+    height: sheetProgress.value * priceContentHeight,
+    opacity: sheetProgress.value,
+  }));
 
   const switchToNearby = useCallback(() => {
     if (!nearbyQueue || nearbyQueue.length === 0) return;
@@ -273,6 +322,7 @@ export default function RidePreviewScreen() {
       clientSuggestedPrice: typeof next.clientSuggestedPrice === 'number' ? next.clientSuggestedPrice : currentRide.clientSuggestedPrice,
       driverOfferedPrice: typeof next.driverOfferedPrice === 'number' ? next.driverOfferedPrice : currentRide.driverOfferedPrice,
       driverOfferStatus: currentRide.driverOfferStatus || null,
+      clientPhoto: next.clientPhoto ?? null,
       paymentMethod: (next.paymentMethod as RidePreviewData['paymentMethod']) || currentRide.paymentMethod,
       negotiationStatus: (next as Record<string, unknown>).negotiationStatus as string | null || currentRide.negotiationStatus || null,
       clientComment: ((next as Record<string, unknown>).clientComment as string | null) || ((next as Record<string, unknown>).comment as string | null) || ((next as Record<string, unknown>).notes as string | null) || currentRide.clientComment || null,
@@ -287,11 +337,11 @@ export default function RidePreviewScreen() {
       if (height !== priceContentHeight) {
         setPriceContentHeight(height);
         if (height > 0 && isSheetExpanded) {
-          animatePriceContent(true, 260);
+          sheetProgress.value = withTiming(1, { duration: 260 });
         }
       }
     },
-    [priceContentHeight, isSheetExpanded, animatePriceContent],
+    [priceContentHeight, isSheetExpanded, sheetProgress],
   );
 
   const formatCurrency = (value?: number | null) => {
@@ -457,20 +507,22 @@ export default function RidePreviewScreen() {
           },
         ]}
       >
-        <TouchableOpacity
-          style={styles.handleArea}
-          onPress={toggleSheet}
-          activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel={t('driver.ridePreview.accessibility.toggleDetails')}
-        >
-          <View
-            style={[
-              styles.handleBar,
-              { backgroundColor: isDark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.16)' },
-            ]}
-          />
-        </TouchableOpacity>
+        <GestureHandlerRootView>
+          <GestureDetector gesture={handleGesture}>
+            <View
+              style={styles.handleArea}
+              accessibilityRole="button"
+              accessibilityLabel={t('driver.ridePreview.accessibility.toggleDetails')}
+            >
+              <View
+                style={[
+                  styles.handleBar,
+                  { backgroundColor: isDark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.16)' },
+                ]}
+              />
+            </View>
+          </GestureDetector>
+        </GestureHandlerRootView>
 
         <View style={styles.measurementContainer} onLayout={handleMeasuredContentLayout}>
           {renderNegotiationContent()}
@@ -481,6 +533,7 @@ export default function RidePreviewScreen() {
           estimatedPrice={currentRide.estimatedPrice}
           clientComment={currentRide.clientComment}
           clientProfile={clientProfile}
+          clientPhotoUrl={resolvedClientPhoto}
           distanceKm={totalDistanceKm}
           durationMin={durationMin}
           paymentMethod={currentRide.paymentMethod}
@@ -494,22 +547,16 @@ export default function RidePreviewScreen() {
           t={t}
         />
 
-        <Animated.View
+        <Reanimated.View
           style={[
             styles.collapsibleContainer,
-            {
-              height: priceContentAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, priceContentHeight || 1],
-              }),
-              opacity: priceContentAnim,
-            },
+            collapsibleStyle,
           ]}
         >
           <View pointerEvents={isSheetExpanded ? 'auto' : 'none'}>
             {renderNegotiationContent()}
           </View>
-        </Animated.View>
+        </Reanimated.View>
 
         <RidePreviewActions
           acceptingRide={acceptingRide}
@@ -749,14 +796,14 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     gap: 16,
     shadowColor: '#000',
-      shadowOffset: {
-        width: 0,
-        height: 1,
-      },
-      shadowOpacity: 0.1,
-      shadowRadius: 2,
-      elevation: 4,
+    shadowOffset: {
+      width: 0,
+      height: 1,
     },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: Platform.OS === 'android' ? 0 : 4,
+  },
   priceHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',

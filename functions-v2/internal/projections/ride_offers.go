@@ -88,7 +88,7 @@ func projectCounterOffers(ctx context.Context, pool *pgxpool.Pool, c *firestore.
 		SELECT DISTINCT ON (o.driver_id)
 		       o.driver_id, r.client_id, o.offered_price, o.status::text,
 		       r.status::text, r.driver_id, r.version,
-		       r.firebase_ride_id, uc.name,
+		       r.firebase_ride_id, uc.name, uc.profile_photo,
 		       r.estimated_price, r.client_suggested_price,
 		       r.origin_latitude, r.origin_longitude, r.origin_address,
 		       r.destination_latitude, r.destination_longitude, r.destination_address,
@@ -104,14 +104,14 @@ func projectCounterOffers(ctx context.Context, pool *pgxpool.Pool, c *firestore.
 	defer rows.Close()
 	for rows.Next() {
 		var driverID, clientID, offerStatus, rideStatus string
-		var assignedDriver, firebaseID, clientName *string
+		var assignedDriver, firebaseID, clientName, clientPhoto *string
 		var estPrice, clientSug, oLat, oLng, dLat, dLng *float64
 		var oAddr, dAddr *string
 		var waypoints, pricingSnap []byte
 		var price float64
 		var version int64
 		if err := rows.Scan(&driverID, &clientID, &price, &offerStatus, &rideStatus,
-			&assignedDriver, &version, &firebaseID, &clientName,
+			&assignedDriver, &version, &firebaseID, &clientName, &clientPhoto,
 			&estPrice, &clientSug, &oLat, &oLng, &oAddr, &dLat, &dLng, &dAddr,
 			&waypoints, &pricingSnap); err != nil {
 			return err
@@ -128,6 +128,9 @@ func projectCounterOffers(ctx context.Context, pool *pgxpool.Pool, c *firestore.
 		}
 		if clientName != nil {
 			data["clientName"] = *clientName
+		}
+		if clientPhoto != nil {
+			data["clientPhoto"] = *clientPhoto
 		}
 		if estPrice != nil {
 			data["estimatedPrice"] = *estPrice

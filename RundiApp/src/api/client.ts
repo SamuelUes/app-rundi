@@ -64,4 +64,23 @@ client.interceptors.request.use(async (cfg) => {
   return cfg;
 });
 
+// Retry único para GET/HEAD (idempotentes): cubre ventanas transitorias del
+// backend — p.ej. 503 durante un deploy de Cloud Run o la reactivación del
+// proyecto — sin reintentar mutaciones (doble-submit).
+const RETRYABLE_METHODS = new Set(['get', 'head']);
+const RETRY_DELAY_MS = 1200;
+
+client.interceptors.response.use(undefined, async (error) => {
+  const cfg = error?.config;
+  const status: number | undefined = error?.response?.status;
+  const isIdempotent = RETRYABLE_METHODS.has(String(cfg?.method ?? '').toLowerCase());
+  const isTransient = !error?.response || (status !== undefined && status >= 500 && status < 600);
+  if (!cfg || !isIdempotent || !isTransient || (cfg as any).__getRetried) {
+    return Promise.reject(error);
+  }
+  (cfg as any).__getRetried = true;
+  await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+  return client(cfg);
+});
+
 export default client;

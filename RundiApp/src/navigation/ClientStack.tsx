@@ -34,6 +34,7 @@ import type { RegistrationMethod, RegistrationAuthProvider } from './types';
 import type { RecurringRide } from '../types/recurringRide';
 import RecurringRidesScreen from '../screens/Client/RecurringRidesScreen';
 import RecurringRideFormScreen from '../screens/Client/RecurringRideFormScreen';
+import ProgrammedRidesScreen from '../screens/Client/ProgrammedRidesScreen';
 import { useClientPresence } from '../hooks/shared/presence/useClientPresence';
 import { useInitializeClientProfile } from '../hooks/client/ClientProfileSync/useClientProfileSync';
 import PreflightCheckScreen from '../screens/Shared/PreflightCheckScreen';
@@ -48,6 +49,7 @@ export type ClientStackParamList = {
   HomeOffers: { rideId?: string } | undefined;
   SearchRide: { recurringRide?: RecurringRide } | undefined;
   RecurringRides: undefined;
+  ProgrammedRides: undefined;
   RecurringRideForm: { ride?: RecurringRide } | undefined;
   RideConfirmation: {
     rideId: string;
@@ -225,6 +227,7 @@ export default function ClientStack() {
       <Stack.Screen name="HomeOffers" component={HomeScreenOffers} options={{ headerShown: false, animation: 'fade', animationDuration: 180 }} />
       <Stack.Screen name="SearchRide" component={SearchRideScreenNewDesign} options={{ headerShown: false, title: 'Buscar viaje', animation: 'fade', animationDuration: 180 }} />
       <Stack.Screen name="RecurringRides" component={RecurringRidesScreen} options={{ headerShown: false, title: 'Viajes recurrentes' }} />
+      <Stack.Screen name="ProgrammedRides" component={ProgrammedRidesScreen} />
       <Stack.Screen name="RecurringRideForm" component={RecurringRideFormScreen} options={{ headerShown: false, title: 'Viaje recurrente' }} />
       {/* <Stack.Screen name="RideConfirmation" component={RideConfirmationScreen} options={{ headerShown: true, title: 'Confirmación de Viaje' }} /> */}
       <Stack.Screen name="RideTracking" component={RideTrackingScreen} options={{ headerShown: false }} />

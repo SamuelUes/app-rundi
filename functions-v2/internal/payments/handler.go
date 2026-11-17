@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/firestore"
 	"github.com/go-chi/chi/v5"
@@ -16,10 +17,27 @@ import (
 )
 
 type Handler struct {
-	svc        *Service
-	fs         *firestore.Client
-	compSvc    *compliance.Service
-	dailyStore *compliance.DailyStore
+	svc            *Service
+	fs             *firestore.Client
+	compSvc        *compliance.Service
+	dailyStore     *compliance.DailyStore
+	projectPayment func(context.Context, string) error
+}
+
+// SetPaymentProjector installs the optional post-commit Firestore fast path.
+func (h *Handler) SetPaymentProjector(project func(context.Context, string) error) {
+	h.projectPayment = project
+}
+
+func (h *Handler) projectPaymentFast(ctx context.Context, paymentID string) {
+	if h.projectPayment == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+	if err := h.projectPayment(ctx, paymentID); err != nil {
+		log.Printf("payment fast-path projection failed; outbox will retry payment=%s: %v", paymentID, err)
+	}
 }
 
 func NewHandler(svc *Service, fsClient *firestore.Client) *Handler {
@@ -76,6 +94,7 @@ func (h *Handler) confirmCash(w http.ResponseWriter, r *http.Request) {
 		apperr.Write(w, err)
 		return
 	}
+	h.projectPaymentFast(r.Context(), p.ID)
 	h.reactivateDriver(r.Context(), uid)
 	apperr.JSON(w, http.StatusOK, map[string]any{"payment": p, "event": "payment.confirmed"})
 }
@@ -97,6 +116,7 @@ func (h *Handler) registerCash(w http.ResponseWriter, r *http.Request) {
 		apperr.Write(w, err)
 		return
 	}
+	h.projectPaymentFast(r.Context(), p.ID)
 	apperr.JSON(w, http.StatusOK, map[string]any{"payment": p, "event": "payment.registered"})
 }
 

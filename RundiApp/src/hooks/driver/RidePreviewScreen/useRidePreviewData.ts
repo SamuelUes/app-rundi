@@ -18,6 +18,7 @@ export interface RidePreviewData {
   clientId: string;
   clientName?: string;
   clientPhone?: string;
+  clientPhoto?: string | null;
   origin: RideLocation;
   destination: RideLocation;
   extraDestinations?: RideLocation[];
@@ -37,6 +38,7 @@ export interface RidePreviewData {
   clientComment?: string | null;
   isProgrammed?: boolean;
   scheduledAt?: number | null;
+  driverInvitationAt?: number;
 }
 
 export const toNumberOrNull = (value: any): number | null => {
@@ -187,6 +189,7 @@ export function useRidePreviewData(
         paymentMethod: data.paymentMethod || prev.paymentMethod,
         clientName: data.clientName || prev.clientName,
         clientPhone: data.clientPhone || prev.clientPhone,
+        clientPhoto: data.clientPhoto ?? prev.clientPhoto ?? null,
         clientVehiclePhoto: data.clientVehiclePhoto ?? prev.clientVehiclePhoto ?? null,
         rideType: data.rideType || prev.rideType || null,
         featureCodes: Array.isArray(data.featureCodes) || Array.isArray(data.feature_codes) || Array.isArray(data.pricingSnapshot?.featureCodes)

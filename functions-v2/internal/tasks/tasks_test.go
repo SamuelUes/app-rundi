@@ -17,7 +17,8 @@ func TestConsumerWakeupRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	httpReq := req.Task.GetHttpRequest()
-	if req.Parent != "projects/test-project/locations/us-east1/queues/test-queue" ||
+	if req.Task.GetName() != "" || req.Task.GetScheduleTime() != nil ||
+		req.Parent != "projects/test-project/locations/us-east1/queues/test-queue" ||
 		httpReq.GetUrl() != "https://us-east1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/test-project/jobs/rundi-consumer:run" ||
 		httpReq.GetHttpMethod() != cloudtaskspb.HttpMethod_POST ||
 		httpReq.GetOauthToken().GetServiceAccountEmail() != cfg.CloudTasksSAEmail ||

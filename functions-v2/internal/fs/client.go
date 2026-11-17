@@ -49,6 +49,7 @@ const (
 	ColPendingEvents    = "SYSTEM_pending_events"
 	ColProcessedEvents  = "SYSTEM_processed_events"
 	ColProjectionStatus = "SYSTEM_projection_status"
+	ColProgrammedCodes  = "SYSTEM_programmed_codes"
 	// ColDriverDailyCompliance — resultado diario reutilizable de compliance;
 	// solo el backend lo lee/escribe (los clientes no lo ven en las reglas).
 	ColDriverDailyCompliance = "SYSTEM_driver_daily_compliance"

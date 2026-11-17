@@ -97,6 +97,7 @@
 - `useDriverProfileSync` → no-op: `DATA-MAIN_drivers` es proyección backend-only.
 - Chats: sin typing/presence (reglas solo permiten from/text/sentAt/type/metadata).
 - `getRideDetail`/`getMyRides` son la única fuente de rides propios para listados (no hay escaneo de trips_live ajenos — reglas lo prohíben, por diseño).
+- Foto de perfil del cliente para el driver: `DATA-MAIN_users` NO es legible por no-owner (reglas). El backend proyecta `clientPhoto` (`users.profile_photo`) embebido en `REALTIME_trips_live` y `REALTIME_driver_offers` (mismo patrón que `clientName`/`clientPhone`); `fetchClientProfile(clientId, rideId)` lo resuelve vía getDoc participante o `fetchRidePreview`.
 
 ## RundiApp/ (app v2 — migración desde Frontend/)
 App recreada en `RundiApp/` hermana de `Frontend/` (esta última queda intacta como referencia). Regla: NADA de RTDB ni Supabase; todo dato va a `src/v2` (REST Go `api/` + Firestore `live/`). Proyecto Firebase nuevo: `rundi-dev-2`.
@@ -162,3 +163,15 @@ App recreada en `RundiApp/` hermana de `Frontend/` (esta última queda intacta c
 - Tests focales: `functions-v2/internal/ratelimit/store_integration_test.go` necesita `TEST_DATABASE_URL` aislado con 0024; `functions-v2/internal/clientevents/events_integration_test.go` necesita además `FIRESTORE_EMULATOR_HOST` aislado. Reglas focales en `database-v2/test/rate-limit-rules.test.mjs` (directorio de tests local ignorado por git).
 - En builds de desarrollo, `[Firestore write intervals]` agrega intentos por categoría y rangos de separación, sin UID ni coordenadas. Mide llamadas desde el contexto JS, no commits de servidor ni escrituras desde otros procesos; el reporte aparece al llegar otra escritura tras al menos 30 s. Test: `cd RundiApp && node --test src/utils/tests/devWriteMetrics.test.mjs`.
 - `[Ride tracking diagnostic]` registra etapas fijas de tracking en desarrollo sin coordenadas ni identificadores; `trip_write_confirmed` indica que se resolvió la promesa de Firestore y un `trip_write_start` sin resultado puede seguir pendiente offline. No confundir task registrado con ubicación escrita.
+
+## Login directo post-reinstall (user_devices)
+- `public.user_devices` (0026, PK compuesta device_id+user_id): `device_id` estable cross-install + `secret_hash` = sha256(secret de 122+ bits — no bcrypt). No se proyecta a Firestore (tabla interna de credenciales, sin outbox). `DeleteUserData` la limpia (GDPR).
+- Endpoints (`internal/users/devices.go`): públicos (App Check + rate limit, grupo de `availability` en main.go) `POST /v1/auth/devices/recognize` (hint UX: name+profilePhoto — firmada 15min vía `Service.WithSigner(rstorage.Signer)` porque corre pre-auth y getDownloadURL fallaría — NO autentica) y `POST /v1/auth/devices/token` (deviceId+secret → `client.CustomToken`; custom claims viajan solos por ser de cuenta). Autenticado: `POST /v1/users/me/devices` (upsert/rota secret).
+- Frontend `services/auth/deviceIdentityService.ts`: deviceId iOS = UUID en SecureStore Keychain (sobrevive uninstall; IDFV se resetea — NO usar), Android = `android-{ANDROID_ID}`; migra el legacy `AsyncStorage['deviceId']` al Keychain en primer uso (continuidad de sesión viva). `sessionService.getDeviceId` DELEGA a `getStableDeviceId` — mismo valor para `user_sessions.device` y `user_devices.device_id` (un reinstall no dispara SESSION_ACTIVE_ELSEWHERE).
+- Secret solo en SecureStore: en iOS sobrevive reinstall (login silencioso real); en Android se pierde (sin backup — `allowBackup="false"`) → recognize sigue mostrando la cuenta y el login manual re-registra secret nuevo.
+- Registro: `useAuthInit` fire-and-forget tras `setUser` (cubre todos los métodos de login; un POST extra por arranque autenticado). UI: tarjeta "Continuar como X" en `AuthLandingScreen` (avatar = fallback icon detrás de StorageImage); `prewarmDeviceRecognition` corre al inicio de `useAuthInit` y `getRecognizedDevice` lee la promise cacheada (el recognize paga Firebase init + App Check en frío — sin prewarm la tarjeta tarda 1-3s). Tap → `signInWithCustomToken` → el auth listener toma el flujo. i18n `authScreens.landing.{welcomeBack,continueAs,continueAccount,signingIn,deviceLoginError}` (es/en).
+- Pendiente deploy: correr `0026_user_devices.sql` (migrate one-shot local / deploy.sh cloud) + redeploy api.
+
+## Comisión de viajes y wallet
+- `0027_ride_wallet_commission.sql` marca como elegibles solo los viajes creados después de su primera aplicación; no cobra viajes anteriores.
+- `ConfirmCash` descuenta la comisión una sola vez en SQL, registra el movimiento y emite `driver.wallet_debited`; el consumer proyecta saldo y movimiento a `REALTIME_driver_wallet`. La implementación cubre pagos en efectivo, no liquidación de tarjeta.

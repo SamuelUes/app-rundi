@@ -1,4 +1,5 @@
 import { navigate, navigationRef } from '../../navigation/NavigationService';
+import { openProgrammedPrompt } from '../../stores/programmedPromptStore';
 
 const parseMaybeJson = (value: any) => {
   if (typeof value !== 'string') return value;
@@ -44,6 +45,29 @@ export const routeNotification = async (data: any, options: RouteOptions = {}): 
   console.log('🔔 [notificationRouter] Routing notification:', { type, rideId, coldStart: options?.coldStart });
 
   switch (type) {
+    case 'programmed_ride_prompt': {
+      if (typeof rideId !== 'string' || !rideId) return;
+      const role = data?.role === 'driver' ? 'driver' : data?.role === 'client' ? 'client' : null;
+      if (role) openProgrammedPrompt(role, rideId);
+      return;
+    }
+
+    case 'programmed_ride_update': {
+      const ready = await waitForNavigation();
+      if (ready && navigationRef.getRootState()?.routeNames.includes('ProgrammedRides')) {
+        navigate('ProgrammedRides');
+      }
+      return;
+    }
+
+    case 'programmed_ride_driver_removed': {
+      const ready = await waitForNavigation();
+      if (ready && navigationRef.getRootState()?.routeNames.includes('AvailableRides')) {
+        navigate('AvailableRides');
+      }
+      return;
+    }
+
     case 'proximity_ride': {
       try {
         const payload = parseProximityPayload(data);

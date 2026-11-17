@@ -84,8 +84,10 @@ export interface SearchRideState {
   setSearchQuery: React.Dispatch<React.SetStateAction<string>>;
   activeSelection: 'origin' | 'destination' | number | 'new-stop' | null;
   setActiveSelection: React.Dispatch<React.SetStateAction<'origin' | 'destination' | number | 'new-stop' | null>>;
-  recentLocations: SavedLocation[];
-  setRecentLocations: React.Dispatch<React.SetStateAction<SavedLocation[]>>;
+  recentOriginLocations: SavedLocation[];
+  setRecentOriginLocations: React.Dispatch<React.SetStateAction<SavedLocation[]>>;
+  recentDestinationLocations: SavedLocation[];
+  setRecentDestinationLocations: React.Dispatch<React.SetStateAction<SavedLocation[]>>;
   favoriteLocations: SavedLocation[];
   setFavoriteLocations: React.Dispatch<React.SetStateAction<SavedLocation[]>>;
 
@@ -136,7 +138,8 @@ export function useSearchRideState(): SearchRideState {
 
   const [showSearchOverlay, setShowSearchOverlay] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [recentLocations, setRecentLocations] = useState<SavedLocation[]>([]);
+  const [recentOriginLocations, setRecentOriginLocations] = useState<SavedLocation[]>([]);
+  const [recentDestinationLocations, setRecentDestinationLocations] = useState<SavedLocation[]>([]);
   const [favoriteLocations, setFavoriteLocations] = useState<SavedLocation[]>([]);
   const [activeSelection, setActiveSelection] = useState<'origin' | 'destination' | number | 'new-stop' | null>(null);
 
@@ -172,7 +175,8 @@ export function useSearchRideState(): SearchRideState {
     showSearchOverlay, setShowSearchOverlay,
     searchQuery, setSearchQuery,
     activeSelection, setActiveSelection,
-    recentLocations, setRecentLocations,
+    recentOriginLocations, setRecentOriginLocations,
+    recentDestinationLocations, setRecentDestinationLocations,
     favoriteLocations, setFavoriteLocations,
     mapSelectionMode, setMapSelectionMode,
     submittingRequest, setSubmittingRequest,

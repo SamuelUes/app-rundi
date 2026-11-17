@@ -376,7 +376,7 @@ const createStyles = (isDark: boolean) =>
       borderRadius: 20,
       paddingVertical: 14,
       paddingHorizontal: 14,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.07)',
       shadowColor: '#000',
       shadowOpacity: isDark ? 0.5 : 0.3,
@@ -462,7 +462,7 @@ const actionButtonVariant = (variant: ToastActionVariant = 'default', primary: s
     default:
       return {
         backgroundColor: 'rgba(255,255,255,0.10)',
-        borderWidth: 1,
+        borderWidth: 0.1,
         borderColor: 'rgba(255,255,255,0.08)',
       };
   }

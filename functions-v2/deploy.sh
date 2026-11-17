@@ -109,6 +109,12 @@ do_setup() {
       --member="serviceAccount:$WORKER_SA" --role="$r" --quiet >/dev/null
   done
 
+  # signBlob del propio SA: URLs firmadas de Storage (docs/recognize) y
+  # CustomToken de firebase-admin (login por dispositivo) — en Cloud Run el
+  # ADC no lleva clave privada y ambas firman vía iamcredentials.
+  gcloud iam service-accounts add-iam-policy-binding "$API_SA" \
+    --member="serviceAccount:$API_SA" --role=roles/iam.serviceAccountTokenCreator --quiet >/dev/null
+
   # Cloud Tasks: cola + permiso del agente de Tasks para firmar OIDC con el SA
   TASKS_SA="${CLOUD_TASKS_SA_EMAIL:-$API_SA}"
   TASKS_QUEUE="${CLOUD_TASKS_QUEUE:-rundi-tasks}"
@@ -157,7 +163,7 @@ do_jobs() {
     gcloud run jobs deploy "rundi-$j" \
       --image "$REGION-docker.pkg.dev/$PROJECT/$REPO/$j:latest" \
       --region="$REGION" --service-account="$WORKER_SA" \
-      --set-cloudsql-instances="$CONN" --max-retries=1 \
+      --set-cloudsql-instances="$CONN" --max-retries=0 \
       --set-env-vars="$(base_env)" \
       $(secrets_arg)
   done
@@ -166,7 +172,7 @@ do_jobs() {
   gcloud run jobs deploy "rundi-programmed" \
     --image "$REGION-docker.pkg.dev/$PROJECT/$REPO/scheduler:latest" \
     --region="$REGION" --service-account="$WORKER_SA" \
-    --set-cloudsql-instances="$CONN" --max-retries=1 \
+    --set-cloudsql-instances="$CONN" --max-retries=0 \
     --set-env-vars="$(base_env);SCHEDULER_ONLY=programmed" \
     $(secrets_arg)
   # El SA de Cloud Tasks invoca jobs: consumer (wakes deduplicados por

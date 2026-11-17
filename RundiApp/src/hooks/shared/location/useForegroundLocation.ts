@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import * as Location from 'expo-location';
-import { Platform } from 'react-native';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../auth/useAuth';
 import { ensureActivityRecognitionPermission } from '../../../utils/system/activityPermission';
@@ -91,7 +91,7 @@ export function useForegroundLocation(options: UseForegroundLocationOptions = {}
   );
 
   const getLocation = useCallback(async () => {
-    if (isRefreshingLocation.current) return;
+    if (isRefreshingLocation.current || AppState.currentState !== 'active') return;
 
     try {
       isRefreshingLocation.current = true;
@@ -150,6 +150,7 @@ export function useForegroundLocation(options: UseForegroundLocationOptions = {}
       };
 
       const timeoutMs = highAccuracy ? FOREGROUND_TIMEOUT_HIGH_ACCURACY_MS : FOREGROUND_TIMEOUT_MS;
+      if (AppState.currentState !== 'active') return;
       const location = await withTimeout(
         Location.getCurrentPositionAsync(currentPositionOptions),
         timeoutMs,
@@ -169,6 +170,7 @@ export function useForegroundLocation(options: UseForegroundLocationOptions = {}
       updateCoords(nextCoords, { isMock: false });
       await persistLastKnownLocation(nextCoords);
     } catch (err: any) {
+      if (AppState.currentState !== 'active') return;
       const message = err?.message || String(err);
       const hadPreviousCoords = !!coordsRef.current;
 

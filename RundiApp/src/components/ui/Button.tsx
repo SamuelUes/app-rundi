@@ -2,7 +2,6 @@ import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, View, GestureResponderEvent, ViewStyle } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { LoadingIcon } from '../ui/LoadingIcon';
-import { useTranslation } from 'react-i18next';
 
 interface Props {
   title: string;
@@ -14,13 +13,16 @@ interface Props {
 }
 
 export default function Button({ title, onPress, disabled, loading, style, iconName }: Props) {
-  const { t } = useTranslation();
+  const isDisabled = disabled || loading;
 
   return (
-    <TouchableOpacity 
-      style={[styles.button, style, (disabled || loading) && styles.disabled]} 
-      onPress={onPress} 
-      disabled={disabled || loading}
+    <TouchableOpacity
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !!isDisabled, busy: !!loading }}
+      style={[styles.button, style, isDisabled && styles.disabled]}
+      onPress={onPress}
+      disabled={isDisabled}
+      activeOpacity={0.85}
     >
       {loading ? (
         <LoadingIcon icon="refresh" size={20} color="#FFFFFF" animation="spin" />
@@ -37,23 +39,26 @@ export default function Button({ title, onPress, disabled, loading, style, iconN
 const styles = StyleSheet.create({
   button: {
     backgroundColor: '#111827',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+    minHeight: 50,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   contentRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   icon: {
     marginRight: 8,
   },
   text: {
-    color: 'white',
+    color: '#FFFFFF',
     fontWeight: '600',
     fontSize: 16,
+    letterSpacing: 0.2,
   },
   disabled: { opacity: 0.6 },
 });

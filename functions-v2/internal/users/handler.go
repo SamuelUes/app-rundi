@@ -25,6 +25,7 @@ func (h *Handler) Routes() chi.Router {
 	r.Post("/me/upgrade-to-driver", h.upgrade)
 	r.Post("/me/deactivate", h.deactivate)
 	r.Post("/me/delete-data", h.deleteData)
+	r.Post("/me/devices", h.registerDevice)
 	return r
 }
 

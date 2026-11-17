@@ -333,18 +333,18 @@ const common = {
           },
           rideProgressIndicator: {
             client: {
-              freeCancel: '✅ Cancel now and you will not be charged.',
+              freeCancel: 'Cancel now and you will not be charged.',
               cashPenalty:
-                '⚠️ If you cancel now you must pay C${{amount}} in cash to the driver ({{percent}}% of the trip).',
+                'If you cancel now you must pay C${{amount}} in cash to the driver ({{percent}}% of the trip).',
               cardPenalty:
-                '⚠️ If you cancel now we will charge {{percent}}% of the trip (C${{amount}}).',
+                'If you cancel now we will charge {{percent}}% of the trip (C${{amount}}).',
             },
             driver: {
-              freeCancel: '✅ You can cancel without penalty.',
+              freeCancel: 'You can cancel without penalty.',
               cashPenalty:
-                '⚠️ If you cancel now, a penalty will be applied (deducted from your earnings).',
+                'If you cancel now, a penalty will be applied (deducted from your earnings).',
               cardPenalty:
-                '⚠️ If you cancel now, a penalty will be applied (trip commission).',
+                'If you cancel now, a penalty will be applied (trip commission).',
             },
             stats: '{{value}}%',
           },

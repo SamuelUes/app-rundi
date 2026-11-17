@@ -18,7 +18,7 @@ import { isFollowerWaitingPayment, shouldShowSeparateCrewMarkers } from '../../u
 
 export default function FollowerActiveRideScreen({ route, navigation }: any) {
   const { rideId } = route.params as { rideId: string };
-  useKeepAwake();
+  useKeepAwake(undefined, { suppressDeactivateWarnings: true });
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);

@@ -49,15 +49,14 @@ test.each(['rides', 'programmed', 'payments'])('%s errors do not become empty re
   await expect(service.fetchPreflightData(payload)).resolves.toMatchObject({ userId: 'a' });
 });
 
-test('invalidation during request rejects the stale generation and the next call refetches', async () => {
+test('invalidation during request refetches under the new generation', async () => {
   let resolve;
   rides.getMyRides.mockImplementationOnce(() => new Promise((r) => { resolve = r; }));
   const result = service.fetchPreflightData(payload);
   while (!resolve) await Promise.resolve();
   service.clearCache();
   resolve([]);
-  await expect(result).rejects.toThrow('sesión');
-  await expect(service.fetchPreflightData(payload)).resolves.toMatchObject({ userId: 'a' });
+  await expect(result).resolves.toMatchObject({ userId: 'a' });
   expect(rides.getMyRides).toHaveBeenCalledTimes(2);
 }, 10000);
 

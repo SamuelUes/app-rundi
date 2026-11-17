@@ -65,10 +65,10 @@ export default function FloatingCompass({ heading, onPress, style, testID }: Flo
 
   useEffect(() => {
     if (resolvedHeading === null) return;
-    // La rosa gira -heading (el norte queda siempre apuntado por la aguja).
-    // Se acumula sobre la rotación anterior tomando el camino angular más corto
-    // para no dar una vuelta completa al cruzar 359° -> 0°.
-    const target = -resolvedHeading;
+    // La rosa queda fija (N siempre arriba); la aguja gira con el heading
+    // del dispositivo. Se acumula sobre la rotación anterior tomando el
+    // camino angular más corto para no dar una vuelta completa al cruzar 359° -> 0°.
+    const target = resolvedHeading;
     const delta = ((target - lastRotationRef.current + 540) % 360) - 180;
     const next = lastRotationRef.current + delta;
     lastRotationRef.current = next;
@@ -86,6 +86,11 @@ export default function FloatingCompass({ heading, onPress, style, testID }: Flo
     extrapolate: 'extend',
   });
 
+  const activeCardinal =
+    resolvedHeading === null
+      ? null
+      : CARDINALS[Math.round(resolvedHeading / 90) % 4];
+
   const accessibilityLabel =
     resolvedHeading !== null
       ? t('driver.compass.accessibility.label', { degrees: Math.round(resolvedHeading) })
@@ -100,25 +105,33 @@ export default function FloatingCompass({ heading, onPress, style, testID }: Flo
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
     >
-      <Animated.View style={[styles.dial, { transform: [{ rotate: spin }] }]}>
+      <View style={styles.dial}>
         {CARDINALS.map((cardinal) => (
           <Text
             key={cardinal}
             style={[
               styles.cardinal,
               styles[`cardinal${cardinal}`],
-              cardinal === 'N' && styles.cardinalNorth,
+              cardinal === activeCardinal && styles.cardinalActive,
             ]}
           >
             {cardinal}
           </Text>
         ))}
-        <View style={styles.needle}>
-          <View style={styles.needleNorth} />
-          <View style={styles.needleSouth} />
-        </View>
-        <View style={styles.pivot} />
-      </Animated.View>
+      </View>
+      {/* Rosa fija (N arriba); la aguja dorada gira con el heading y
+          resalta el cardinal hacia el que apunta el dispositivo. */}
+      {resolvedHeading !== null && (
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.needle, { transform: [{ rotate: spin }] }]}
+        >
+          <View style={styles.needleTip} />
+          <View style={styles.needleHeading} />
+          <View style={styles.needleTail} />
+          <View style={styles.pivot} />
+        </Animated.View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -127,9 +140,9 @@ const createStyles = (colors: any, isDark: boolean) =>
   StyleSheet.create({
     button: {
       position: 'absolute',
-      width: 48,
-      height: 48,
-      borderRadius: 24,
+      width: 52,
+      height: 52,
+      borderRadius: 28,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: isDark ? 'rgba(24,20,17,0.92)' : 'rgba(255,255,255,0.94)',
@@ -143,9 +156,9 @@ const createStyles = (colors: any, isDark: boolean) =>
       zIndex: 20,
     },
     dial: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
       alignItems: 'center',
@@ -153,56 +166,68 @@ const createStyles = (colors: any, isDark: boolean) =>
     },
     cardinal: {
       position: 'absolute',
-      fontSize: 8,
+      fontSize: 9,
       fontWeight: '700',
       color: colors.textTertiary,
     },
-    cardinalNorth: {
-      fontSize: 9,
+    cardinalActive: {
+      fontSize: 11,
       fontWeight: '800',
       color: colors.primary,
     },
     cardinalN: {
-      top: 2,
+      top: 0.5,
     },
     cardinalS: {
-      bottom: 2,
+      bottom: 0.5,
     },
     cardinalE: {
-      right: 3,
+      right: 1.5,
     },
     cardinalW: {
-      left: 3,
+      left: 1.5,
     },
     needle: {
       position: 'absolute',
-      top: 0,
-      bottom: 0,
-      width: 2,
-      alignSelf: 'center',
+      top: 3,
+      bottom: 3,
+      left: 3,
+      right: 3,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    needleNorth: {
+    needleTip: {
       position: 'absolute',
       top: 11,
+      width: 0,
+      height: 0,
+      borderLeftWidth: 2,
+      borderRightWidth: 1,
+      borderBottomWidth: 4,
+      borderLeftColor: 'transparent',
+      borderRightColor: 'transparent',
+      borderBottomColor: colors.primary,
+    },
+    needleHeading: {
+      position: 'absolute',
+      top: 16,
       width: 2,
-      height: 9,
+      height: 7,
       borderRadius: 1,
       backgroundColor: colors.primary,
     },
-    needleSouth: {
+    needleTail: {
       position: 'absolute',
-      bottom: 11,
+      bottom: 19,
       width: 2,
-      height: 9,
+      height: 3,
       borderRadius: 1,
       backgroundColor: isDark ? 'rgba(255,255,255,0.25)' : 'rgba(28,25,23,0.2)',
     },
     pivot: {
-      width: 5,
-      height: 5,
-      borderRadius: 3,
+      width: 6,
+      height: 6,
+      borderRadius: 2,
       backgroundColor: colors.primary,
       borderWidth: 1,
       borderColor: isDark ? '#181411' : '#FFFFFF',

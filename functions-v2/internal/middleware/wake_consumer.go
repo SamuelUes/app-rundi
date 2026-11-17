@@ -11,8 +11,7 @@ import (
 
 // WakeConsumerOnMutation — tras una mutación (POST/PUT/PATCH/DELETE) exitosa
 // (<400) dispara el wake best-effort del consumer de outbox. Cubre a todos los
-// handlers que emiten outbox sin cablear SetConsumerWakeup uno por uno; el
-// task deduplicado por ventana evita ráfagas bajo carga.
+// handlers que emiten outbox sin cablear SetConsumerWakeup uno por uno.
 func WakeConsumerOnMutation(wake func(context.Context) error) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -25,14 +24,14 @@ func WakeConsumerOnMutation(wake func(context.Context) error) func(http.Handler)
 			if ww.Status() >= 400 {
 				return
 			}
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-				defer cancel()
-				if err := wake(ctx); err != nil {
-					slog.Warn("consumer wake-up failed; scheduled sweep will retry",
-						"path", r.URL.Path, "err", err)
-				}
-			}()
+			// Finish enqueueing before the request ends: Cloud Run may suspend
+			// background goroutines as soon as the response is complete.
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if err := wake(ctx); err != nil {
+				slog.Warn("consumer wake-up failed; scheduled sweep will retry",
+					"path", r.URL.Path, "err", err)
+			}
 		})
 	}
 }

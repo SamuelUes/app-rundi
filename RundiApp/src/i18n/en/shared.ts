@@ -495,6 +495,8 @@ const shared = {
             duration: 'Time',
             estimate: 'Estimate',
             calculatingRoute: 'Calculating route…',
+            updatingPrice: 'Updating fare',
+            priceUnavailable: 'Fare unavailable',
             featuresLabel: 'Applied features',
             features: {
               night: 'Night',
@@ -691,8 +693,8 @@ const shared = {
             logout: 'Sign out',
           },
           appInfo: {
-            version: 'Rundi Beta- 1.8',
-            copyright: '© 2025 All rights reserved',
+            version: 'Rundi Beta- 1.9',
+            copyright: '© 2026-2027 All rights reserved',
           },
          support: {
           title: 'My support reports',
@@ -719,6 +721,12 @@ const shared = {
         },
         rideProgress: {
           title: 'Rundi ride',
+          open: 'View ride',
+          fare: 'C${{amount}}',
+          payment: {
+            cash: 'Cash',
+            card: 'Card',
+          },
           status: {
             requested: 'Finding a driver',
             driver_offered: 'Offer received',

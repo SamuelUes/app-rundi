@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import {
   deleteDoc,
@@ -15,13 +14,12 @@ import { FS_COL } from '../../constants/firestore';
 import { devTiming } from '../../utils/devTiming';
 import { devWriteAttempt } from '../../utils/devWriteMetrics';
 import { writePresence, writeUserSession, type UserSessionPatch } from '../../live/driverLive';
+import deviceIdentityService from '../auth/deviceIdentityService';
 
-const DEVICE_ID_KEY = 'deviceId';
 // Sesión de otro dispositivo se considera "activa" solo si su heartbeat es
 // reciente — un doc viejo es un resto de una app muerta y se puede reclamar.
 const SESSION_STALE_MS = 3 * 60 * 1000;
 
-let deviceIdPromise: Promise<string> | null = null;
 const sessionStartPromises = new Map<string, Promise<{ success: boolean }>>();
 
 export function isSessionActiveElsewhereError(error: any): boolean {
@@ -35,46 +33,12 @@ function sessionActiveElsewhere(): Error {
   return error;
 }
 
-async function tryGetNativeDeviceId(): Promise<string | null> {
-  try {
-    const Application = await import('expo-application');
-    // Prefer vendor/Android ID if available
-    if (Platform.OS === 'ios' && typeof (Application as any).getIosIdForVendorAsync === 'function') {
-      const iosId = await (Application as any).getIosIdForVendorAsync();
-      if (iosId && typeof iosId === 'string') return `ios-${iosId}`;
-    }
-    if (Platform.OS === 'android') {
-      const androidId = (Application as any).getAndroidId?.() || (Application as any).androidId;
-      if (androidId && typeof androidId === 'string') return `android-${androidId}`;
-    }
-  } catch {
-    // ignore
-  }
-  return null;
-}
-
-function generateLocalId(): string {
-  // Simple UUID v4-ish fallback
-  const s4 = () => Math.floor((1 + Math.random()) * 0x10000).toString(16).substring(1);
-  return `local-${s4()}${s4()}-${s4()}-${s4()}-${s4()}-${Date.now()}`;
-}
-
+// El deviceId de sesión ES el id estable de deviceIdentityService: mismo
+// valor tras reinstall (iOS Keychain UUID / ANDROID_ID), así un reinstall no
+// dispara SESSION_ACTIVE_ELSEWHERE y user_sessions.device matchea la tabla
+// SQL user_devices.device_id.
 export async function getDeviceId(): Promise<string> {
-  if (!deviceIdPromise) {
-    deviceIdPromise = (async () => {
-      const cached = await AsyncStorage.getItem(DEVICE_ID_KEY);
-      if (cached) return cached;
-
-      const nativeId = await tryGetNativeDeviceId();
-      const id = nativeId || generateLocalId();
-      await AsyncStorage.setItem(DEVICE_ID_KEY, id);
-      return id;
-    })().catch((error) => {
-      deviceIdPromise = null;
-      throw error;
-    });
-  }
-  return deviceIdPromise;
+  return deviceIdentityService.getStableDeviceId();
 }
 
 function lastHeartbeatMillis(session: DocumentData | undefined): number | null {

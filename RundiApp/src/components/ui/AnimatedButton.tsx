@@ -50,7 +50,7 @@ export const AnimatedButton: React.FC<AnimatedButtonProps> = ({
 
   const handlePressIn = () => {
     Animated.spring(scaleAnim, {
-      toValue: 0.95,
+      toValue: 0.97,
       useNativeDriver: true,
       speed: 50,
       bounciness: 4,
@@ -73,7 +73,7 @@ export const AnimatedButton: React.FC<AnimatedButtonProps> = ({
       case 'primary':
         return { ...baseStyle, backgroundColor: accentColor };
       case 'secondary':
-        return { ...baseStyle, backgroundColor: '#6C757D' };
+        return { ...baseStyle, backgroundColor: colors.surface2, shadowOpacity: 0, elevation: 0 };
       case 'danger':
         return { ...baseStyle, backgroundColor: colors.error };
       case 'success':
@@ -85,21 +85,33 @@ export const AnimatedButton: React.FC<AnimatedButtonProps> = ({
     }
   };
 
+  const getContentColor = (): string => {
+    switch (variant) {
+      case 'primary':
+        return '#241A09';
+      case 'secondary':
+        return colors.text;
+      case 'outline':
+        return accentColor;
+      default:
+        return '#FFFFFF';
+    }
+  };
+
   const getTextStyle = (): TextStyle => {
     const baseStyle = { ...styles.text, ...styles[`text_${size}`] };
-
-    if (variant === 'outline') {
-      return { ...baseStyle, color: accentColor };
-    }
-
-    return baseStyle;
+    return { ...baseStyle, color: getContentColor() };
   };
 
   const isDisabled = disabled || loading;
+  const contentColor = getContentColor();
+  const iconSize = size === 'small' ? 16 : size === 'large' ? 22 : 20;
 
   return (
     <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
       <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityState={{ disabled: isDisabled, busy: loading }}
         style={[
           getButtonStyle(),
           isDisabled && styles.disabled,
@@ -109,14 +121,14 @@ export const AnimatedButton: React.FC<AnimatedButtonProps> = ({
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         disabled={isDisabled}
-        activeOpacity={0.8}
+        activeOpacity={0.85}
       >
         {loading ? (
-          <LoadingIcon icon="refresh" size={20} color={variant === 'outline' ? accentColor : '#FFFFFF'} animation="spin" />
+          <LoadingIcon icon="refresh" size={iconSize} color={contentColor} animation="spin" />
         ) : (
           <View style={styles.contentRow}>
+            {iconName && <MaterialIcons name={iconName} size={iconSize} color={contentColor} style={styles.icon} />}
             <Text style={[getTextStyle(), textStyle]}>{title}</Text>
-            {iconName && <MaterialIcons name={iconName} size={size === 'small' ? 16 : size === 'large' ? 22 : 20} color={variant === 'outline' ? accentColor : '#FFFFFF'} style={styles.icon} />}
           </View>
         )}
       </TouchableOpacity>

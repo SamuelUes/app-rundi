@@ -17,7 +17,6 @@ import {
   type RideSummary,
 } from '../../api/rides';
 import {
-  assignProgrammedDriver,
   cancelProgrammedRide as v2CancelProgrammedRide,
   claimProgrammedRide,
   confirmProgrammedRide,
@@ -67,6 +66,7 @@ export interface RequestRideData {
   notes?: string;
   paymentMethod?: 'cash' | 'card'; // Método de pago: cash (efectivo) o card (bancos nacionales)
   serviceId?: string; // ID of the canonical Service; night is legacy-only
+  serviceAreaId?: string | null;
   selectedFeatureCodes?: string[];
   designatedDriverVehicle?: 'auto' | 'moto';
 }
@@ -482,7 +482,7 @@ const normalizeRide = (raw: any): Ride => {
     estimatedDuration: estimatedDuration !== undefined ? toNumber(estimatedDuration, 0) : undefined,
     notes: raw?.notes ?? undefined,
     cancelReason: raw?.cancelReason ?? undefined,
-    createdAt: toISOString(raw?.createdAt ?? raw?.created_at),
+    createdAt: toISOString(raw?.createdAt ?? raw?.created_at ?? raw?.requestedAt),
     updatedAt: toISOString(raw?.updatedAt ?? raw?.updated_at),
     requestedAt: toISOString(raw?.requestedAt ?? raw?.requested_at),
     acceptedAt: toISOString(raw?.acceptedAt ?? raw?.accepted_at),
@@ -619,19 +619,21 @@ class RidesService {
       throw new Error(this.tr('errors.scheduledAtRequired'));
     }
 
-    const { id } = await v2CreateProgrammedRide({
+    const { id, shareCode } = await v2CreateProgrammedRide({
       scheduledAt: data.scheduledAt,
       origin: data.origin,
       destination: data.destination,
       extraDestinations: data.extraDestinations,
+      estimatedDistance: data.estimatedDistance,
+      estimatedDuration: data.estimatedDuration,
       estimatedPrice: data.estimatedPrice,
       clientSuggestedPrice: data.clientSuggestedPrice,
       rideType: data.rideType ?? 'normal',
       vehicleType: data.vehicleType ?? 'auto',
       passengers: data.passengers,
-      paymentMethod: data.paymentMethod ?? 'cash',
+      paymentMethod: data.paymentMethod === 'card' ? 'card_local' : 'cash',
       serviceId: data.serviceId,
-      serviceAreaId: getCurrentServiceAreaId(),
+      serviceAreaId: data.serviceAreaId ?? getCurrentServiceAreaId(),
       notes: data.notes,
       clientVehiclePhoto: data.clientVehiclePhoto,
       designatedDriverVehicle: data.designatedDriverVehicle,
@@ -646,11 +648,11 @@ class RidesService {
       vehicleType: data.vehicleType || 'auto',
     });
 
-    return { id, status: 'scheduled', scheduledAt: data.scheduledAt, claimCode: null };
+    return { id, status: 'scheduled', scheduledAt: data.scheduledAt, claimCode: shareCode };
   }
 
   async assignDriverToProgrammedRide(rideId: string): Promise<{ success: boolean; ride?: any; message?: string }> {
-    await assignProgrammedDriver(rideId, this.currentUid());
+    await claimProgrammedRide(rideId);
     return { success: true };
   }
 
@@ -670,8 +672,8 @@ class RidesService {
     return { success: true };
   }
 
-  async confirmProgrammedRideDriver(rideId: string): Promise<{ success: boolean; ride?: any; message?: string }> {
-    await confirmProgrammedRide(rideId, 'driver');
+  async confirmProgrammedRideDriver(rideId: string, invitationAt?: number): Promise<{ success: boolean; ride?: any; message?: string }> {
+    await confirmProgrammedRide(rideId, 'driver', invitationAt);
     return { success: true };
   }
 

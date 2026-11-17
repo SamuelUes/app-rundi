@@ -143,6 +143,8 @@ const initializeMessagingModule = async (): Promise<boolean> => {
         rnMessaging.getToken(currentInstance),
       getAPNSToken: async (currentInstance: any) =>
         rnMessaging.getAPNSToken(currentInstance),
+      subscribeToTopic: (currentInstance: any, topic: string) =>
+        rnMessaging.subscribeToTopic(currentInstance, topic),
       onMessage: (currentInstance: any, handler: any) =>
         rnMessaging.onMessage(currentInstance, handler),
       onNotificationOpenedApp: (currentInstance: any, handler: any) =>
@@ -158,6 +160,11 @@ const initializeMessagingModule = async (): Promise<boolean> => {
     };
     messagingInstance = instance;
     AuthorizationStatusEnum = rnMessaging.AuthorizationStatus;
+
+    void messagingModule.subscribeToTopic(instance, 'all').then(
+      () => console.log('✅ Instalación suscrita a campañas FCM'),
+      (error: unknown) => console.warn('⚠️ No se pudo suscribir a campañas FCM:', error),
+    );
 
     await registerBackgroundHandlers(messagingModule);
     logAvailability('available');

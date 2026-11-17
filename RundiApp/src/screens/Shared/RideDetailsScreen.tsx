@@ -198,7 +198,13 @@ export default function RideDetailsScreen({ navigation, route }: any) {
       <View style={styles.errorContainer}>
         <MaterialIcons name="error-outline" size={48} color="#f44336" />
         <Text style={styles.errorTitle}>{t('shared.rideDetail.errors.notFound')}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={loadRideDetails}>
+        <TouchableOpacity
+          style={styles.retryButton}
+          onPress={loadRideDetails}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+        >
+          <MaterialIcons name="refresh" size={18} color="#1A1206" />
           <Text style={styles.retryButtonText}>{t('shared.rideDetail.actions.retry')}</Text>
         </TouchableOpacity>
       </View>
@@ -339,6 +345,9 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     marginBottom: 20,
   },
   retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     backgroundColor: colors.primary,
     paddingVertical: 12,
     paddingHorizontal: 24,
@@ -419,6 +428,14 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     padding: 16,
     borderWidth: 0.1,
     borderColor: colors.border,
+    shadowColor: '#000000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+      shadowRadius: 2,
+      elevation: 2,
   },
   routeRow: {
     flexDirection: 'row',
@@ -496,7 +513,7 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   notesBox: {
     marginTop: 10,
     padding: 12,
-    backgroundColor: colors.surface || colors.background,
+    backgroundColor: colors.surface2 || colors.background,
     borderRadius: 12,
   },
   notesLabel: {

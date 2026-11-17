@@ -35,6 +35,7 @@ import (
 	"github.com/rundi/functions-v2/internal/platform"
 	"github.com/rundi/functions-v2/internal/pricing"
 	"github.com/rundi/functions-v2/internal/programmed"
+	"github.com/rundi/functions-v2/internal/projections"
 	"github.com/rundi/functions-v2/internal/ratelimit"
 	"github.com/rundi/functions-v2/internal/ratings"
 	"github.com/rundi/functions-v2/internal/rides"
@@ -116,11 +117,23 @@ func main() {
 
 	// Endpoint público (App Check solamente): el chequeo de email/phone
 	// únicos corre ANTES del signup, cuando aún no hay ID token.
-	usersH := users.NewHandler(users.NewService(pool, fsClient, app))
+	// El signer firma las fotos de recognize (corren pre-auth — el cliente no
+	// puede resolver objectPaths de un bucket privado sin ID token).
+	var deviceSigner *rstorage.Signer
+	if s, err := rstorage.NewSigner(ctx, cfg.FirebaseStorageBucket, ""); err == nil {
+		deviceSigner = s
+	} else {
+		slog.Warn("users: signer no disponible (recognize sin fotos firmadas)", "err", err)
+	}
+	usersH := users.NewHandler(users.NewService(pool, fsClient, app).WithSigner(deviceSigner))
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.AppCheck(cfg.AppCheckEnforce, verifyAppCheck))
 		r.Use(middleware.RateLimit(rateStore, cfg.RateLimitPublicMode, true, cfg.RateLimitLimits))
 		r.Get("/v1/users/availability", usersH.Availability)
+		// Reconocimiento de dispositivo post-reinstall: hint de cuenta y
+		// cambio deviceId+secret → custom token (login directo).
+		r.Post("/v1/auth/devices/recognize", usersH.RecognizeDevice)
+		r.Post("/v1/auth/devices/token", usersH.DeviceToken)
 	})
 
 	// Rutas protegidas: ID token + App Check (modo según config)
@@ -133,9 +146,6 @@ func main() {
 		}
 		r.Route("/v1/rides", func(r chi.Router) {
 			ridesHandler := rides.NewHandler(rides.NewService(pool, fsClient))
-			if taskProducer != nil {
-				ridesHandler.SetConsumerWakeup(taskProducer.WakeConsumer)
-			}
 			r.Mount("/", ridesHandler.Routes())
 		})
 		// Compliance documental (driver self-service). Push/signer son
@@ -143,12 +153,15 @@ func main() {
 		compSvc := complianceService(ctx, app, pool, fsClient, cfg)
 		dailyStore := compliance.NewDailyStore(fsClient)
 		compHandler := compliance.NewHandler(compSvc, dailyStore)
-		if taskProducer != nil {
-			compHandler.SetConsumerWakeup(taskProducer.WakeConsumer)
-		}
 		r.Route("/v1/payments", func(r chi.Router) {
 			paymentsH := payments.NewHandler(payments.NewService(pool, fsClient), fsClient)
 			paymentsH.SetDriverReactivation(compSvc, dailyStore)
+			paymentsH.SetPaymentProjector(func(ctx context.Context, paymentID string) error {
+				_, err := projections.Publish(ctx, pool, fsClient, projections.Event{
+					AggregateType: "payment", AggregateID: paymentID, Payload: []byte("{}"),
+				})
+				return err
+			})
 			r.Mount("/", paymentsH.Routes())
 		})
 		r.Route("/v1/crew", func(r chi.Router) {
@@ -183,6 +196,11 @@ func main() {
 		})
 		r.Route("/v1/programmed-rides", func(r chi.Router) {
 			progSvc := programmed.NewService(pool, fsClient)
+			sender, err := fcm.NewSender(ctx, app)
+			if err != nil {
+				slog.Warn("programmed invitation push unavailable", "err", err)
+			}
+			progSvc.SetNotifications(notifications.NewCenter(fsClient, sender))
 			if taskProducer != nil {
 				progSvc.SetPromotionScheduler(
 					taskProducer.ScheduleProgrammedPromotion,

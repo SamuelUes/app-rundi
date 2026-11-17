@@ -52,7 +52,7 @@ interface RouteParams {
 
 export default function ActiveRideScreen({ route, navigation }: any) {
   const { rideId } = route.params as RouteParams;
-  useKeepAwake();
+  useKeepAwake(undefined, { suppressDeactivateWarnings: true });
   const { colors } = useTheme();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -1266,6 +1266,7 @@ const createStyles = (colors: any, insets: { top: number; bottom: number }) => S
   },
   headerText: {
     flex: 1,
+    gap: 6,
   },
   clientName: {
     fontSize: 16,
@@ -1280,7 +1281,7 @@ const createStyles = (colors: any, insets: { top: number; bottom: number }) => S
     height: 40,
     borderRadius: 20,
     backgroundColor: colors.surface,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1289,14 +1290,6 @@ const createStyles = (colors: any, insets: { top: number; bottom: number }) => S
     backgroundColor: `${colors.primary}1F`,
     borderColor: `${colors.primary}4D`,
   },
-  headerMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    marginTop: 10,
-    paddingLeft: 56,
-  },
   statusChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1304,7 +1297,9 @@ const createStyles = (colors: any, insets: { top: number; bottom: number }) => S
     paddingHorizontal: 9,
     paddingVertical: 4,
     borderRadius: 999,
-    borderWidth: 1,
+    borderWidth: 0.1,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
     flexShrink: 1,
     minWidth: 0,
   },
@@ -1318,14 +1313,21 @@ const createStyles = (colors: any, insets: { top: number; bottom: number }) => S
     fontWeight: '600',
     flexShrink: 1,
   },
-  metaRight: {
+  fareStrip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    flexShrink: 0,
+    justifyContent: 'space-between',
+    gap: 10,
+    marginTop: 12,
+    backgroundColor: colors.surface2,
+    borderRadius: 14,
+    borderWidth: 0.1,
+    borderColor: colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   fareText: {
-    fontSize: 15,
+    fontSize: 20,
     fontWeight: '800',
     fontVariant: ['tabular-nums'],
     flexShrink: 0,
@@ -1334,15 +1336,15 @@ const createStyles = (colors: any, insets: { top: number; bottom: number }) => S
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
     borderRadius: 999,
-    borderWidth: 1,
+    borderWidth: 0.1,
     borderColor: colors.border,
     flexShrink: 0,
   },
   paymentChipText: {
-    fontSize: 11,
+    fontSize: 16,
     fontWeight: '600',
   },
   sheetContent: {
@@ -1352,7 +1354,7 @@ const createStyles = (colors: any, insets: { top: number; bottom: number }) => S
   routeCard: {
     backgroundColor: colors.surface,
     borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 0.1,
     borderColor: colors.border,
     padding: 16,
     marginBottom: 12,

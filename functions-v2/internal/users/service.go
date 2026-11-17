@@ -20,16 +20,25 @@ import (
 	"github.com/rundi/functions-v2/internal/claims"
 	"github.com/rundi/functions-v2/internal/fs"
 	"github.com/rundi/functions-v2/internal/outbox"
+	rstorage "github.com/rundi/functions-v2/internal/storage"
 )
 
 type Service struct {
-	pool *pgxpool.Pool
-	fs   *firestore.Client
-	app  *firebase.App
+	pool   *pgxpool.Pool
+	fs     *firestore.Client
+	app    *firebase.App
+	signer *rstorage.Signer
 }
 
 func NewService(pool *pgxpool.Pool, fsClient *firestore.Client, app *firebase.App) *Service {
 	return &Service{pool: pool, fs: fsClient, app: app}
+}
+
+// WithSigner — signer opcional para URLs firmadas de fotos (recognize corre
+// pre-auth: el cliente no puede resolver objectPaths de un bucket privado).
+func (s *Service) WithSigner(signer *rstorage.Signer) *Service {
+	s.signer = signer
+	return s
 }
 
 // Campos editables por el dueño — espejo del whitelist de firestore.rules.

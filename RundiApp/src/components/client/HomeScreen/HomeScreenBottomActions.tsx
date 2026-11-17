@@ -23,6 +23,8 @@ interface HomeScreenBottomActionsProps {
   regionStatus: RegionStatus;
   scheduledRideNotice?: string | null;
   onRequestRide: () => void;
+  onProgrammedRides: () => void;
+  hasProgrammedRides: boolean;
   recurringChips?: React.ReactNode;
   styles: any;
   t: TFunction;
@@ -35,6 +37,8 @@ export function HomeScreenBottomActions({
   regionStatus,
   scheduledRideNotice,
   onRequestRide,
+  onProgrammedRides,
+  hasProgrammedRides,
   recurringChips,
   styles,
   t,
@@ -42,9 +46,11 @@ export function HomeScreenBottomActions({
   if (pendingAction) {
     return (
       <View style={styles.bottomStack} pointerEvents="box-none">
+        <View style={styles.requestActionsRow}>
         <Pressable
           style={({ pressed }) => [
             styles.requestButton,
+            styles.requestButtonFlexible,
             pressed && styles.requestButtonPressed,
           ]}
           onPress={pendingAction.onPress}
@@ -61,6 +67,17 @@ export function HomeScreenBottomActions({
             />
           </View>
         </Pressable>
+        {hasProgrammedRides ? (
+          <Pressable
+            style={({ pressed }) => [styles.programmedButton, pressed && styles.requestButtonPressed]}
+            onPress={onProgrammedRides}
+            accessibilityRole="button"
+            accessibilityLabel={t('client.programmedRides.title')}
+          >
+            <MaterialIcons name="event" size={24} color="#241A09" />
+          </Pressable>
+        ) : null}
+        </View>
       </View>
     );
   }
@@ -97,9 +114,11 @@ export function HomeScreenBottomActions({
         {recurringChips}
       </View>
 
+      <View style={styles.requestActionsRow}>
       <Pressable
         style={({ pressed }) => [
           styles.requestButton,
+          styles.requestButtonFlexible,
           (isOutsideSupportedArea || isLocationUpdating) && styles.requestButtonDisabled,
           pressed && styles.requestButtonPressed,
         ]}
@@ -112,6 +131,17 @@ export function HomeScreenBottomActions({
           <MaterialIcons name="arrow-forward" size={18} color="#241A09" />
         </View>
       </Pressable>
+      {hasProgrammedRides ? (
+        <Pressable
+          style={({ pressed }) => [styles.programmedButton, pressed && styles.requestButtonPressed]}
+          onPress={onProgrammedRides}
+          accessibilityRole="button"
+          accessibilityLabel={t('client.programmedRides.title')}
+        >
+          <MaterialIcons name="event" size={24} color="#241A09" />
+        </Pressable>
+      ) : null}
+      </View>
     </View>
   );
 }

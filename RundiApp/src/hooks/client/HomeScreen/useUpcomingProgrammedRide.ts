@@ -29,6 +29,7 @@ export type UpcomingProgrammedRide = {
   destination?: any;
   isImminent: boolean;
   isToday: boolean;
+  hasFutureRides: boolean;
   data: any;
 };
 
@@ -191,14 +192,16 @@ export function useUpcomingProgrammedRide(
 
     const now = nowTick;
     let best: { rideId: string; ride: any; scheduledAt: number } | null = null;
+    let hasFutureRides = false;
 
     for (const [rideId, ride] of Object.entries(clientRides)) {
       if (!ride) continue;
       const statusRaw = typeof ride.status === 'string' ? ride.status.trim().toLowerCase() : '';
-      if (statusRaw === 'canceled' || statusRaw === 'cancelled') continue;
+      if (statusRaw !== 'scheduled' && statusRaw !== 'client_confirmed') continue;
       const scheduledAt =
         typeof ride.scheduledAt === 'number' ? ride.scheduledAt : Number(ride.scheduledAt);
       if (!Number.isFinite(scheduledAt) || scheduledAt <= 0) continue;
+      if (scheduledAt > now) hasFutureRides = true;
       if (scheduledAt + PROMOTION_GRACE_MS < now) continue;
       if (!best || scheduledAt < best.scheduledAt) {
         best = { rideId, ride, scheduledAt };
@@ -220,6 +223,7 @@ export function useUpcomingProgrammedRide(
       destination: best.ride.destination,
       isImminent: msUntil <= PROGRAMMED_RIDE_IMMINENT_MS,
       isToday: isSameDay(new Date(now), new Date(best.scheduledAt)),
+      hasFutureRides,
       data: best.ride,
     };
   }, [clientRides, nowTick]);

@@ -144,6 +144,12 @@ func (s *Service) DeleteUserData(ctx context.Context, uid, requestID string) err
 		WHERE user_id = $1`, uid); err != nil {
 		return err
 	}
+	// Credenciales de dispositivo son material de auth del titular: se borran
+	// con la cuenta (un UID reutilizado no debe heredar sessions de device).
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM public.user_devices WHERE user_id = $1`, uid); err != nil {
+		return err
+	}
 	if err := outbox.Insert(ctx, tx, outbox.Event{
 		Type: "user.deleted", AggregateType: "user", AggregateID: uid,
 		RequestID: requestID, Payload: map[string]any{"uid": uid, "kind": "gdpr"},

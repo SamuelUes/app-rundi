@@ -852,6 +852,14 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderRadius: 16,
     borderWidth: 0.1,
     borderColor: colors.border,
+    shadowColor: '#000000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
   },
   sectionTitle: {
     fontSize: 17,

@@ -8,6 +8,12 @@ const authScreens = {
               subtitle: 'Your ride starts here',
               login: 'Log in',
               register: 'Create account',
+              welcomeBack: 'Welcome back',
+              continueAs: 'Continue as {{name}}',
+              continueAccount: 'Continue with your account',
+              useAnotherAccount: 'Use another account',
+              signingIn: 'Signing in...',
+              deviceLoginError: "We couldn't sign you in automatically. Please log in manually.",
             },
             login: {
               title: 'Welcome',

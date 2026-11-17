@@ -191,8 +191,12 @@ export function useRideData(rideId: string, notFoundMessage: string): RideDataSt
       rideId,
       status: normalizedStatus,
       destinationAddress: ride?.destination?.address ?? null,
+      vehicleType: ride?.vehicleType ?? ride?.vehicle?.type ?? null,
+      partyName: ride?.clientName ?? null,
+      fare: ride?.finalFare ?? ride?.estimatedPrice ?? null,
+      paymentMethod: paymentMethod ?? null,
     });
-  }, [rideId, ride, normalizedStatus]);
+  }, [rideId, ride, normalizedStatus, paymentMethod]);
 
   const finalFare = ride?.finalFare || ride?.estimatedPrice || 0;
 

@@ -377,6 +377,7 @@ export function buildProgrammedRideAction(
     metadata: {
       rideId: programmedRide.rideId,
       scheduledAt: programmedRide.scheduledAt ?? null,
+      driverInvitationAt: programmedRide.driverInvitationAt ?? 0,
     },
   };
 }

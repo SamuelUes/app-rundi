@@ -48,9 +48,9 @@ func (s *Service) resolveRideID(ctx context.Context, rideID string) (string, err
 // ConfirmCash — el conductor confirma recepción del efectivo (antes: callable
 // confirmCashPayment). Solo el conductor asignado; solo pagos 'pending'.
 // Doc §7.1: trip completed ≠ payment settled — esto liquida la obligación.
-// Cuando existe payment_cash_codes el código es OBLIGATORIO (el cliente lo
-// ostenta en payments_live/private/cash; el conductor lo digita — espejo del
-// pickup code, con la misma política de intentos/bloqueo).
+// El código de payment_cash_codes es OPCIONAL (paridad v1, que nunca lo
+// exigió): si el conductor lo digita se verifica con la misma política de
+// intentos/bloqueo del pickup code; confirmar sin código liquida igual.
 func (s *Service) ConfirmCash(ctx context.Context, rideID, driverUID, code, requestID string) (*Payment, error) {
 	var err error
 	if rideID, err = s.resolveRideID(ctx, rideID); err != nil {
@@ -63,7 +63,8 @@ func (s *Service) ConfirmCash(ctx context.Context, rideID, driverUID, code, requ
 	defer tx.Rollback(ctx)
 
 	var assignedDriver *string
-	if err := tx.QueryRow(ctx, `SELECT driver_id FROM public.rides WHERE id=$1::uuid FOR UPDATE`, rideID).Scan(&assignedDriver); err != nil {
+	var walletCommissionEnabled bool
+	if err := tx.QueryRow(ctx, `SELECT driver_id, wallet_commission_enabled FROM public.rides WHERE id=$1::uuid FOR UPDATE`, rideID).Scan(&assignedDriver, &walletCommissionEnabled); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apperr.ErrNotFound
 		}
@@ -81,12 +82,9 @@ func (s *Service) ConfirmCash(ctx context.Context, rideID, driverUID, code, requ
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
-	if expected != nil {
+	if expected != nil && code != "" {
 		if lockedUntil != nil && lockedUntil.After(time.Now()) {
 			return nil, apperr.New(429, "cash code temporarily locked")
-		}
-		if code == "" {
-			return nil, apperr.New(400, "cash code required")
 		}
 		if code != *expected {
 			if _, err := tx.Exec(ctx, `
@@ -134,6 +132,38 @@ func (s *Service) ConfirmCash(ctx context.Context, rideID, driverUID, code, requ
 		SET total_earnings = COALESCE(total_earnings, 0) + ($2::numeric - $3::numeric)
 		WHERE user_id = $1`, driverUID, p.Total, p.Commission); err != nil {
 		return nil, err
+	}
+
+	if walletCommissionEnabled {
+		if p.Commission > 0 {
+			var movementID string
+			err = tx.QueryRow(ctx, `
+				WITH balance AS (
+					UPDATE public.drivers
+					SET current_recharge_balance = current_recharge_balance - $2::numeric
+					WHERE user_id = $1 AND deleted_at IS NULL
+					RETURNING current_recharge_balance
+				)
+				INSERT INTO public.driver_wallet_movements
+					(driver_id, ride_id, movement_type, source, amount, balance_before, balance_after, external_transaction_id)
+				SELECT $1, $3::uuid, 'commission_deduction', 'ride_payment_completion',
+				       -$2::numeric, current_recharge_balance + $2::numeric, current_recharge_balance, 'deduction-' || $4
+				FROM balance RETURNING id::text`, driverUID, p.Commission, rideID, p.ID).Scan(&movementID)
+			if err != nil {
+				return nil, fmt.Errorf("commission deduction: %w", err)
+			}
+			if err := outbox.Insert(ctx, tx, outbox.Event{
+				Type: "driver.wallet_debited", AggregateType: "driver", AggregateID: driverUID,
+				RequestID: requestID,
+				Payload:   map[string]any{"driverId": driverUID, "rideId": rideID, "rechargeId": movementID},
+			}); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := tx.Exec(ctx, `UPDATE public.payments SET commission_status='paid', commission_paid_at=NOW() WHERE id=$1`, p.ID); err != nil {
+			return nil, err
+		}
+		p.CommissionStatus = "paid"
 	}
 
 	p.DriverID = driverUID

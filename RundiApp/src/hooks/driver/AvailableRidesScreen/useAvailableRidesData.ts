@@ -58,6 +58,7 @@ const buildRide = (
     clientId: rideData.clientId || '',
     clientName: rideData.clientName || rideData.client?.name || rideData.clientInfo?.name,
     clientPhone: rideData.clientPhone || rideData.client?.phone || rideData.clientInfo?.phone,
+    client: { photoUrl: rideData.clientPhoto || rideData.client?.photoUrl || rideData.clientInfo?.photoUrl || null },
     origin,
     destination,
     estimatedDistance: rideData.estimatedDistance || 0,
@@ -182,6 +183,7 @@ export function useAvailableRidesData(
             ...buildRide(rideId, rideData, statusRaw || 'accepted', userId),
             isProgrammed: true,
             scheduledAt,
+            driverInvitationAt: typeof rideData?.driverInvitationAt === 'number' ? rideData.driverInvitationAt : 0,
             clientConfirmed: Boolean(rideData?.clientConfirmed || rideData?.clientConfirmedAt),
             driverConfirmed: Boolean(rideData?.driverConfirmed || rideData?.driverConfirmedAt),
             driverConfirmationRequestedAt: Number.isFinite(Number(rideData?.driverConfirmationRequestedAt))

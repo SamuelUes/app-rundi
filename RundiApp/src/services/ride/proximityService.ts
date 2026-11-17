@@ -21,6 +21,7 @@ export interface ProximityRidePreview {
   clientId: string;
   clientName?: string;
   clientPhone?: string;
+  clientPhoto?: string | null;
   origin: { lat: number; lng: number; address?: string };
   destination: { lat: number; lng: number; address?: string };
   extraDestinations?: Array<{ lat: number; lng: number; address?: string }>;
@@ -63,6 +64,21 @@ const AUTO_DISMISS_TTL_MS = 60 * 1000; // tras auto-cierre, no re-mostrar por ap
 const SUPPRESS_AUTO_OPEN_ROUTES = new Set(['RidePreview', 'ActiveRide', 'WaitingClientConfirmation', 'PaymentConfirmation']);
 const REGISTRATION_UPLOADS_TTL_MS = 10 * 60 * 1000; // caducar flag tras 10 minutos
 const PROXIMITY_PUSH_RETRY_INTERVAL_MS = 5 * 60 * 1000;
+const PROXIMITY_SERVER_TIMEOUT_MS = 10000;
+
+async function withProximityTimeout<T>(operation: Promise<T>, stage: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`proximity timeout: ${stage}`)), PROXIMITY_SERVER_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 let overlayEnabledCache: boolean | null = null;
 let registrationUploadsCache: boolean | null = null;
@@ -589,6 +605,7 @@ function toPreview(ride: any): ProximityRidePreview {
     clientId: ride.clientId || ride.client_id || '',
     clientName: ride.client?.name ?? ride.clientName,
     clientPhone: ride.client?.phone ?? ride.clientPhone,
+    clientPhoto: ride.clientPhoto ?? ride.client?.photoUrl ?? ride.client?.profilePhoto ?? null,
     origin: {
       lat: origin?.latitude ?? origin?.lat ?? ride.origin?.lat ?? 0,
       lng: origin?.longitude ?? origin?.lng ?? ride.origin?.lng ?? 0,
@@ -647,8 +664,8 @@ export async function getNearbyRides(
   try {
     const db = await getFirebaseFirestore();
     const [profile, vehicle, saved] = await Promise.all([
-      getDocFromServer(doc(db, FS_COL.drivers, driverId)),
-      getDocFromServer(doc(db, FS_COL.driversLive, driverId, 'vehicles', 'active')),
+      withProximityTimeout(getDocFromServer(doc(db, FS_COL.drivers, driverId)), 'driver profile'),
+      withProximityTimeout(getDocFromServer(doc(db, FS_COL.driversLive, driverId, 'vehicles', 'active')), 'active vehicle'),
       driverAvailabilityService.getAvailabilityState(),
     ]);
     const vehicleData = vehicle.data();
@@ -669,11 +686,14 @@ export async function getNearbyRides(
     ).ok;
   } catch (error) {
     console.warn('[proximity] No se pudo comprobar la compatibilidad:', error);
-    return [];
+    throw error;
   }
 
   try {
-      const rides = await ridesService.getAvailableRides(lat, lng, NEARBY_RIDES_RADIUS_KM, undefined, true);
+      const rides = await withProximityTimeout(
+        ridesService.getAvailableRides(lat, lng, NEARBY_RIDES_RADIUS_KM, undefined, true),
+        'available rides',
+      );
       const withDistance = (rides || []).filter((ride: any) => !ride.driverId && compatible(ride))
         .map((r: any) => {
           const preview = toPreview(r);
@@ -689,7 +709,7 @@ export async function getNearbyRides(
       return nearby;
   } catch (e: any) {
     console.warn('[proximity] No se pudo confirmar solicitudes en el servidor.', e?.message || e);
-    return [];
+    throw e;
   }
 }
 
@@ -846,28 +866,30 @@ async function handleLocationForProximity(
     }
 
     const maxNearbyDistanceMeters = NEARBY_RIDES_RADIUS_KM * 1000;
-    const auth = await getFirebaseAuth();
-    const db = await getFirebaseFirestore();
+    const auth = await withProximityTimeout(getFirebaseAuth(), 'firebase auth');
+    const db = await withProximityTimeout(getFirebaseFirestore(), 'firestore initialization');
     if (auth.currentUser?.uid !== userId) {
       cancelProximitySequence();
       return;
     }
-    const liveDriver = await getDocFromServer(doc(db, FS_COL.driversLive, userId));
+    console.log('[proximity] Consultando estado del conductor en servidor');
+    const liveDriver = await withProximityTimeout(getDocFromServer(doc(db, FS_COL.driversLive, userId)), 'driver status');
     if (!['online', 'available'].includes(String(liveDriver.data()?.status ?? '').toLowerCase())) {
       cancelProximitySequence();
       return;
     }
+    console.log('[proximity] Consultando viajes y compatibilidad en servidor');
     const nearby = await getNearbyRides(lat, lng, maxNearbyDistanceMeters, Infinity, userId);
     if (options?.sequence && activeSequence !== options.sequence) return;
     const currentAvailability = await driverAvailabilityService.getAvailabilityState();
     const currentAuth = await getFirebaseAuth();
-    const currentLiveDriver = await getDocFromServer(doc(db, FS_COL.driversLive, userId));
-    const assignedTrips = await getDocsFromServer(query(
+    const currentLiveDriver = await withProximityTimeout(getDocFromServer(doc(db, FS_COL.driversLive, userId)), 'driver status recheck');
+    const assignedTrips = await withProximityTimeout(getDocsFromServer(query(
       collection(db, FS_COL.tripsLive),
       where('driverId', '==', userId),
       where('status', 'in', ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress', 'driver_offered']),
       limit(1),
-    ));
+    )), 'assigned trips');
     const hasActiveRide = assignedTrips.docs.length > 0;
     if (generation !== sequenceGeneration || (options?.sequence && activeSequence !== options.sequence)) return;
     if (hasActiveRide || !currentAvailability?.isAvailable || currentAuth.currentUser?.uid !== userId ||
@@ -1136,9 +1158,11 @@ async function handleLocationForProximity(
           console.log('🫧 [proximity] overlayManager object:', overlayManager);
           console.log('🫧 [proximity] showRideOverlay function:', typeof overlayManager.showRideOverlay);
 
+          let overlayShown = false;
           try {
             console.log('🫧 [proximity] ANTES de await overlayManager.showRideOverlay()');
             const result = await overlayManager.showRideOverlay(overlayData);
+            overlayShown = result;
             console.log('✅ [proximity] overlayManager.showRideOverlay() completado con result:', result);
             if (!offerExpired) {
               scheduleOverlayOfferRevert(closest.id, offerShownAt);
@@ -1154,7 +1178,7 @@ async function handleLocationForProximity(
           // 3. Android: traer la app al frente con el preview del viaje
           // (SYSTEM_ALERT_WINDOW exime la restricción de background-activity-start).
           // En iOS no existe API equivalente: Live Activity + notificación es lo máximo.
-          if (Platform.OS === 'android') {
+          if (Platform.OS === 'android' && overlayShown && !offerExpired && AppState.currentState !== 'active') {
             try {
               const brought = await overlayManager.bringAppToFront(closest.id);
               if (brought) {
@@ -1180,6 +1204,7 @@ async function handleLocationForProximity(
     await markCheck(effectiveAppState !== 'active');
   } catch (e) {
     // No romper la tarea de background
+    console.warn('[proximity] No se pudo completar la búsqueda; se reintentará:', e);
     cancelProximitySequence();
     await markCheck(false);
   } finally {

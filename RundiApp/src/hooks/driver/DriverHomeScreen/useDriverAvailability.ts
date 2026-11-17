@@ -42,6 +42,11 @@ export function useDriverAvailability({
   const toggleInFlightRef = useRef<boolean>(false);
   const rechargeAlertShownRef = useRef<boolean>(false);
   const availabilityRevisionRef = useRef(0);
+  // Último estado proyectado por el backend en drivers_live + esperadores del
+  // toggle: el spinner se sostiene hasta que status confirme la mutación
+  // (el tope de waitForLiveStatus evita un bloqueo si el consumer se atrasa).
+  const lastLiveOnlineRef = useRef<boolean | null>(null);
+  const liveStatusWaitersRef = useRef<{ expectedOnline: boolean; resolve: () => void }[]>([]);
 
   // Restore availability state on mount
   useEffect(() => {
@@ -69,6 +74,7 @@ export function useDriverAvailability({
         if (!isActive || revision !== availabilityRevisionRef.current) return;
         const status = String(statusSnapshot.data()?.status || 'offline').trim().toLowerCase();
         const isOnline = status === 'online' || status === 'available' || status === 'on_ride' || status === 'busy';
+        lastLiveOnlineRef.current = isOnline;
         // drivers_live.designatedMode es la fuente cross-device; AsyncStorage
         // queda de fallback para docs aún sin el campo.
         const docDesignated = statusSnapshot.data()?.designatedMode;
@@ -116,6 +122,13 @@ export function useDriverAvailability({
         const status = typeof raw === 'string' ? raw.trim().toLowerCase() : 'offline';
         const online = status === 'online' || status === 'available' || status === 'on_ride' || status === 'busy';
         if (__DEV__) console.log('[DriverHome availability]', { status, online });
+
+        lastLiveOnlineRef.current = online;
+        const waiters = liveStatusWaitersRef.current;
+        if (waiters.length > 0) {
+          liveStatusWaitersRef.current = waiters.filter((w) => w.expectedOnline !== online);
+          waiters.filter((w) => w.expectedOnline === online).forEach((w) => w.resolve());
+        }
 
         setIsAvailable(online);
         if (!online) {
@@ -256,6 +269,27 @@ export function useDriverAvailability({
     }
   }, [hasInsufficientFunds, rechargeFundsSummary, enforceOfflineDueToRechargeFunds, navigation, tr]);
 
+  // Resuelve cuando la proyección autoritativa (outbox → consumer →
+  // drivers_live.status) refleja el estado esperado; el tope suelta el
+  // spinner si el consumer se atrasa — el listener corrige al llegar.
+  const waitForLiveStatus = useCallback((expectedOnline: boolean, timeoutMs = 8000) => {
+    if (lastLiveOnlineRef.current === expectedOnline) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      const waiter = { expectedOnline, resolve: () => {} };
+      const timer = setTimeout(() => {
+        liveStatusWaitersRef.current = liveStatusWaitersRef.current.filter((w) => w !== waiter);
+        resolve();
+      }, timeoutMs);
+      waiter.resolve = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      liveStatusWaitersRef.current.push(waiter);
+    });
+  }, []);
+
   const handleAvailabilityToggle = useCallback(async (nextValue: boolean) => {
     if (!userId || !coords) {
       alertService.showErrorAlert(tr('driver.home.alerts.availabilityUpdateFailed'));
@@ -337,6 +371,11 @@ export function useDriverAvailability({
           );
         }
       }
+
+      // El spinner cubre también la proyección de drivers_live.status (outbox
+      // → consumer → Firestore) — el estado ya se volcó optimista arriba; el
+      // tope evita un botón colgado si el pipeline se retrasa.
+      await waitForLiveStatus(effectiveAvailable);
     } catch (err: any) {
       alertService.showErrorAlert(
         err?.message || tr('driver.home.alerts.availabilityUpdateFailed'),
@@ -345,7 +384,7 @@ export function useDriverAvailability({
       toggleInFlightRef.current = false;
       setUpdatingStatus(false);
     }
-  }, [userId, coords, updatingStatus, hasInsufficientFunds, rechargeFundsSummary, isAvailable, isDesignatedDriverMode, userRole, tr, navigation]);
+  }, [userId, coords, updatingStatus, hasInsufficientFunds, rechargeFundsSummary, isAvailable, isDesignatedDriverMode, userRole, tr, navigation, waitForLiveStatus]);
 
   const handleDesignatedToggle = useCallback(async () => {
     if (userRole !== 'designated_driver' || !isAvailable || !userId) {

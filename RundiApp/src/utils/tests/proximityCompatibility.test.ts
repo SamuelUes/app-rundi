@@ -72,6 +72,33 @@ test('proximity filters incompatible features before selecting the closest rides
   expect(rides[0].featureCodes).toEqual(['pet_friendly']);
 });
 
+test('a stalled server read releases the proximity check for a later retry', async () => {
+  jest.clearAllMocks();
+  jest.useFakeTimers();
+  (AppState as any).currentState = 'background';
+  await AsyncStorage.removeItem('proximity:lastCheckAt');
+  await AsyncStorage.removeItem('proximity:suppressionUntil');
+  (getDocFromServer as jest.Mock).mockImplementationOnce(() => new Promise(() => {}));
+  const first = handleLocationForProximity('driver', 12, -86);
+  await jest.advanceTimersByTimeAsync(10000);
+  await first;
+
+  (getDocFromServer as jest.Mock).mockImplementation(async (path: string) => ({
+    data: () => path.includes('/vehicles/active')
+      ? { vehicleId: 'vehicle', type: 'sedan' }
+      : path.includes('REALTIME_drivers_live') ? { status: 'online' } : { features: [] },
+  }));
+  (getDocsFromServer as jest.Mock).mockResolvedValue({ docs: [] });
+  (ridesService.getAvailableRides as jest.Mock).mockResolvedValue([]);
+  await jest.advanceTimersByTimeAsync(15000);
+  await handleLocationForProximity('driver', 12, -86);
+  expect(ridesService.getAvailableRides).toHaveBeenCalledTimes(1);
+  cancelProximitySequence();
+  jest.clearAllTimers();
+  jest.useRealTimers();
+  await AsyncStorage.removeItem('proximity:lastCheckAt');
+});
+
 test('after a two second pause refreshes the server and advances past omitted rides', async () => {
   jest.clearAllMocks();
   jest.useFakeTimers();

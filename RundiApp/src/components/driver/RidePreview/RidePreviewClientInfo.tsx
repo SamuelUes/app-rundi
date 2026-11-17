@@ -11,6 +11,7 @@ interface RidePreviewClientInfoProps {
   estimatedPrice: number;
   clientComment: string | null | undefined;
   clientProfile: ClientProfile | null;
+  clientPhotoUrl?: string | null;
   distanceKm?: number | null;
   durationMin?: number | null;
   paymentMethod?: 'cash' | 'card' | null;
@@ -29,6 +30,7 @@ export function RidePreviewClientInfo({
   estimatedPrice,
   clientComment,
   clientProfile,
+  clientPhotoUrl,
   distanceKm,
   durationMin,
   paymentMethod,
@@ -56,6 +58,7 @@ export function RidePreviewClientInfo({
     tripMetaParts.push(t('driver.ridePreview.labels.paymentCard'));
   }
   const tripMeta = tripMetaParts.join(' • ');
+  const resolvedPhotoUrl = clientPhotoUrl || clientProfile?.photoUrl || null;
   const designatedNoteKey = 'shared.searchRide.notes.designatedDriver';
   const normalizedClientComment =
     typeof clientComment === 'string'
@@ -72,9 +75,9 @@ export function RidePreviewClientInfo({
           },
         ]}
       >
-        {clientProfile?.photoUrl ? (
+        {resolvedPhotoUrl ? (
           <StorageImage
-            uri={clientProfile.photoUrl}
+            uri={resolvedPhotoUrl}
             style={styles.avatarImage}
             resizeMode="cover"
           />

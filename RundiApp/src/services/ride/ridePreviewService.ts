@@ -9,6 +9,7 @@ export interface RidePreview {
   clientId: string;
   clientName?: string;
   clientPhone?: string;
+  clientPhoto?: string | null;
   origin: { lat: number; lng: number; address?: string };
   destination: { lat: number; lng: number; address?: string };
   extraDestinations?: Array<{ lat: number; lng: number; address?: string }>;
@@ -68,6 +69,7 @@ export async function fetchRidePreview(rideId: string): Promise<RidePreview | nu
     clientId: src.clientId || '',
     clientName: unwrap(src.clientName),
     clientPhone: unwrap(src.clientPhone),
+    clientPhoto: unwrap(src.clientPhoto) ?? null,
     origin: {
       lat: originRaw.latitude ?? originRaw.lat ?? 0,
       lng: originRaw.longitude ?? originRaw.lng ?? 0,

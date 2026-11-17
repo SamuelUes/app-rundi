@@ -3,6 +3,13 @@ import mapsService from '../../../services/map/mapsService';
 import alertService from '../../../services/notification/alertService';
 import { formatCoords, isValidCoordLocal, metersBetween, type Coords } from '../../../utils/geo/rideCoords';
 import { checkLocationAllowed, type LocationValidationResult } from '../../../utils/geo/locationValidation';
+import {
+  loadRecentLocations,
+  pushRecentLocation,
+  saveRecentLocations,
+  type RecentLocationKind,
+  type RecentLocationsStore,
+} from '../../../utils/ride/recentLocations';
 import type { TFunction } from 'i18next';
 import type { SearchRideState } from './useSearchRideState';
 
@@ -61,7 +68,8 @@ export function useSearchRideLocation(
     hasPinnedOrigin, setHasPinnedOrigin,
     cameraTarget, setCameraTarget,
     mapSelectionMode, setMapSelectionMode,
-    recentLocations, setRecentLocations,
+    setRecentOriginLocations,
+    setRecentDestinationLocations,
   } = state;
 
   const locationValidationCacheRef = useRef<Record<string, LocationValidationResult>>({});
@@ -112,18 +120,40 @@ export function useSearchRideLocation(
     [ensureLocationAllowed, tr],
   );
 
-  const rememberRecentLocation = useCallback((label: string, coordsValue: Coords | null) => {
-    if (!coordsValue) return;
-    setRecentLocations((prev) => {
-      const existingIndex = prev.findIndex(
-        (loc) =>
-          Math.abs(loc.coords.latitude - coordsValue.latitude) < 0.0001 &&
-          Math.abs(loc.coords.longitude - coordsValue.longitude) < 0.0001,
-      );
-      const filtered = existingIndex >= 0 ? prev.filter((_, idx) => idx !== existingIndex) : prev;
-      return [{ label, coords: coordsValue }, ...filtered].slice(0, 8);
+  // Historial local por campo: últimas 5 ubicaciones de origen y de
+  // destino, persistidas en AsyncStorage por usuario. Se alimenta de
+  // cualquier selección (sugerencia, guardada, pin o tap en mapa).
+  const recentStoreRef = useRef<RecentLocationsStore>({ origin: [], destination: [] });
+  useEffect(() => {
+    if (!userId) return;
+    let mounted = true;
+    loadRecentLocations(userId).then((store) => {
+      if (!mounted) return;
+      recentStoreRef.current = store;
+      setRecentOriginLocations(store.origin);
+      setRecentDestinationLocations(store.destination);
     });
-  }, [setRecentLocations]);
+    return () => {
+      mounted = false;
+    };
+  }, [userId, setRecentOriginLocations, setRecentDestinationLocations]);
+
+  const rememberRecentLocation = useCallback(
+    (
+      target: 'origin' | 'destination' | 'new-stop' | number,
+      label: string,
+      coordsValue: Coords | null,
+    ) => {
+      if (!coordsValue) return;
+      const kind: RecentLocationKind = target === 'origin' ? 'origin' : 'destination';
+      const next = pushRecentLocation(recentStoreRef.current[kind], { label, coords: coordsValue });
+      recentStoreRef.current = { ...recentStoreRef.current, [kind]: next };
+      if (kind === 'origin') setRecentOriginLocations(next);
+      else setRecentDestinationLocations(next);
+      if (userId) void saveRecentLocations(userId, recentStoreRef.current);
+    },
+    [userId, setRecentOriginLocations, setRecentDestinationLocations],
+  );
 
   // Initialize origin from saved location or GPS
   useEffect(() => {
@@ -239,7 +269,7 @@ export function useSearchRideLocation(
         setManualOriginAddress(sanitizedLabel);
         setManualOriginDraft(coordsValue);
         setOriginCoords(coordsValue);
-        rememberRecentLocation(sanitizedLabel, coordsValue);
+        rememberRecentLocation('origin', sanitizedLabel, coordsValue);
         setHasPinnedOrigin(true);
         setHasManualOriginOverride(true);
         setCameraTarget(coordsValue);
@@ -259,7 +289,7 @@ export function useSearchRideLocation(
         setManualDestinationDraft(null);
         setManualDestinationLoading(false);
         setManualDestinationDragging(false);
-        rememberRecentLocation(sanitizedLabel, coordsValue);
+        rememberRecentLocation('destination', sanitizedLabel, coordsValue);
         setCameraTarget(coordsValue);
         await recomputeRouteWith(undefined, coordsValue, undefined);
         return;
@@ -275,7 +305,7 @@ export function useSearchRideLocation(
         if (!validation) return;
         const nextStops = [...extraDestinations, { address: sanitizedLabel, coords: safeCoords }];
         setExtraDestinations(nextStops);
-        rememberRecentLocation(sanitizedLabel, safeCoords);
+        rememberRecentLocation('destination', sanitizedLabel, safeCoords);
         setCameraTarget(safeCoords);
         await recomputeRouteWith(undefined, undefined, nextStops);
         return;
@@ -293,7 +323,7 @@ export function useSearchRideLocation(
           index === target ? { address: sanitizedLabel, coords: safeCoords } : stop,
         );
         setExtraDestinations(nextStops);
-        rememberRecentLocation(sanitizedLabel, safeCoords);
+        rememberRecentLocation('destination', sanitizedLabel, safeCoords);
         setCameraTarget(safeCoords);
         await recomputeRouteWith(undefined, undefined, nextStops);
       }
@@ -327,7 +357,7 @@ export function useSearchRideLocation(
         setManualOriginAddress(displayAddress);
         setOriginCoords(newCoords);
         setOrigin(displayAddress);
-        rememberRecentLocation(displayAddress, newCoords);
+        rememberRecentLocation('origin', displayAddress, newCoords);
         setCameraTarget(newCoords);
         await recomputeRouteWith(newCoords, undefined, undefined);
         promptDestinationSelection();
@@ -337,7 +367,7 @@ export function useSearchRideLocation(
         setManualOriginAddress(fallbackAddress);
         setOriginCoords(newCoords);
         setOrigin(fallbackAddress);
-        rememberRecentLocation(fallbackAddress, newCoords);
+        rememberRecentLocation('origin', fallbackAddress, newCoords);
         setCameraTarget(newCoords);
         await recomputeRouteWith(newCoords, undefined, undefined);
         promptDestinationSelection();
@@ -417,7 +447,7 @@ export function useSearchRideLocation(
         setOriginCoords(center);
         setOrigin(displayAddress);
         setHasManualOriginOverride(true);
-        rememberRecentLocation(displayAddress, center);
+        rememberRecentLocation('origin', displayAddress, center);
         lastAppliedOriginCenterRef.current = center;
         await recomputeRouteWith(center, undefined, undefined);
         promptDestinationSelection();
@@ -428,7 +458,7 @@ export function useSearchRideLocation(
         setOriginCoords(center);
         setOrigin(fallback);
         setHasManualOriginOverride(true);
-        rememberRecentLocation(fallback, center);
+        rememberRecentLocation('origin', fallback, center);
         await recomputeRouteWith(center, undefined, undefined);
         promptDestinationSelection();
       } finally {
@@ -459,7 +489,7 @@ export function useSearchRideLocation(
 
         setDestination(displayAddress);
         setDestinationCoords(center);
-        rememberRecentLocation(displayAddress, center);
+        rememberRecentLocation('destination', displayAddress, center);
         lastAppliedDestinationCenterRef.current = center;
         await recomputeRouteWith(undefined, center, undefined);
       } catch (err) {
@@ -467,7 +497,7 @@ export function useSearchRideLocation(
         const fallback = formatCoords(center);
         setDestination(fallback);
         setDestinationCoords(center);
-        rememberRecentLocation(fallback, center);
+        rememberRecentLocation('destination', fallback, center);
         await recomputeRouteWith(undefined, center, undefined);
       } finally {
         setManualDestinationLoading(false);

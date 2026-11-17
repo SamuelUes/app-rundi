@@ -68,6 +68,8 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   const [showDriverReviews, setShowDriverReviews] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [driverCameraTarget, setDriverCameraTarget] = useState<LatLngPoint | null>(null);
+  const [bottomSheetHeight, setBottomSheetHeight] = useState(0);
 
   const {
     rideId,
@@ -82,6 +84,10 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     driversRaw,
     reset: resetRideOffers,
   } = useRideOffers(route?.params?.rideId || null, user?.id, serviceAreaId, driverFallbackName);
+
+  useEffect(() => {
+    setDriverCameraTarget(null);
+  }, [rideId]);
 
   const programmedRide = route?.params?.programmedRide;
 
@@ -106,13 +112,6 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   const driversInfo = useMemo(() => assignedDriverId && assignedProfile
     ? { ...offerDriversInfo, [assignedDriverId]: assignedProfile }
     : offerDriversInfo, [offerDriversInfo, assignedDriverId, assignedProfile]);
-
-  const handleSelectFromList = (driverId: string) => {
-    setSelectedDriverId((current) => (current === driverId ? null : driverId));
-  };
-  const handleDriverPressOnMap = (driverId: string) => {
-    setSelectedDriverId((current) => (current === driverId ? null : driverId));
-  };
 
   const handleMessageDriver = useCallback(
     (offer: OfferItem) => {
@@ -144,6 +143,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   useEffect(() => {
     if (selectedDriverId && !visibleOffers.some((o) => o.driverId === selectedDriverId)) {
       setSelectedDriverId(null);
+      setDriverCameraTarget(null);
     }
   }, [visibleOffers, selectedDriverId, setSelectedDriverId]);
 
@@ -495,6 +495,43 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
 
   const etasByDriver = useOfferETAs(visibleOffers, getDriverCoordinate, originCoords);
 
+  const handleSelectFromList = (driverId: string) => {
+    if (selectedDriverId === driverId) {
+      setSelectedDriverId(null);
+      setDriverCameraTarget(null);
+      return;
+    }
+
+    setSelectedDriverId(driverId);
+    const latitude = getDriverCoordinate(driverId, 'lat');
+    const longitude = getDriverCoordinate(driverId, 'lng');
+    if (latitude !== null && longitude !== null) {
+      setDriverCameraTarget({ latitude, longitude });
+    } else {
+      setDriverCameraTarget(null);
+    }
+  };
+
+  const driverDistanceLine = useMemo(() => {
+    if (!originCoords || !driverCameraTarget) return [];
+    if (
+      haversineKm(
+        originCoords.latitude,
+        originCoords.longitude,
+        driverCameraTarget.latitude,
+        driverCameraTarget.longitude,
+      ) < 0.03
+    ) {
+      return [];
+    }
+    return [originCoords, driverCameraTarget];
+  }, [originCoords, driverCameraTarget]);
+
+  const cameraFitCoordinates = useMemo(() => {
+    if (!driverCameraTarget) return undefined;
+    return originCoords ? [originCoords, driverCameraTarget] : [driverCameraTarget];
+  }, [originCoords, driverCameraTarget]);
+
   // Conductor ya asignado al viaje programado (aún no promovido a activeRides
   // o sin oferta registrada): se muestra como card fija sobre la lista.
   const assignedDriver = useMemo(() => {
@@ -542,7 +579,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     navigation.replace('RideTracking', {
       rideId,
       driverId: rideSnapshot.driverId ?? rideSnapshot.driver?.id,
-      driverName: rideSnapshot.driver?.name || assignedDriver?.name || 'Conductor',
+      driverName: rideSnapshot.driver?.name || rideSnapshot.driverName || assignedDriver?.name || 'Conductor',
       vehiclePlate:
         rideSnapshot.vehicle?.plate ||
         rideSnapshot.driver?.vehicle?.plate ||
@@ -583,10 +620,11 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
       ? t('client.homeOffers.list.etaMinutes', { count: eta.etaMins })
       : t('client.homeOffers.list.etaFallback');
     const arrivalLabel = eta
-      ? t('client.homeOffers.list.arrivalLabel', { arrival: eta.arrivalLabel, eta: etaValueText })
+      ? t('client.homeOffers.list.arrivalTimeLabel', { arrival: eta.arrivalLabel })
       : t('client.homeOffers.list.arrivalFallback');
     const plate = item.driver?.vehicle?.plate || '—';
     const clientPrice = firstPositivePrice(
+      item.clientSuggestedPrice,
       rideSnapshot?.clientSuggestedPrice,
       rideSnapshot?.negotiation?.clientSuggestedPrice,
       rideSnapshot?.estimatedPrice,
@@ -621,6 +659,23 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     const driverPriceLabel = driverPrice
       ? `C$${driverPrice.toFixed(2)}`
       : t('client.homeOffers.list.driverPricePending');
+    const clientWasLastToOffer = item.lastOfferBy === 'client';
+    const currentHeaderPrice = clientWasLastToOffer ? clientPrice : driverPrice ?? clientPrice;
+    const previousHeaderPrice = clientWasLastToOffer ? driverPrice : driverPrice != null ? clientPrice : null;
+    const currentPriceLabel = currentHeaderPrice != null
+      ? `C$${currentHeaderPrice.toFixed(2)}`
+      : t('client.homeOffers.list.driverPricePending');
+    const previousPriceLabel =
+      previousHeaderPrice != null &&
+      currentHeaderPrice != null &&
+      Math.abs(previousHeaderPrice - currentHeaderPrice) >= 0.01
+        ? `C$${previousHeaderPrice.toFixed(2)}`
+        : null;
+    const offerCaption = clientWasLastToOffer
+      ? t('client.homeOffers.list.clientCounterofferCaption')
+      : driverPrice != null
+        ? t('client.homeOffers.list.driverOfferCaption')
+        : t('client.homeOffers.list.priceLabel');
     const negotiationLabel = item.status === 'accepted'
       ? null
       : driverAcceptedMyPrice
@@ -636,9 +691,14 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
         isDark={isDark}
         colors={colors}
         arrivalLabel={arrivalLabel}
+        etaLabel={etaValueText}
         plate={plate}
         clientPriceLabel={clientPriceLabel}
         driverPriceLabel={driverPriceLabel}
+        currentPriceLabel={currentPriceLabel}
+        currentPricePending={currentHeaderPrice == null}
+        previousPriceLabel={previousPriceLabel}
+        offerCaption={offerCaption}
         hasDriverPrice={driverPrice != null}
         negotiationLabel={negotiationLabel}
         driverAcceptedMyPrice={driverAcceptedMyPrice}
@@ -665,12 +725,20 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           latitude={centerLat}
           longitude={centerLng}
           nearbyDrivers={nearbyDrivers}
-          onDriverPress={handleDriverPressOnMap}
+          onDriverPress={handleSelectFromList}
           showUserLocation={false}
           userLocationLightIcon={USER_LOCATION_LIGHT}
           userLocationDarkIcon={USER_LOCATION_DARK}
           originMarker={originCoords || undefined}
           destinationMarker={destinationCoords || undefined}
+          distanceLineCoordinates={driverDistanceLine}
+          cameraFitCoordinates={cameraFitCoordinates}
+          fitEdgePadding={{
+            top: 120,
+            right: 48,
+            bottom: bottomSheetHeight ? bottomSheetHeight + 16 : 260,
+            left: 48,
+          }}
           originTitle={t('common.mapPins.origin')}
           destinationTitle={t('common.mapPins.destination')}
           originLabel={rideSnapshot?.origin?.address || rideSnapshot?.originAddress || programmedRide?.origin?.address || undefined}
@@ -713,6 +781,9 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
         onShowDriverReviews={() => setShowDriverReviews(true)}
         onConfirmSelectedDriver={confirmSelectedDriver}
         onCancelSearch={cancelSearch}
+        onHeightChange={(height) => setBottomSheetHeight((current) => (
+          current === height ? current : height
+        ))}
         styles={styles}
         t={t}
       />
@@ -950,36 +1021,107 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
 
   offerCard: {
-    borderRadius: 20,
-    padding: 12,
-    marginBottom: 8,
+    borderRadius: 22,
+    padding: 14,
+    marginBottom: 10,
     borderWidth: 1,
   },
+  offerPriceHeader: {
+    minHeight: 66,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginBottom: 12,
+    backgroundColor: 'rgba(179,135,55,0.08)',
+  },
+  offerPriceHeading: { flex: 1, minWidth: 0, gap: 1 },
+  offerPriceLine: { flexDirection: 'row', alignItems: 'baseline', gap: 7 },
+  offerPriceEyebrow: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+  },
+  offerEtaBadge: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    marginLeft: 10,
+  },
+  offerEtaText: { fontSize: 16, fontWeight: '800', fontVariant: ['tabular-nums'] },
   offerTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
   },
   offerAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
+    width: 58,
+    height: 58,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
   },
   offerAvatarPhoto: { width: '100%', height: '100%' },
   offerAvatarInitials: { fontSize: 18, fontWeight: '800' },
-  offerInfo: { flex: 1, gap: 2 },
-  offerName: { fontSize: 17, fontWeight: '700' },
-  offerMetaText: { fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  offerInfo: { flex: 1, minWidth: 0, gap: 3 },
+  offerDriverHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  offerName: { flex: 1, minWidth: 0, fontSize: 16, fontWeight: '800' },
+  offerRatingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  offerRatingText: { fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  offerMetaText: { fontSize: 12, lineHeight: 16, fontWeight: '500', fontVariant: ['tabular-nums'] },
   offerTripMeta: { fontSize: 12, fontWeight: '500', fontVariant: ['tabular-nums'] },
+  offerVehicleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 7,
+    marginTop: 1,
+  },
+  offerVehicleItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flexShrink: 1,
+  },
+  offerPlateBadge: {
+    maxWidth: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  offerPlateText: { fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'] },
   offerChipsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 4,
     marginTop: 3,
   },
+  offerStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 1,
+  },
+  offerStatusText: { flexShrink: 1, fontSize: 11, fontWeight: '600' },
   offerChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -989,71 +1131,79 @@ const createStyles = (colors: any) => StyleSheet.create({
     paddingVertical: 3,
   },
   offerChipText: { fontSize: 11, fontWeight: '600' },
-  offerPriceColumn: { alignItems: 'flex-end', paddingTop: 2, paddingLeft: 4 },
   offerPriceValue: {
-    fontSize: 19,
-    fontWeight: '800',
+    flexShrink: 1,
+    fontSize: 27,
+    lineHeight: 32,
+    fontWeight: '900',
     fontVariant: ['tabular-nums'],
   },
-  offerPriceCaption: { fontSize: 10, fontWeight: '600', marginTop: 2 },
-  offerPricePending: { fontSize: 12, fontWeight: '700' },
+  offerPreviousPrice: {
+    flexShrink: 0,
+    fontSize: 13,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+    textDecorationLine: 'line-through',
+  },
+  offerPricePending: { fontSize: 19, fontWeight: '800' },
   pricePanel: {
-    marginTop: 12,
-    borderRadius: 14,
-    borderWidth: 0.1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    marginTop: 6,
+    borderRadius: 0,
+    borderWidth: 0,
+    paddingHorizontal: 2,
+    paddingVertical: 3,
   },
   pricePanelTitle: {
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   priceItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     columnGap: 8,
-    paddingVertical: 4,
+    paddingVertical: 3,
   },
   priceItemDivider: { height: 1 },
-  priceItemLabel: { flex: 1, fontSize: 13, fontWeight: '600' },
+  priceItemLabel: { flex: 1, fontSize: 12, fontWeight: '500' },
   priceItemValue: {
     fontSize: 14,
     fontWeight: '800',
     fontVariant: ['tabular-nums'],
   },
   priceItemValueHero: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
     fontVariant: ['tabular-nums'],
   },
   cardActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginTop: 12,
+    gap: 8,
+    marginTop: 8,
   },
   iconActionBtn: {
-    width: 52,
-    height: 50,
+    width: 48,
+    height: 48,
     borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
   },
   negotiatePill: {
     flex: 1,
-    minHeight: 50,
-    borderRadius: 14,
-    borderWidth: 0.4,
+    minHeight: 52,
+    borderRadius: 16,
+    borderWidth: 1,
     flexDirection: 'row',
-    gap: 7,
+    gap: 8,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 12,
   },
-  negotiateText: { fontSize: 15, fontWeight: '700' },
+  negotiateText: { fontSize: 15, fontWeight: '800', letterSpacing: -0.2 },
   acceptedPill: {
     flex: 1,
     minHeight: 50,
@@ -1074,7 +1224,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   acceptedPillText: { fontSize: 15, fontWeight: '700' },
 
   reviewsRow: {
-    marginTop: 10,
+    marginTop: 4,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -1083,6 +1233,16 @@ const createStyles = (colors: any) => StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
+  reviewsLink: {
+    alignSelf: 'center',
+    justifyContent: 'center',
+    minHeight: 40,
+    marginTop: 2,
+    borderWidth: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  reviewsLinkText: { flex: 0, fontSize: 12, fontWeight: '600' },
   reviewsRowText: { flex: 1, fontSize: 13, fontWeight: '700' },
   primaryBtn: {
     marginTop: 10,

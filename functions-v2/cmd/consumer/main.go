@@ -677,6 +677,7 @@ func dispatchOffers(ctx context.Context, pool *pgxpool.Pool, fsClient *firestore
 		oLat, oLng, dLat, dLng               *float64
 		passengers                           *int64
 		notes, desigVeh, clientVehPhoto      *string
+		clientPhoto                          *string
 		currentStatus                        string
 		currentDriver                        *string
 		snapshot                             json.RawMessage
@@ -685,7 +686,7 @@ func dispatchOffers(ctx context.Context, pool *pgxpool.Pool, fsClient *firestore
 	if err := pool.QueryRow(ctx, `
 		SELECT v.origin_latitude, v.origin_longitude, v.origin_address,
 		       v.destination_latitude, v.destination_longitude, v.destination_address,
-		       uc.name, r.estimated_price, r.estimated_distance, r.estimated_duration,
+		       uc.name, uc.profile_photo, r.estimated_price, r.estimated_distance, r.estimated_duration,
 		       r.client_suggested_price, r.ride_type, r.passengers, r.notes, v.waypoints,
 		       r.designated_driver_vehicle, r.client_vehicle_photo, r.pricing_snapshot,
 		       r.status::text, r.driver_id
@@ -693,7 +694,7 @@ func dispatchOffers(ctx context.Context, pool *pgxpool.Pool, fsClient *firestore
 		LEFT JOIN public.rides_with_complete_route v ON v.id = r.id
 		LEFT JOIN public.users uc ON uc.id = r.client_id
 		WHERE r.id = $1::uuid`, ev.AggregateID).Scan(
-		&oLat, &oLng, &oAddr, &dLat, &dLng, &dAddr, &clientName,
+		&oLat, &oLng, &oAddr, &dLat, &dLng, &dAddr, &clientName, &clientPhoto,
 		&estPrice, &estDist, &estDur, &clientSug, &rideType, &passengers, &notes, &wps,
 		&desigVeh, &clientVehPhoto, &snapshot, &currentStatus, &currentDriver); err == nil {
 		if !dispatchableRide(currentStatus, currentDriver) {
@@ -715,6 +716,9 @@ func dispatchOffers(ctx context.Context, pool *pgxpool.Pool, fsClient *firestore
 		}
 		if clientName != nil {
 			offerCtx["clientName"] = *clientName
+		}
+		if clientPhoto != nil {
+			offerCtx["clientPhoto"] = *clientPhoto
 		}
 		if estPrice != nil {
 			offerCtx["estimatedPrice"] = *estPrice

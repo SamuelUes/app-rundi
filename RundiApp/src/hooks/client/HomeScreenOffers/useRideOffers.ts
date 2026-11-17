@@ -12,6 +12,7 @@ export interface OfferItem {
   driverId: string;
   offeredPrice?: number;
   clientSuggestedPrice?: number;
+  lastOfferBy?: 'client' | 'driver';
   kind?: string;
   status?: 'pending' | 'accepted' | 'rejected';
   estimatedArrivalTime?: string;
@@ -233,6 +234,7 @@ export function useRideOffers(
       driverId,
       offeredPrice: offer?.offeredPrice,
       clientSuggestedPrice: offer?.clientSuggestedPrice,
+      lastOfferBy: offer?.lastOfferBy,
       kind: offer?.kind,
       status: offer?.status || 'pending',
       estimatedArrivalTime: offer?.estimatedArrivalTime,

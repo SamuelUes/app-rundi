@@ -3,6 +3,7 @@ type PreviewOfferState = {
   driverOfferedPrice?: number | null;
   driverOfferStatus?: string | null;
   lastOfferBy?: string | null;
+  clientPhoto?: string | null;
 };
 
 export function matchesRidePreviewOffer(offer: Record<string, unknown>, rideId: string): boolean {
@@ -24,5 +25,7 @@ export function mergeRidePreviewOffer<T extends PreviewOfferState>(
       ? driverPrice : previous.driverOfferedPrice,
     driverOfferStatus: typeof status === 'string' ? status : previous.driverOfferStatus,
     lastOfferBy: typeof offer.lastOfferBy === 'string' ? offer.lastOfferBy : previous.lastOfferBy,
+    clientPhoto: typeof offer.clientPhoto === 'string' && offer.clientPhoto.length > 0
+      ? offer.clientPhoto : previous.clientPhoto,
   };
 }

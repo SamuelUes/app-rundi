@@ -97,6 +97,7 @@ type NotifyOpts struct {
 	ExtraData   map[string]string
 	LiveSub     LiveStatus // solo para Type=RideLiveUpdate
 	SkipPersist bool       // push sin item in-app (señalización efímera)
+	TTL         time.Duration
 }
 
 type Center struct {
@@ -122,6 +123,9 @@ func (c *Center) Notify(ctx context.Context, uid, rideID string, t Type, opts No
 		if e, ok := liveCatalog[opts.LiveSub]; ok {
 			entry = e
 		}
+	}
+	if opts.TTL > 0 {
+		entry.TTL = opts.TTL
 	}
 
 	key := opts.Key

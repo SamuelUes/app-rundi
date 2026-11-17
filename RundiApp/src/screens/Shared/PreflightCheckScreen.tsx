@@ -215,7 +215,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
         const confirmResult = await ridesService.confirmProgrammedRideClient(rideId);
         confirmedRidePayload = confirmResult?.ride ?? null;
       } else {
-        await ridesService.confirmProgrammedRideDriver(rideId);
+        await ridesService.confirmProgrammedRideDriver(rideId, programmedAction.metadata?.driverInvitationAt ?? 0);
       }
 
       if (modeSwitchRequestedRef.current) {
@@ -834,6 +834,7 @@ const PreflightCheckScreen = ({ navigation, route }: any) => {
         onRetry={handleRetry}
         onSwitchMode={handleSwitchToClientModeFromPreflight}
         styles={styles}
+        colors={colors}
         t={t}
       />
 
@@ -1083,49 +1084,52 @@ const createStyles = (colors: any) =>
     },
     footer: {
       paddingHorizontal: 4,
-      paddingTop: 12,
+      paddingTop: 14,
       paddingBottom: 12,
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: 'rgba(148, 163, 184, 0.3)',
       backgroundColor: colors.background,
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      justifyContent: 'center',
       gap: 10,
     },
     retryButton: {
-      minWidth: 128,
-      minHeight: 48,
-      flexGrow: 1,
-      flexBasis: 128,
-      paddingHorizontal: 14,
-      paddingVertical: 12,
+      minHeight: 52,
+      flexDirection: 'row',
+      paddingHorizontal: 20,
+      paddingVertical: 14,
       borderRadius: 16,
-      borderWidth: 0.5,
-      backgroundColor: colors.card,
-      borderColor: colors.primary,
+      backgroundColor: colors.primary,
       alignItems: 'center',
       justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.18,
+      shadowRadius: 6,
+      elevation: 3,
+    },
+    retryButtonIcon: {
+      marginRight: 8,
     },
     retryButtonText: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: colors.text,
+      fontSize: 15,
+      fontWeight: '700',
+      letterSpacing: 0.2,
+      color: '#241A09',
       textAlign: 'center',
     },
     continueClientButton: {
-      minWidth: 150,
       minHeight: 48,
-      flexGrow: 1,
-      flexBasis: 150,
-      paddingHorizontal: 14,
+      flexDirection: 'row',
+      paddingHorizontal: 20,
       paddingVertical: 12,
       borderRadius: 16,
-      borderWidth: 0,
-      borderColor: colors.primary,
-      backgroundColor: 'rgba(179, 138, 55, 0.8)',
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: 'transparent',
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    continueClientButtonIcon: {
+      marginRight: 8,
     },
     continueClientButtonText: {
       fontSize: 14,
@@ -1133,28 +1137,9 @@ const createStyles = (colors: any) =>
       color: colors.text,
       textAlign: 'center',
     },
-    secondaryButton: {
-      minWidth: 150,
-      minHeight: 48,
-      flexGrow: 1,
-      flexBasis: 150,
-      paddingHorizontal: 14,
-      paddingVertical: 12,
-      borderRadius: 16,
-      borderWidth: 0,
-      borderColor: colors.primary,
-      backgroundColor: 'rgba(179, 135, 55, 0.8)',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    secondaryButtonText: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: colors.text,
-      textAlign: 'center',
-    },
     buttonPressed: {
-      opacity: 0.78,
+      opacity: 0.85,
+      transform: [{ scale: 0.985 }],
     },
     buttonDisabled: {
       opacity: 0.5,

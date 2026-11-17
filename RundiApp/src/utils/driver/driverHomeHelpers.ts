@@ -183,6 +183,12 @@ export const normalizeRidePreviewPayload = (
       ridePayload?.clientPhone ||
       ridePayload?.client?.phoneNumber ||
       undefined,
+    clientPhoto:
+      ridePayload?.client?.photoUrl ||
+      ridePayload?.client?.profilePhoto ||
+      ridePayload?.clientPhoto ||
+      cacheEntry.clientPhoto ||
+      undefined,
     origin: {
       lat: originLat,
       lng: originLng,

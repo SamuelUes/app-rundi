@@ -164,7 +164,7 @@ const styles = StyleSheet.create({
   },
   amountCard: {
     borderRadius: 14,
-    borderWidth: 1,
+    borderWidth: 0.1,
     padding: 14,
     marginBottom: 2,
   },

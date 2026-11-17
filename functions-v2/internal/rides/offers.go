@@ -92,6 +92,9 @@ func (s *Service) ConfirmDriver(ctx context.Context, rideID, clientUID, driverUI
 	if err := requireDriverSession(ctx, tx, driverUID, "driver has no active availability session"); err != nil {
 		return nil, err
 	}
+	if err := EnsureDriverUnoccupied(ctx, tx, driverUID, rideID); err != nil {
+		return nil, err
+	}
 
 	r, err := scanRide(tx.QueryRow(ctx, `
 		UPDATE public.rides

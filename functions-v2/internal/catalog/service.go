@@ -8,6 +8,7 @@ package catalog
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -27,6 +28,126 @@ func NewService(pool *pgxpool.Pool) *Service {
 }
 
 func versionNow() float64 { return float64(time.Now().UnixMilli()) }
+
+type ServiceRecord struct {
+	ID                     string          `json:"id"`
+	Code                   string          `json:"code"`
+	Name                   string          `json:"name"`
+	Description            *string         `json:"description"`
+	CommissionRate         float64         `json:"commissionRate"`
+	BasePrice              float64         `json:"basePrice"`
+	PricePerKm             *float64        `json:"pricePerKm"`
+	PricePerMinute         *float64        `json:"pricePerMinute"`
+	MinimumFare            float64         `json:"minimumFare"`
+	MaxDistanceKm          *float64        `json:"maxDistanceKm"`
+	VehicleTypes           []string        `json:"vehicleTypes"`
+	RequiresSpecialLicense bool            `json:"requiresSpecialLicense"`
+	AvailableHours         json.RawMessage `json:"availableHours"`
+	Icon                   *string         `json:"icon"`
+	Color                  *string         `json:"color"`
+	DisplayOrder           int             `json:"displayOrder"`
+	IsActive               bool            `json:"isActive"`
+	IsFeatured             bool            `json:"isFeatured"`
+}
+
+type FeatureRecord struct {
+	ID                 string          `json:"id"`
+	Code               string          `json:"code"`
+	Name               string          `json:"name"`
+	Description        *string         `json:"description"`
+	Enabled            bool            `json:"enabled"`
+	StartsAt           *time.Time      `json:"startsAt"`
+	EndsAt             *time.Time      `json:"endsAt"`
+	StartTime          *string         `json:"startTime"`
+	EndTime            *string         `json:"endTime"`
+	Timezone           string          `json:"timezone"`
+	PricingType        string          `json:"pricingType"`
+	PricingValue       float64         `json:"pricingValue"`
+	Priority           int             `json:"priority"`
+	Stackable          bool            `json:"stackable"`
+	EligibilitySubject string          `json:"eligibilitySubject"`
+	EligibilityMode    string          `json:"eligibilityMode"`
+	Metadata           json.RawMessage `json:"metadata"`
+}
+
+func (s *Service) ListServices(ctx context.Context) ([]ServiceRecord, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id::text, code, name, description, commission_rate, base_price,
+		       price_per_km, price_per_minute, minimum_fare, max_distance_km,
+		       COALESCE(vehicle_types, '[]'::jsonb), COALESCE(requires_special_license, FALSE),
+		       available_hours, icon, color, COALESCE(display_order, 0),
+		       COALESCE(is_active, FALSE), COALESCE(is_featured, FALSE)
+		FROM public.services
+		ORDER BY display_order, name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []ServiceRecord{}
+	for rows.Next() {
+		var item ServiceRecord
+		var vehicleTypes, availableHours []byte
+		if err := rows.Scan(
+			&item.ID, &item.Code, &item.Name, &item.Description,
+			&item.CommissionRate, &item.BasePrice, &item.PricePerKm,
+			&item.PricePerMinute, &item.MinimumFare, &item.MaxDistanceKm,
+			&vehicleTypes, &item.RequiresSpecialLicense, &availableHours,
+			&item.Icon, &item.Color, &item.DisplayOrder, &item.IsActive,
+			&item.IsFeatured,
+		); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(vehicleTypes, &item.VehicleTypes); err != nil {
+			return nil, fmt.Errorf("decode service vehicle_types: %w", err)
+		}
+		item.AvailableHours = json.RawMessage(availableHours)
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *Service) ListFeatures(ctx context.Context) ([]FeatureRecord, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id::text, code, name, description, enabled, starts_at, ends_at,
+		       start_time::text, end_time::text, timezone, pricing_type, pricing_value,
+		       priority, stackable, eligibility_subject, eligibility_mode, metadata
+		FROM public.features
+		ORDER BY priority, name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []FeatureRecord{}
+	for rows.Next() {
+		var item FeatureRecord
+		if err := rows.Scan(
+			&item.ID, &item.Code, &item.Name, &item.Description, &item.Enabled,
+			&item.StartsAt, &item.EndsAt, &item.StartTime, &item.EndTime,
+			&item.Timezone, &item.PricingType, &item.PricingValue, &item.Priority,
+			&item.Stackable, &item.EligibilitySubject, &item.EligibilityMode,
+			&item.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *Service) audit(ctx context.Context, tx pgx.Tx, adminUID, action, entityType, entityID string, changes map[string]any, requestID string) error {
+	payload, err := json.Marshal(changes)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO public.audit_log
+		  (actor_uid, actor_role, action, entity_type, entity_id, changes, source, request_id)
+		VALUES ($1, 'admin', $2, $3, $4, $5::jsonb, 'api', NULLIF($6, ''))`,
+		adminUID, action, entityType, entityID, string(payload), requestID)
+	return err
+}
 
 type ServiceInput struct {
 	Code                   string          `json:"code"`
@@ -143,6 +264,11 @@ func (s *Service) UpsertService(ctx context.Context, adminUID string, in Service
 		return fmt.Errorf("services upsert: %w", err)
 	}
 
+	if err := s.audit(ctx, tx, adminUID, "update", "service", id,
+		map[string]any{"after": map[string]any{"code": in.Code, "name": in.Name, "is_active": orBool(in.IsActive, true)}},
+		requestID); err != nil {
+		return err
+	}
 	if err := outbox.Insert(ctx, tx, outbox.Event{
 		Type:          "service.upserted",
 		AggregateType: "service",
@@ -174,6 +300,7 @@ func (s *Service) UpsertFeature(ctx context.Context, adminUID string, in Feature
 		meta = string(in.Metadata)
 	}
 
+	var featureID string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO public.features (
 			code, name, description, enabled, starts_at, ends_at, start_time,
@@ -203,11 +330,16 @@ func (s *Service) UpsertFeature(ctx context.Context, adminUID string, in Feature
 		orFloat(in.PricingValue, 0), orInt(in.Priority, 100),
 		orBool(in.Stackable, true), orStr(in.EligibilitySubject, "none"),
 		orStr(in.EligibilityMode, "none"), meta,
-	).Scan(new(string))
+	).Scan(&featureID)
 	if err != nil {
 		return fmt.Errorf("features upsert: %w", err)
 	}
 
+	if err := s.audit(ctx, tx, adminUID, "update", "feature", featureID,
+		map[string]any{"after": map[string]any{"code": in.Code, "name": in.Name, "enabled": orBool(in.Enabled, false)}},
+		requestID); err != nil {
+		return err
+	}
 	if err := outbox.Insert(ctx, tx, outbox.Event{
 		Type:          "feature.upserted",
 		AggregateType: "feature",
@@ -284,21 +416,30 @@ func (s *Service) AssignFeature(ctx context.Context, adminUID string, in Assignm
 	if in.Configuration != nil {
 		cfg = string(in.Configuration)
 	}
-	res, err := tx.Exec(ctx, `
+	var serviceID string
+	err = tx.QueryRow(ctx, `
 		INSERT INTO public.service_feature_assignments (service_id, feature_id, enabled, configuration)
 		SELECT s.id, f.id, $3, COALESCE($4::jsonb, '{}'::jsonb)
 		FROM public.services s, public.features f
 		WHERE s.code = $1 AND f.code = $2
 		ON CONFLICT (service_id, feature_id) DO UPDATE SET
 			enabled = EXCLUDED.enabled,
-			configuration = EXCLUDED.configuration`,
+			configuration = EXCLUDED.configuration
+		RETURNING service_id::text`,
 		in.ServiceCode, in.FeatureCode, orBool(in.Enabled, true), cfg,
-	)
+	).Scan(&serviceID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return apperr.New(404, "service or feature code not found")
+		}
 		return fmt.Errorf("assign feature: %w", err)
 	}
-	if res.RowsAffected() == 0 {
-		return apperr.New(404, "service or feature code not found")
+	if err := s.audit(ctx, tx, adminUID, "update", "service", serviceID,
+		map[string]any{"after": map[string]any{
+			"service_code": in.ServiceCode, "feature_code": in.FeatureCode,
+			"enabled": orBool(in.Enabled, true), "configuration": in.Configuration,
+		}}, requestID); err != nil {
+		return err
 	}
 
 	if err := outbox.Insert(ctx, tx, outbox.Event{

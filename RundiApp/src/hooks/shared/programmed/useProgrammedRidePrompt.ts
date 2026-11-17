@@ -11,6 +11,7 @@ import { waitForI18nReady } from '../../../utils/system/i18nReady';
 import { requestNotificationsPermissionIfNeeded } from '../../../utils/system/notificationPermission';
 import type { PreflightRole } from '../../../types/preflight';
 import type { PreflightAction } from '../../../stores/preflightStore';
+import { useProgrammedPromptStore } from '../../../stores/programmedPromptStore';
 
 type PromptType = 'client' | 'driver';
 
@@ -38,6 +39,8 @@ type UseProgrammedRidePromptResult = {
 };
 
 const PROMPT_NOTIF_PREFIX = 'PROGRAMMED_PROMPT_NOTIF';
+const promptKey = (type: PromptType, rideId: string, ride: any) =>
+  `${type}-${rideId}${type === 'driver' && typeof ride?.driverInvitationAt === 'number' ? `:${ride.driverInvitationAt}` : ''}`;
 // Ventana de confirmación del scheduler v2 (programmed.ConfirmWindow=10m).
 const CONFIRM_WINDOW_MS = 10 * 60 * 1000;
 
@@ -56,7 +59,7 @@ const firePromptLocalNotification = async (prompt: ProgrammedRidePrompt) => {
     if (AppState.currentState === 'active') {
       return;
     }
-    const storageKey = `${PROMPT_NOTIF_PREFIX}:${prompt.type}-${prompt.rideId}`;
+    const storageKey = `${PROMPT_NOTIF_PREFIX}:${promptKey(prompt.type, prompt.rideId, prompt.data)}`;
     const seen = Number(await AsyncStorage.getItem(storageKey)) || 0;
     if (seen >= prompt.requestTimestamp) {
       return;
@@ -70,13 +73,17 @@ const firePromptLocalNotification = async (prompt: ProgrammedRidePrompt) => {
     await Notifications.scheduleNotificationAsync({
       content: {
         title: i18n.t(
-          isDriver
+          isDriver && prompt.data?.driverInvitation
+            ? 'client.programmedRides.inviteDriverTitle'
+            : isDriver
             ? 'shared.preflight.programmedRide.notifDriverTitle'
             : 'shared.preflight.programmedRide.notifClientTitle',
           { defaultValue: 'Confirma tu viaje programado' },
         ),
         body: i18n.t(
-          isDriver
+          isDriver && prompt.data?.driverInvitation
+            ? 'client.programmedRides.inviteDriverBody'
+            : isDriver
             ? 'shared.preflight.programmedRide.notifDriverBody'
             : 'shared.preflight.programmedRide.notifClientBody',
           {
@@ -108,10 +115,35 @@ export const useProgrammedRidePrompt = ({
   const dismissedMapRef = useRef<Record<string, number>>({});
   const handledMapRef = useRef<Record<string, number>>({});
   const [revision, setRevision] = useState(0);
+  const request = useProgrammedPromptStore((state) => state.request);
+  const preferredRideRef = useRef<string | null>(null);
 
   const updateRevision = useCallback(() => {
     setRevision((rev) => rev + 1);
   }, []);
+
+  useEffect(() => {
+    if (!userId || !request || (request.role === 'driver' ? !listenForDriver : !listenForClient)) return;
+    const key = `${request.role}-${request.rideId}`;
+    Object.keys(dismissedMapRef.current).forEach((entry) => {
+      if (entry === key || entry.startsWith(`${key}:`)) delete dismissedMapRef.current[entry];
+    });
+    preferredRideRef.current = request.rideId;
+    updateRevision();
+  }, [request, userId, listenForClient, listenForDriver, updateRevision]);
+
+  useEffect(() => {
+    if (!listenForClient || !clientRides) return;
+    const now = Date.now();
+    const nextBoundary = Object.values(clientRides).reduce((next, ride) => {
+      if (ride?.status !== 'scheduled' || ride?.clientConfirmed) return next;
+      const at = Number(ride.scheduledAt) - CONFIRM_WINDOW_MS;
+      return Number.isFinite(at) && at > now ? Math.min(next, at) : next;
+    }, Infinity);
+    if (!Number.isFinite(nextBoundary)) return;
+    const timeout = setTimeout(updateRevision, Math.min(nextBoundary - now + 1, 2147483647));
+    return () => clearTimeout(timeout);
+  }, [clientRides, listenForClient, revision, updateRevision]);
 
   const trackDismiss = useCallback(
     (key: string, timestamp: number) => {
@@ -374,7 +406,7 @@ export const useProgrammedRidePrompt = ({
           return null;
         }
         const now = Date.now();
-        if (now < scheduledAt - CONFIRM_WINDOW_MS) {
+        if (now < scheduledAt - CONFIRM_WINDOW_MS || now > scheduledAt + 2 * 60 * 1000) {
           return null;
         }
         const requestTimestamp = scheduledAt - CONFIRM_WINDOW_MS;
@@ -398,7 +430,7 @@ export const useProgrammedRidePrompt = ({
       if (!ride?.driverId) {
         return null;
       }
-      if (!ride?.clientConfirmed) {
+      if (!ride?.clientConfirmed && !ride?.driverInvitation) {
         return null;
       }
       if (ride?.status !== 'scheduled' && ride?.status !== 'client_confirmed') {
@@ -407,8 +439,10 @@ export const useProgrammedRidePrompt = ({
       if (ride?.driverConfirmed) {
         return null;
       }
-      const requestTimestamp = scheduledAt ?? Date.now();
-      const key = `driver-${rideId}`;
+      const requestTimestamp = typeof ride?.driverInvitationAt === 'number'
+        ? ride.driverInvitationAt
+        : scheduledAt ?? Date.now();
+      const key = promptKey('driver', rideId, ride);
       if (shouldIgnoreRequest(key, requestTimestamp)) {
         return null;
       }
@@ -443,6 +477,8 @@ export const useProgrammedRidePrompt = ({
         return null;
       }
       candidates.sort((a, b) => {
+        if (a.rideId === preferredRideRef.current && b.rideId !== preferredRideRef.current) return -1;
+        if (b.rideId === preferredRideRef.current && a.rideId !== preferredRideRef.current) return 1;
         const aTime = a.scheduledAt ?? Number.MAX_SAFE_INTEGER;
         const bTime = b.scheduledAt ?? Number.MAX_SAFE_INTEGER;
         if (aTime !== bTime) {
@@ -489,7 +525,7 @@ export const useProgrammedRidePrompt = ({
       if (!candidate) {
         return;
       }
-      const key = `${candidate.type}-${candidate.rideId}`;
+      const key = promptKey(candidate.type, candidate.rideId, candidate.data);
       trackDismiss(key, candidate.requestTimestamp || Date.now());
     },
     [trackDismiss],
@@ -500,7 +536,7 @@ export const useProgrammedRidePrompt = ({
       if (!candidate) {
         return;
       }
-      const key = `${candidate.type}-${candidate.rideId}`;
+      const key = promptKey(candidate.type, candidate.rideId, candidate.data);
       trackHandled(key, candidate.requestTimestamp || Date.now());
     },
     [trackHandled],

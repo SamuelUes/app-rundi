@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
+	firebase "firebase.google.com/go/v4"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -20,7 +21,9 @@ import (
 	"github.com/rundi/functions-v2/internal/config"
 	"github.com/rundi/functions-v2/internal/crew"
 	"github.com/rundi/functions-v2/internal/db"
+	"github.com/rundi/functions-v2/internal/fcm"
 	"github.com/rundi/functions-v2/internal/fs"
+	"github.com/rundi/functions-v2/internal/notifications"
 	"github.com/rundi/functions-v2/internal/programmed"
 	"github.com/rundi/functions-v2/internal/reconcile"
 )
@@ -57,6 +60,18 @@ func main() {
 	//   maintenance — reconcile, compliance diario, cleanups y retención
 	//                 (trabajo por lotes; candidato a cadencia baja).
 	only := os.Getenv("SCHEDULER_ONLY")
+	if only == "" || only == "programmed" || only == "realtime" {
+		var sender *fcm.Sender
+		if app, err := firebase.NewApp(ctx, nil); err == nil {
+			sender, err = fcm.NewSender(ctx, app)
+			if err != nil {
+				slog.Warn("programmed notification push unavailable", "err", err)
+			}
+		} else {
+			slog.Warn("programmed notification app unavailable", "err", err)
+		}
+		progSvc.SetNotifications(notifications.NewCenter(fsClient, sender))
+	}
 	if only == "programmed" {
 		p, c, perr := progSvc.Process(ctx, "scheduler-programmed")
 		if perr != nil {

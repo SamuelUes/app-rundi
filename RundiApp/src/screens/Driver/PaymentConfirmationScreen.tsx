@@ -328,16 +328,10 @@ export default function PaymentConfirmationScreen({
     }
   };
 
-  // Confirmar pago en efectivo
+  // Confirmar pago en efectivo. El código es opcional: si el conductor lo
+  // digita se verifica server-side; sin código se confirma igual.
   const handleConfirmCashPayment = async () => {
     const entered = codeDigits.join('');
-    if (entered.length !== 4) {
-      alertService.showInfoAlert(
-        alertsTexts.codeRequiredTitle,
-        alertsTexts.codeRequiredMessage
-      );
-      return;
-    }
 
     try {
       setConfirming(true);

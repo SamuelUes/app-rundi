@@ -49,6 +49,7 @@ interface HomeScreenOffersBottomSheetProps {
   onShowDriverReviews: () => void;
   onConfirmSelectedDriver: () => void;
   onCancelSearch: () => void;
+  onHeightChange?: (height: number) => void;
   styles: any;
   t: TFunction;
 }
@@ -71,6 +72,7 @@ export function HomeScreenOffersBottomSheet({
   onShowDriverReviews,
   onConfirmSelectedDriver,
   onCancelSearch,
+  onHeightChange,
   styles,
   t,
 }: HomeScreenOffersBottomSheetProps) {
@@ -146,6 +148,7 @@ export function HomeScreenOffersBottomSheet({
           paddingBottom: Math.max(insets.bottom, 12),
         },
       ]}
+      onLayout={(event) => onHeightChange?.(event.nativeEvent.layout.height)}
     >
       <View
         style={[
@@ -397,9 +400,10 @@ export function HomeScreenOffersBottomSheet({
         <Pressable
           style={({ pressed }) => [
             styles.reviewsRow,
+            styles.reviewsLink,
             {
-              backgroundColor: isDark ? 'rgba(212,175,55,0.10)' : 'rgba(179,135,55,0.08)',
-              borderColor: isDark ? 'rgba(212,175,55,0.35)' : 'rgba(179,135,55,0.3)',
+              backgroundColor: 'transparent',
+              borderColor: 'transparent',
             },
             pressed && { opacity: 0.85 },
           ]}
@@ -409,13 +413,13 @@ export function HomeScreenOffersBottomSheet({
         >
           <MaterialIcons
             name="rate-review"
-            size={15}
-            color={isDark ? '#FFD666' : '#8A5800'}
+            size={14}
+            color={colors.textTertiary}
           />
-          <Text style={[styles.reviewsRowText, { color: colors.text }]}>
+          <Text style={[styles.reviewsRowText, styles.reviewsLinkText, { color: colors.textSecondary }]}>
             {t('client.homeOffers.buttons.seeDriverReviews')}
           </Text>
-          <MaterialIcons name="chevron-right" size={18} color={colors.textTertiary} />
+          <MaterialIcons name="chevron-right" size={16} color={colors.textTertiary} />
         </Pressable>
       ) : null}
 

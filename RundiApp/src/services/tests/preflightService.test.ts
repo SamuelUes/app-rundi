@@ -89,14 +89,15 @@ describe('preflight data', () => {
       .rejects.toThrow('vehicles unavailable');
   });
 
-  it('rejects a result after session invalidation', async () => {
+  it('refetches under the new generation after session invalidation', async () => {
     let resolveTerms!: (value: any) => void;
-    terms.mockImplementation(() => new Promise((resolve) => { resolveTerms = resolve; }));
+    terms.mockImplementationOnce(() => new Promise((resolve) => { resolveTerms = resolve; }));
     const pending = preflightService.fetchPreflightData(payload);
     await new Promise((resolve) => setTimeout(resolve, 0));
     preflightService.clearCache();
     resolveTerms({ termsVersion: 'v1', acceptedVersion: 'v1', needsTerms: false });
-    await expect(pending).rejects.toThrow('sesión cambió');
+    await expect(pending).resolves.toMatchObject({ userId: 'u1' });
+    expect(terms).toHaveBeenCalledTimes(2);
   });
 
   it('rejects an old user result when the authenticated user changes', async () => {

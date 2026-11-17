@@ -8,6 +8,12 @@ const authScreens = {
             subtitle: 'Tu viaje empieza aquí',
             login: 'Iniciar sesión',
             register: 'Crear cuenta',
+            welcomeBack: 'Bienvenido de nuevo',
+            continueAs: 'Continuar como {{name}}',
+            continueAccount: 'Continuar con tu cuenta',
+            useAnotherAccount: 'Usar otra cuenta',
+            signingIn: 'Iniciando sesión...',
+            deviceLoginError: 'No pudimos iniciar sesión automáticamente. Inicia sesión manualmente.',
           },
           login: {
             title: 'Bienvenido',

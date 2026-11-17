@@ -297,6 +297,7 @@ export const resolveSelectedDriverVehicleType = (driverInfo: any): 'moto' | 'aut
 
 export interface Ride {
   id: string;
+  driverInvitationAt?: number;
   clientId: string;
   clientName?: string;
   clientPhone?: string;

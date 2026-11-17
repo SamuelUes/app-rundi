@@ -20,6 +20,7 @@ interface ActiveRide {
   id: string;
   status: string;
   driverId?: string;
+  driverName?: string;
   driver?: { name?: string; photoURL?: string; vehicle?: any };
   vehicle?: any;
   finalFare?: number;
@@ -85,7 +86,7 @@ export function usePendingActions(
         navigation.replace('RideTracking', {
           rideId: activeRide.id,
           driverId: activeRide.driverId,
-          driverName: activeRide.driver?.name || 'Conductor',
+          driverName: activeRide.driver?.name || activeRide.driverName || 'Conductor',
           vehiclePlate: activeRide.vehicle?.plate || activeRide.driver?.vehicle?.plate || 'N/A',
           vehicleBrand: activeRide.vehicle?.make || activeRide.vehicle?.brand || activeRide.driver?.vehicle?.brand || 'N/A',
           vehicleModel: activeRide.vehicle?.model || activeRide.driver?.vehicle?.model || 'N/A',
@@ -98,7 +99,7 @@ export function usePendingActions(
       if (activeRide.status === 'pending_payment') {
         const paymentMethod = activeRide.paymentMethod || activeRide.payment?.method || 'cash';
         const finalAmount = activeRide.finalFare || activeRide.estimatedPrice || 0;
-        const driverName = activeRide.driver?.name || 'Conductor';
+        const driverName = activeRide.driver?.name || activeRide.driverName || 'Conductor';
         const driverPhoto = activeRide.driver?.photoURL || undefined;
 
         if (paymentMethod === 'card') {

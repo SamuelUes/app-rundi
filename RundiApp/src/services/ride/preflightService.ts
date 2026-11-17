@@ -99,7 +99,7 @@ async function composePreflightResponse(
         return { type: 'programmed_ride_client_confirm', rideId: r.id, scheduledAt: r.scheduledAt };
       }
       if (role === 'driver' && r.driverId === uid && !r.driverConfirmed) {
-        return { type: 'programmed_ride_driver_confirm', rideId: r.id, scheduledAt: r.scheduledAt };
+        return { type: 'programmed_ride_driver_confirm', rideId: r.id, scheduledAt: r.scheduledAt, driverInvitationAt: r.driverInvitationAt ?? 0 };
       }
     }
     return null;
@@ -188,80 +188,100 @@ const preflightService = {
     if (await requireFirebaseAuthUser(authUser.uid) !== authUser) {
       throw new Error('La sesión cambió durante el preflight');
     }
-    const requestGeneration = generation;
-    const inflightKey = `${payload.role}:${authUser.uid}:${requestGeneration}`;
-    const existing = inflightRequests.get(inflightKey);
-    const request = existing?.authUser === authUser ? existing.request : (async () => {
-      const maxAttempts = 2;
-      let forceTokenRefresh = false;
-      let lastError: any = null;
+    // Un clearCache() concurrente (cambio de rol/usuario en useAuthInit, la
+    // propia pantalla) bumpea `generation` y convierte la petición en vuelo
+    // en "stale". Reintentar con la generación vigente en vez de propagar
+    // 'preflight/session-changed': el dato pedido sigue siendo el mismo.
+    const maxStaleAttempts = 3;
+    for (let staleAttempt = 1; ; staleAttempt += 1) {
+      const requestGeneration = generation;
+      const inflightKey = `${payload.role}:${authUser.uid}:${requestGeneration}`;
+      const existing = inflightRequests.get(inflightKey);
+      const request = existing?.authUser === authUser ? existing.request : (async () => {
+        const maxAttempts = 2;
+        let forceTokenRefresh = false;
+        let lastError: any = null;
 
-      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-        try {
-          if (await requireFirebaseAuthUser(authUser.uid) !== authUser) {
-            throw new Error('La sesión cambió durante el preflight');
-          }
-          if (forceTokenRefresh) {
-            await forceRefreshIdTokenOrSignOut(authUser);
-            forceTokenRefresh = false;
-          }
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+          try {
+            if (await requireFirebaseAuthUser(authUser.uid) !== authUser) {
+              throw new Error('La sesión cambió durante el preflight');
+            }
+            if (forceTokenRefresh) {
+              await forceRefreshIdTokenOrSignOut(authUser);
+              forceTokenRefresh = false;
+            }
 
-          const result = await composePreflightResponse(payload.role, authUser.uid);
-          if (await requireFirebaseAuthUser(authUser.uid) !== authUser) {
-            throw new Error('La sesión cambió durante el preflight');
-          }
+            const result = await composePreflightResponse(payload.role, authUser.uid);
+            if (await requireFirebaseAuthUser(authUser.uid) !== authUser) {
+              throw new Error('La sesión cambió durante el preflight');
+            }
 
-          if (!isValidPreflightResponse(result, authUser.uid, payload.role)) {
-            throw new Error('Respuesta de preflight inválida o de otro usuario');
-          }
-          if (requestGeneration !== generation) {
-            const staleError: any = new Error('La sesión cambió durante el preflight');
-            staleError.code = 'preflight/session-changed';
-            throw staleError;
-          }
+            if (!isValidPreflightResponse(result, authUser.uid, payload.role)) {
+              throw new Error('Respuesta de preflight inválida o de otro usuario');
+            }
+            if (requestGeneration !== generation) {
+              const staleError: any = new Error('La sesión cambió durante el preflight');
+              staleError.code = 'preflight/session-changed';
+              throw staleError;
+            }
 
-          return result;
-        } catch (error: any) {
-          lastError = error;
-          const retryable = isUnauthenticatedError(error);
-          if (!retryable || attempt === maxAttempts) {
-            throw error;
+            return result;
+          } catch (error: any) {
+            lastError = error;
+            const retryable = isUnauthenticatedError(error);
+            if (!retryable || attempt === maxAttempts) {
+              throw error;
+            }
+            forceTokenRefresh = isUnauthenticatedError(error);
+            await delay(450 * attempt);
           }
-          forceTokenRefresh = isUnauthenticatedError(error);
-          await delay(450 * attempt);
         }
+
+        throw lastError || new Error('No se pudo obtener getPreflightData');
+      })();
+
+      if (existing?.authUser !== authUser) {
+        inflightRequests.set(inflightKey, { authUser, request });
+        const cleanup = () => {
+          if (inflightRequests.get(inflightKey)?.request === request) inflightRequests.delete(inflightKey);
+        };
+        void request.then(cleanup, cleanup);
       }
 
-      throw lastError || new Error('No se pudo obtener getPreflightData');
-    })();
-
-    if (existing?.authUser !== authUser) {
-      inflightRequests.set(inflightKey, { authUser, request });
-      const cleanup = () => {
-        if (inflightRequests.get(inflightKey)?.request === request) inflightRequests.delete(inflightKey);
-      };
-      void request.then(cleanup, cleanup);
+      try {
+        const [result, region] = await Promise.all([
+          request,
+          payload.location
+            ? getRegionAvailability(payload.location.lat, payload.location.lng)
+            : Promise.resolve(null),
+        ]);
+        if (requestGeneration !== generation) {
+          const staleError: any = new Error('La sesión cambió durante el preflight');
+          staleError.code = 'preflight/session-changed';
+          throw staleError;
+        }
+        if (await requireFirebaseAuthUser(authUser.uid) !== authUser) {
+          throw new Error('La sesión cambió durante el preflight');
+        }
+        return {
+          ...result,
+          region: region && payload.location ? {
+            allowed: region.available,
+            serviceAreaId: region.areaId ?? null,
+            areaName: region.areaName,
+            isFallback: region.isFallback,
+            latitude: payload.location.lat,
+            longitude: payload.location.lng,
+          } : null,
+        };
+      } catch (error: any) {
+        if (error?.code === 'preflight/session-changed' && staleAttempt < maxStaleAttempts) {
+          continue;
+        }
+        throw error;
+      }
     }
-    const [result, region] = await Promise.all([
-      request,
-      payload.location
-        ? getRegionAvailability(payload.location.lat, payload.location.lng)
-        : Promise.resolve(null),
-    ]);
-    if (requestGeneration !== generation || await requireFirebaseAuthUser(authUser.uid) !== authUser) {
-      throw new Error('La sesión cambió durante el preflight');
-    }
-    return {
-      ...result,
-      region: region && payload.location ? {
-        allowed: region.available,
-        serviceAreaId: region.areaId ?? null,
-        areaName: region.areaName,
-        isFallback: region.isFallback,
-        latitude: payload.location.lat,
-        longitude: payload.location.lng,
-      } : null,
-    };
   },
 
   // No se retienen resultados terminados: viajes y pagos pueden cambiar.

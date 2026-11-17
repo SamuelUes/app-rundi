@@ -73,7 +73,7 @@ export function useRideActions(
       // Viaje programado: no existe en activeRides — "Aceptar" equivale a
       // confirmar la asignación. El scheduler lo promueve en scheduledAt.
       if (currentRide.isProgrammed) {
-        await ridesService.confirmProgrammedRideDriver(currentRide.id);
+        await ridesService.confirmProgrammedRideDriver(currentRide.id, currentRide.driverInvitationAt ?? 0);
         alertService.showSuccessAlert(
           t('driver.available.alerts.scheduledConfirmedTitle'),
           t('driver.available.alerts.scheduledConfirmedBody'),

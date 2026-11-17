@@ -69,6 +69,8 @@ interface GoogleMapProps {
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
   secondaryRouteCoordinates?: Array<{ latitude: number; longitude: number }>;
   tertiaryRouteCoordinates?: Array<{ latitude: number; longitude: number }>;
+  distanceLineCoordinates?: Array<{ latitude: number; longitude: number }>;
+  cameraFitCoordinates?: Array<{ latitude: number; longitude: number }>;
   autoFitEnabled?: boolean;
   nearbyDrivers?: DriverMarker[];
   onDriverPress?: (driverId: string) => void;
@@ -141,6 +143,8 @@ export default function GoogleMap({
   routeCoordinates = [],
   secondaryRouteCoordinates = [],
   tertiaryRouteCoordinates = [],
+  distanceLineCoordinates = [],
+  cameraFitCoordinates,
   nearbyDrivers = [],
   draggableMarker = false,
   onMarkerDragEnd,
@@ -289,6 +293,10 @@ export default function GoogleMap({
     effectiveMarkerType === 'manual_origin' || effectiveMarkerType === 'manual_origin_hold';
 
   const markersToFit = useMemo<LatLng[]>(() => {
+    if (cameraFitCoordinates?.length) {
+      return cameraFitCoordinates.filter(isValidCoord).map(toLatLng);
+    }
+
     const coords: LatLng[] = [];
 
     if (isValidCoord(originMarker)) coords.push(toLatLng(originMarker));
@@ -348,14 +356,18 @@ export default function GoogleMap({
     routeCoordinates,
     secondaryRouteCoordinates,
     tertiaryRouteCoordinates,
+    cameraFitCoordinates,
   ]);
 
   const cameraFitSignature = useMemo(() => {
     if (markersToFit.length === 0) return '';
-    return markersToFit
+    const coordinatesSignature = markersToFit
       .map((coord) => `${coord.latitude.toFixed(5)}:${coord.longitude.toFixed(5)}`)
       .join('|');
-  }, [markersToFit]);
+    return cameraFitCoordinates?.length
+      ? `${coordinatesSignature}|${JSON.stringify(fitEdgePadding)}`
+      : coordinatesSignature;
+  }, [markersToFit, cameraFitCoordinates, fitEdgePadding]);
 
   const computeCentroid = useCallback((coords: LatLng[]): LatLng => {
     const accumulator = coords.reduce(
@@ -379,7 +391,7 @@ export default function GoogleMap({
       return;
     }
 
-    if (gestureActiveRef.current) {
+    if (gestureActiveRef.current && !cameraFitCoordinates?.length) {
       return;
     }
 
@@ -488,6 +500,10 @@ export default function GoogleMap({
     () => simplifyPolyline(routeRef.current.filter(isValidCoord).map(toLatLng), 2.5),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [routeSignature],
+  );
+  const validDistanceLine = useMemo(
+    () => distanceLineCoordinates.filter(isValidCoord).map(toLatLng),
+    [distanceLineCoordinates],
   );
 
   const secondaryRouteRef = useRef(secondaryRouteCoordinates);
@@ -752,6 +768,17 @@ export default function GoogleMap({
               zIndex={2}
             />
           </>
+        )}
+
+        {validDistanceLine.length > 1 && (
+          <Polyline
+            coordinates={validDistanceLine}
+            strokeColor={isDark ? 'rgba(255,214,102,0.9)' : 'rgba(138,88,0,0.82)'}
+            strokeWidth={2.5}
+            lineDashPattern={[7, 6]}
+            geodesic
+            zIndex={3}
+          />
         )}
 
         {simplifiedSecondaryRoute.length > 1 && (

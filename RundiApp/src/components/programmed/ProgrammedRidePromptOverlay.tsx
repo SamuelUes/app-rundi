@@ -8,6 +8,7 @@ import {
   Animated,
   Easing,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTranslation } from 'react-i18next';
@@ -20,6 +21,9 @@ import { initializeFirebase } from '../../config/firebase';
 import { isSameDay } from '../../utils/format/schedule';
 import { subscribePreflightResult, getPreflightResult, setPreflightResult, PreflightAction } from '../../stores/preflightStore';
 import { useNavigation } from '@react-navigation/native';
+import { declineProgrammedRide } from '../../api/programmed';
+import { openProgrammedPrompt } from '../../stores/programmedPromptStore';
+import { formatCurrency } from '../../utils/format/safeFormatters';
 
 type Props = {
   role: 'client' | 'driver';
@@ -144,8 +148,11 @@ const ProgrammedRidePromptOverlay: React.FC<Props> = ({ role }) => {
     async (promptData: ProgrammedRidePrompt) => {
       setProcessing(true);
       try {
-        await ridesService.confirmProgrammedRideDriver(promptData.rideId);
+        await ridesService.confirmProgrammedRideDriver(promptData.rideId, promptData.data?.driverInvitationAt ?? 0);
         markHandled(promptData);
+        if (promptData.data?.driverInvitation && promptData.scheduledAt && promptData.scheduledAt > Date.now()) {
+          return;
+        }
         const action = buildActiveRideAction(
           'driver',
           {
@@ -189,6 +196,17 @@ const ProgrammedRidePromptOverlay: React.FC<Props> = ({ role }) => {
     // queda como vía para confirmarlo sin reabrir el modal (no se solapa con
     // el overlay — solo aparece al descartarlo).
     const isClient = dismissed.type === 'client';
+    if (!isClient && dismissed.data?.driverInvitation) {
+      alertService.showConfirmAlert(
+        t('client.programmedRides.inviteDriverTitle'),
+        t('client.programmedRides.inviteDeferred'),
+        () => openProgrammedPrompt('driver', dismissed.rideId),
+        undefined,
+        t('client.programmedRides.reviewInvite'),
+        t('shared.preflight.programmedRide.notNowButton'),
+      );
+      return;
+    }
     alertService.showConfirmAlert(
       isClient
         ? t('shared.preflight.programmedRide.promptTitle')
@@ -217,6 +235,20 @@ const ProgrammedRidePromptOverlay: React.FC<Props> = ({ role }) => {
       handleConfirmDriver(currentPrompt);
     }
   }, [currentPrompt, handleConfirmClient, handleConfirmDriver]);
+
+  const handleDecline = useCallback(async () => {
+    if (!currentPrompt) return;
+    setProcessing(true);
+    try {
+      await declineProgrammedRide(currentPrompt.rideId, currentPrompt.data?.driverInvitationAt ?? 0);
+      markHandled(currentPrompt);
+      setCurrentPrompt(null);
+    } catch {
+      alertService.showErrorAlert(t('shared.preflight.programmedRide.confirmError'));
+    } finally {
+      setProcessing(false);
+    }
+  }, [currentPrompt, markHandled, t]);
 
   const visible = Boolean(currentPrompt);
   const isClientPrompt = currentPrompt?.type === 'client';
@@ -258,19 +290,23 @@ const ProgrammedRidePromptOverlay: React.FC<Props> = ({ role }) => {
     return null;
   }
 
-  const title = isClientPrompt
+  const isInvitation = !isClientPrompt && currentPrompt.data?.driverInvitation === true;
+  const title = isInvitation ? t('client.programmedRides.inviteDriverTitle') : isClientPrompt
     ? t('shared.preflight.programmedRide.promptTitle')
     : t('shared.preflight.programmedRide.driverPromptTitle');
 
-  const body = t(
+  const body = isInvitation ? t('client.programmedRides.inviteDriverBody') : t(
     isClientPrompt
       ? 'shared.preflight.programmedRide.promptBodyNoDate'
       : 'shared.preflight.programmedRide.driverPromptBodyNoDate',
   );
 
-  const confirmLabel = t('shared.preflight.programmedRide.confirmButton');
+  const confirmLabel = isInvitation ? t('client.programmedRides.acceptInvite') : t('shared.preflight.programmedRide.confirmButton');
   const dismissLabel = t('shared.preflight.programmedRide.notNowButton');
   const iconTintBg = isDark ? 'rgba(179,135,55,0.2)' : 'rgba(179,135,55,0.1)';
+  const origin = currentPrompt.data?.origin?.address;
+  const destination = currentPrompt.data?.destination?.address;
+  const amount = currentPrompt.data?.clientSuggestedPrice ?? currentPrompt.data?.estimatedPrice;
 
   return (
     <Modal transparent visible animationType="none">
@@ -295,6 +331,7 @@ const ProgrammedRidePromptOverlay: React.FC<Props> = ({ role }) => {
             },
           ]}
         >
+          <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <View style={[styles.iconDisc, { backgroundColor: iconTintBg }]}>
             <MaterialIcons
               name={isClientPrompt ? 'schedule' : 'directions-car'}
@@ -313,6 +350,39 @@ const ProgrammedRidePromptOverlay: React.FC<Props> = ({ role }) => {
           ) : null}
 
           <Text style={[styles.body, { color: colors.textSecondary }]}>{body}</Text>
+
+          {isInvitation ? (
+            <View style={[styles.inviteDetails, { backgroundColor: colors.background }]}>
+              {typeof origin === 'string' && origin ? (
+                <View style={styles.detailRow}>
+                  <MaterialIcons name="trip-origin" size={18} color={colors.primary} />
+                  <View style={styles.detailText}>
+                    <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{t('client.programmedRides.origin')}</Text>
+                    <Text style={[styles.detailValue, { color: colors.text }]}>{origin}</Text>
+                  </View>
+                </View>
+              ) : null}
+              {typeof destination === 'string' && destination ? (
+                <View style={styles.detailRow}>
+                  <MaterialIcons name="place" size={18} color={colors.primary} />
+                  <View style={styles.detailText}>
+                    <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{t('client.programmedRides.destination')}</Text>
+                    <Text style={[styles.detailValue, { color: colors.text }]}>{destination}</Text>
+                  </View>
+                </View>
+              ) : null}
+              {typeof amount === 'number' && Number.isFinite(amount) && amount > 0 ? (
+                <View style={styles.detailRow}>
+                  <MaterialIcons name="payments" size={18} color={colors.primary} />
+                  <View style={styles.detailText}>
+                    <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{t('client.programmedRides.invitePrice')}</Text>
+                    <Text style={[styles.detailValue, { color: colors.text }]}>{formatCurrency(amount)}</Text>
+                  </View>
+                </View>
+              ) : null}
+              <Text style={[styles.detailNote, { color: colors.textSecondary }]}>{t('client.programmedRides.inviteAvailability')}</Text>
+            </View>
+          ) : null}
 
           {isClientPrompt && claimCode ? (
             <View style={[styles.codeChip, { borderColor: colors.primary }]}>
@@ -336,12 +406,22 @@ const ProgrammedRidePromptOverlay: React.FC<Props> = ({ role }) => {
             ]}
           >
             {processing ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
+              <ActivityIndicator size="small" color="#241A09" />
             ) : (
               <Text style={styles.primaryText}>{confirmLabel}</Text>
             )}
           </Pressable>
 
+          {isInvitation ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={processing}
+              onPress={() => void handleDecline()}
+              style={styles.ghostButton}
+            >
+              <Text style={[styles.ghostText, { color: colors.textSecondary }]}>{t('client.programmedRides.declineInvite')}</Text>
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityRole="button"
             disabled={processing}
@@ -351,6 +431,7 @@ const ProgrammedRidePromptOverlay: React.FC<Props> = ({ role }) => {
           >
             <Text style={[styles.ghostText, { color: colors.textSecondary }]}>{dismissLabel}</Text>
           </Pressable>
+          </ScrollView>
         </Animated.View>
       </Animated.View>
     </Modal>
@@ -368,6 +449,7 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 340,
+    maxHeight: '90%',
     borderRadius: 24,
     borderWidth: StyleSheet.hairlineWidth,
     paddingTop: 28,
@@ -380,6 +462,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 24,
   },
+  scroll: { width: '100%' },
+  scrollContent: { alignItems: 'center' },
+  inviteDetails: { alignSelf: 'stretch', borderRadius: 14, padding: 14, gap: 12, marginBottom: 16 },
+  detailRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  detailText: { flex: 1, gap: 2 },
+  detailLabel: { fontSize: 11, fontWeight: '600' },
+  detailValue: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
+  detailNote: { fontSize: 12, lineHeight: 17 },
   iconDisc: {
     width: 68,
     height: 68,
@@ -447,7 +537,7 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.97 }],
   },
   primaryText: {
-    color: '#FFFFFF',
+    color: '#241A09',
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.2,

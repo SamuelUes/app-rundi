@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -256,24 +257,45 @@ func (s *Service) AcceptTerms(ctx context.Context, uid string) error {
 
 // ---------- ride share tokens (público, stateless HMAC) ----------
 
-// CreateShareToken — createRideShareToken v1: token firmado rideId|exp|sig.
+// shareUUIDRe — el path {rideId} puede llegar como rides.id (uuid SQL); si no
+// matchea, se trata como firebase_ride_id (doc vivo), igual que /v1/rides.
+var shareUUIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// CreateShareToken — createRideShareToken v1: token firmado liveDocId|exp|sig.
 func (s *Service) CreateShareToken(ctx context.Context, uid, rideID string, ttlHours int) (map[string]any, error) {
 	if len(s.shareKey) == 0 {
 		return nil, apperr.New(503, "share tokens no configurados")
 	}
-	// Solo participante del viaje puede compartirlo.
-	var ok bool
-	if err := s.pool.QueryRow(ctx, `
-		SELECT EXISTS(SELECT 1 FROM public.rides WHERE id = $1::uuid
-			AND (client_id = $2 OR driver_id = $2 OR follower_driver_id = $2))`,
-		rideID, uid).Scan(&ok); err != nil || !ok {
+	sqlID := rideID
+	if !shareUUIDRe.MatchString(rideID) {
+		err := s.pool.QueryRow(ctx,
+			`SELECT id::text FROM public.rides WHERE firebase_ride_id = $1`, rideID).Scan(&sqlID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperr.ErrForbidden
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	// Solo participante del viaje puede compartirlo. El token firma el id del
+	// doc vivo (firebase_ride_id), que es el que consulta PublicTracking.
+	var liveID string
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(firebase_ride_id, id::text) FROM public.rides
+		WHERE id = $1::uuid
+			AND (client_id = $2 OR driver_id = $2 OR follower_driver_id = $2)`,
+		sqlID, uid).Scan(&liveID)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.ErrForbidden
+	}
+	if err != nil {
+		return nil, err
 	}
 	if ttlHours <= 0 || ttlHours > 168 {
 		ttlHours = 24
 	}
 	exp := time.Now().Add(time.Duration(ttlHours) * time.Hour).Unix()
-	body := fmt.Sprintf("%s|%d", rideID, exp)
+	body := fmt.Sprintf("%s|%d", liveID, exp)
 	mac := hmac.New(sha256.New, s.shareKey)
 	mac.Write([]byte(body))
 	token := base64.RawURLEncoding.EncodeToString([]byte(body)) + "." +

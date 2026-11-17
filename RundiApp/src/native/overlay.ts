@@ -87,13 +87,13 @@ export const overlayManager = {
     }
   },
 
-  async showRideOverlay(options: RideOverlayArgs) {
+  async showRideOverlay(options: RideOverlayArgs): Promise<boolean> {
     console.log('🔵 [overlayManager] showRideOverlay() LLAMADO con options:', options);
     console.log('🔵 [overlayManager] AppState.currentState:', AppState.currentState);
 
     if (isOperationInProgress) {
       console.warn('⚠️ [overlayManager] Operation already in progress, skipping');
-      return;
+      return false;
     }
 
     try {
@@ -104,9 +104,9 @@ export const overlayManager = {
       console.log('🔵 [overlayManager] Módulo nativo:', androidModule || iosModule ? 'EXISTE ✅' : 'NO EXISTE ❌');
 
       if (!androidModule && !iosModule) {
-        if (!isSupported) return;
+        if (!isSupported) return false;
         console.error('❌ [overlayManager] showRideOverlay - No hay módulo nativo disponible');
-        return;
+        return false;
       }
 
       // Validar parámetros
@@ -115,7 +115,7 @@ export const overlayManager = {
 
       if (!rideId || typeof rideId !== 'string') {
         console.error('❌ [overlayManager] Invalid rideId:', rideId);
-        return;
+        return false;
       }
 
       const sanitizedPrice = Number.isFinite(price) ? price : 0;
@@ -138,7 +138,7 @@ export const overlayManager = {
 
         if (!hasPermission) {
           console.error('❌ [overlayManager] showRideOverlay - Sin permiso de overlay');
-          return;
+          return false;
         }
       }
 
@@ -164,9 +164,11 @@ export const overlayManager = {
       );
 
       if (shown === false) {
-        console.log('⏭️ [overlayManager] Overlay omitido por el módulo nativo (app en background, sin activity activa)');
+        console.warn('⚠️ [overlayManager] El módulo nativo no confirmó la visualización del overlay');
+        return false;
       } else {
         console.log('✅ [overlayManager] Overlay shown successfully - módulo nativo ejecutado');
+        return true;
       }
     } catch (error: any) {
       console.error('❌ [overlayManager] showRideOverlay error:', error?.message || error);
@@ -177,6 +179,7 @@ export const overlayManager = {
       } catch (cleanupError) {
         console.warn('⚠️ [overlayManager] Cleanup error:', cleanupError);
       }
+      return false;
     } finally {
       isOperationInProgress = false;
       console.log('🔵 [overlayManager] showRideOverlay() FINALIZADO');

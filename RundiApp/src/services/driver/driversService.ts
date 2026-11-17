@@ -126,6 +126,14 @@ class DriversService {
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         if (!mutationDone) {
+          // GPS en paralelo con la mutación REST (no depende del resultado);
+          // el .catch evita un unhandled rejection si la mutación falla
+          // primero — el resultado real lo evalúa Promise.all.
+          const liveLocation = writeDriverLiveLocation(uid, {
+            latitude: location?.latitude,
+            longitude: location?.longitude,
+          });
+          liveLocation.catch(() => {});
           if (status === 'available') {
             activation = await activateAvailability();
             resultStatus = activation.allowed ? 'available' : 'offline';
@@ -134,13 +142,19 @@ class DriversService {
             resultStatus = 'offline';
           }
           mutationDone = true;
+          // Presencia sí depende de resultStatus → va con la escritura GPS ya
+          // en curso (campos client-writable; nunca reactivan).
+          await Promise.all([
+            liveLocation,
+            writePresence(uid, resultStatus === 'offline' ? 'offline' : 'online'),
+          ]);
+        } else {
+          await writeDriverLiveLocation(uid, {
+            latitude: location?.latitude,
+            longitude: location?.longitude,
+          });
+          await writePresence(uid, resultStatus === 'offline' ? 'offline' : 'online');
         }
-        // GPS + presencia (campos client-writable; nunca reactivan).
-        await writeDriverLiveLocation(uid, {
-          latitude: location?.latitude,
-          longitude: location?.longitude,
-        });
-        await writePresence(uid, resultStatus === 'offline' ? 'offline' : 'online');
         return { success: resultStatus === status, status: resultStatus, activation };
       } catch (error) {
         lastError = error;

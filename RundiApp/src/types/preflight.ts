@@ -86,6 +86,7 @@ export type PreflightProgrammedRideSummary = {
   type: 'programmed_ride_client_confirm' | 'programmed_ride_driver_confirm';
   rideId: string;
   scheduledAt?: number;
+  driverInvitationAt?: number;
 };
 
 export type GetPreflightDataRequest = {

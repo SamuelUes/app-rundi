@@ -12,6 +12,7 @@ import backendConfig from '../../../config/backendConfig';
 import firebaseAuthService from '../../../services/auth/firebaseAuthService';
 import BiometricService from '../../../services/user/biometricService';
 import sessionService from '../../../services/user/sessionService';
+import deviceIdentityService from '../../../services/auth/deviceIdentityService';
 import preflightService from '../../../services/ride/preflightService';
 import alertService from '../../../services/notification/alertService';
 import storageCleanupService from '../../../services/media/storageCleanupService';
@@ -88,6 +89,11 @@ export function useAuthInit() {
       return;
     }
 
+    // Prewarm del reconocimiento de dispositivo (login directo tras
+    // reinstall): corre en paralelo con el auth listener — paga el costo de
+    // Firebase init + App Check antes de que el landing lo pida.
+    deviceIdentityService.prewarmDeviceRecognition();
+
     const setupAuthListener = async () => {
         let observedUid: string | null | undefined;
         let observedRole: User['role'] | null | undefined;
@@ -153,6 +159,12 @@ export function useAuthInit() {
                   role,
                   phone: userData.phone,
                   profilePhoto: userData.profilePhoto || userData.profile_photo || userData.photoURL || userData.photoUrl,
+                });
+
+                // Registra el par (deviceId estable + secret) para el login
+                // directo post-reinstall. Fire-and-forget: no bloquea el gate.
+                void deviceIdentityService.registerDevice().catch((e) => {
+                  console.warn('[AuthInit] device register failed:', e);
                 });
 
                 const isStartupRestore = !firstAuthEventHandled;

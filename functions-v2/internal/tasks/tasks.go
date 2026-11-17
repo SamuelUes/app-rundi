@@ -24,7 +24,6 @@ import (
 type Producer struct {
 	client *cloudtasks.Client
 	cfg    *config.Config
-	wake   wakeCoalescer
 }
 
 func NewProducer(ctx context.Context, cfg *config.Config) (*Producer, error) {
@@ -46,24 +45,14 @@ func (p *Producer) Close() error { return p.client.Close() }
 
 // WakeConsumer requests a Cloud Run Job execution. The SQL outbox remains the
 // durable queue; if creating this wake-up fails, the scheduled sweep recovers it.
-// El task usa nombre por ventana de 30s: varios wakes en la misma ventana
-// colapsan en uno solo (AlreadyExists = éxito), acotando las ejecuciones del
-// job a ~2/minuto bajo carga y a 0 en reposo.
+// Each committed mutation needs its own wake: a previous job may already have
+// claimed its batch before the new outbox event was committed.
 func (p *Producer) WakeConsumer(ctx context.Context) error {
-	return p.wake.Do(time.Now().Unix()/30, func() error {
-		return p.wakeConsumer(ctx)
-	})
-}
-
-func (p *Producer) wakeConsumer(ctx context.Context) error {
 	req, err := consumerWakeupRequest(p.cfg)
 	if err != nil {
 		return err
 	}
 	if _, err := p.client.CreateTask(ctx, req); err != nil {
-		if status.Code(err) == codes.AlreadyExists {
-			return nil
-		}
 		return fmt.Errorf("enqueue consumer wake-up: %w", err)
 	}
 	return nil
@@ -75,8 +64,7 @@ func consumerWakeupRequest(cfg *config.Config) (*cloudtaskspb.CreateTaskRequest,
 	}
 	queuePath := fmt.Sprintf("projects/%s/locations/%s/queues/%s",
 		cfg.ProjectID, cfg.Region, cfg.CloudTasksQueue)
-	taskName := fmt.Sprintf("%s/tasks/consumer-wake-%d", queuePath, time.Now().Unix()/30)
-	return jobRunRequest(cfg, queuePath, taskName, "rundi-consumer", nil)
+	return jobRunRequest(cfg, queuePath, "", "rundi-consumer", nil)
 }
 
 // jobRunRequest construye el CreateTaskRequest que ejecuta un Cloud Run Job

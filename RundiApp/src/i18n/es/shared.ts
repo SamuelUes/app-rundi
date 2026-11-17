@@ -465,6 +465,7 @@ const shared = {
             modeLabel: 'Conductor designado para:',
             modeAuto: 'Auto',
             modeMoto: 'Motocicleta',
+            selectOption: 'Seleccionar {{label}}',
             designatedMotoShortNotice: 'La distancia es muy corta para solicitar este servicio en motocicleta.',
           },
           features: {
@@ -698,8 +699,8 @@ const shared = {
             logout: 'Cerrar sesión',
           },
           appInfo: {
-            version: 'Rundi Beta- 1.8',
-            copyright: '© 2025 Todos los derechos reservados',
+            version: 'Rundi Beta- 1.9',
+            copyright: '© 2026-2027 Todos los derechos reservados',
           },
          support: {
           title: 'Mis reportes de soporte',
@@ -726,6 +727,12 @@ const shared = {
         },
         rideProgress: {
           title: 'Viaje Rundi',
+          open: 'Ver viaje',
+          fare: 'C${{amount}}',
+          payment: {
+            cash: 'Efectivo',
+            card: 'Tarjeta',
+          },
           status: {
             requested: 'Buscando conductor',
             driver_offered: 'Oferta recibida',

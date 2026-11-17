@@ -951,7 +951,7 @@ const driver = {
               paid: 'Pagado',
               pending: 'Pendiente',
             },
-            origin: '📍 {{value}}',
+            origin: '{{value}}',
             destination: '{{value}}',
             distance: '{{value}} km',
             duration: '{{value}} min',
@@ -1110,7 +1110,7 @@ const driver = {
             title: 'No se puede cambiar el método de pago',
             subtitle: 'El cliente ya confirmó el pago',
           },
-          codeLabel: 'Pídele al cliente su código de 4 dígitos',
+          codeLabel: 'Código de 4 dígitos del cliente (opcional)',
           support: {
             title: 'Ayuda con la confirmación de pago',
             label: '¿Problemas con este cobro?',

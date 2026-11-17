@@ -39,6 +39,7 @@ export function useDriverWalletListener(
 
     let isMounted = true;
     let taskDone = false;
+    let hasLiveBalance = false;
     const done = () => {
       if (!taskDone) {
         taskDone = true;
@@ -49,7 +50,7 @@ export function useDriverWalletListener(
     const fallbackRest = async () => {
       try {
         const { balance } = await getRechargeSummary(1);
-        if (!isMounted) return;
+        if (!isMounted || hasLiveBalance) return;
         const normalized = num(balance);
         setRechargeFundsSummary({
           availableBalance: normalized,
@@ -78,6 +79,7 @@ export function useDriverWalletListener(
           }
           const d = snap.data();
           const balance = num(d.balance);
+          hasLiveBalance = true;
           setRechargeFundsSummary({
             availableBalance: balance,
             blocked: balance <= MIN_RECHARGE_BALANCE_REQUIRED,

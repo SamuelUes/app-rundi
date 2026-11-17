@@ -6,14 +6,11 @@
 package compliance
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -22,30 +19,12 @@ import (
 )
 
 type Handler struct {
-	svc          *Service
-	store        *DailyStore
-	wakeConsumer func(context.Context) error
+	svc   *Service
+	store *DailyStore
 }
 
 func NewHandler(svc *Service, store *DailyStore) *Handler {
 	return &Handler{svc: svc, store: store}
-}
-
-// SetConsumerWakeup instala el wake-up best-effort del consumer de outbox
-// (opcional; sin él los eventos se procesan en el siguiente tick).
-func (h *Handler) SetConsumerWakeup(wake func(context.Context) error) {
-	h.wakeConsumer = wake
-}
-
-func (h *Handler) wakeOutbox(ctx context.Context) {
-	if h.wakeConsumer == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-	if err := h.wakeConsumer(ctx); err != nil {
-		slog.Warn("consumer wake-up failed; scheduled sweep will retry", "err", err)
-	}
 }
 
 // Routes — /v1/compliance (conductor sobre sus propios documentos).
@@ -184,9 +163,8 @@ func (h *Handler) activateAvailability(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if res.Allowed {
-		h.wakeOutbox(r.Context())
-	}
+	// El wake del consumer lo hace WakeConsumerOnMutation tras la respuesta —
+	// encolarlo aquí bloqueaba el HTTP con el RTT de Cloud Tasks.
 	apperr.JSON(w, http.StatusOK, map[string]any{"activation": res})
 }
 
@@ -200,7 +178,6 @@ func (h *Handler) deactivateAvailability(w http.ResponseWriter, r *http.Request)
 		apperr.Write(w, err)
 		return
 	}
-	h.wakeOutbox(r.Context())
 	apperr.JSON(w, http.StatusOK, map[string]string{"status": "offline"})
 }
 

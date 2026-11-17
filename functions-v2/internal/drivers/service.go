@@ -361,6 +361,242 @@ func (s *Service) ApproveDriverService(ctx context.Context, adminUID, driverServ
 	return tx.Commit(ctx)
 }
 
+type AdminDriverService struct {
+	ID            *string    `json:"driverServiceId"`
+	Code          string     `json:"code"`
+	Name          string     `json:"name"`
+	VehicleTypes  []string   `json:"vehicleTypes"`
+	Compatible    bool       `json:"compatible"`
+	ServiceActive bool       `json:"serviceActive"`
+	IsActive      *bool      `json:"isActive"`
+	IsApproved    *bool      `json:"isApproved"`
+	AssignedAt    *time.Time `json:"assignedAt"`
+	ExpiresAt     *time.Time `json:"expiresAt"`
+}
+
+type AdminDriverFeature struct {
+	Code      string     `json:"code"`
+	Name      string     `json:"name"`
+	Enabled   bool       `json:"enabled"`
+	Assigned  bool       `json:"assigned"`
+	ExpiresAt *time.Time `json:"expiresAt"`
+}
+
+func (s *Service) ListDriverServicesForAdmin(ctx context.Context, driverID string) ([]AdminDriverService, error) {
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM public.drivers WHERE id = $1::uuid AND deleted_at IS NULL)`,
+		driverID).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, apperr.New(404, "driver not found")
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT ds.id::text, s.code, s.name, COALESCE(s.vehicle_types, '[]'::jsonb),
+		       COALESCE(s.is_active, FALSE),
+		       EXISTS (
+		         SELECT 1 FROM public.vehicles v
+		         WHERE v.driver_id = $1::uuid AND v.is_active = TRUE
+		           AND v.deleted_at IS NULL
+		           AND s.vehicle_types ? CASE
+		             WHEN v.type::text IN ('moto', 'motorcycle') THEN 'motorcycle'
+		             ELSE 'auto'
+		           END
+		       ),
+		       ds.is_active, ds.is_approved, ds.assigned_at, ds.expires_at
+		FROM public.services s
+		LEFT JOIN public.driver_services ds
+		  ON ds.service_id = s.id AND ds.driver_id = $1::uuid
+		WHERE ds.id IS NOT NULL OR (
+		  COALESCE(s.is_active, FALSE) = TRUE AND EXISTS (
+		    SELECT 1 FROM public.vehicles v
+		    WHERE v.driver_id = $1::uuid AND v.is_active = TRUE
+		      AND v.deleted_at IS NULL
+		      AND s.vehicle_types ? CASE
+		        WHEN v.type::text IN ('moto', 'motorcycle') THEN 'motorcycle'
+		        ELSE 'auto'
+		      END
+		  )
+		)
+		ORDER BY s.display_order, s.name`, driverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []AdminDriverService{}
+	for rows.Next() {
+		var item AdminDriverService
+		var serviceID *string
+		var vehicleTypes []byte
+		if err := rows.Scan(
+			&serviceID, &item.Code, &item.Name, &vehicleTypes, &item.ServiceActive,
+			&item.Compatible, &item.IsActive, &item.IsApproved, &item.AssignedAt,
+			&item.ExpiresAt,
+		); err != nil {
+			return nil, err
+		}
+		if serviceID != nil {
+			item.ID = serviceID
+		}
+		if err := json.Unmarshal(vehicleTypes, &item.VehicleTypes); err != nil {
+			return nil, fmt.Errorf("decode service vehicle_types: %w", err)
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *Service) AssignDriverService(ctx context.Context, adminUID, driverID, serviceCode, requestID string) (string, error) {
+	if serviceCode == "" {
+		return "", apperr.New(400, "serviceCode is required")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+
+	var driverUID string
+	if err := tx.QueryRow(ctx, `
+		SELECT user_id FROM public.drivers
+		WHERE id = $1::uuid AND deleted_at IS NULL
+		FOR UPDATE`, driverID).Scan(&driverUID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", apperr.New(404, "driver not found")
+		}
+		return "", err
+	}
+
+	var serviceID string
+	err = tx.QueryRow(ctx, `
+		SELECT s.id::text FROM public.services s
+		WHERE s.code = $1 AND s.is_active = TRUE
+		  AND EXISTS (
+		    SELECT 1 FROM public.vehicles v
+		    WHERE v.driver_id = $2::uuid AND v.is_active = TRUE
+		      AND v.deleted_at IS NULL
+		      AND s.vehicle_types ? CASE
+		        WHEN v.type::text IN ('moto', 'motorcycle') THEN 'motorcycle'
+		        ELSE 'auto'
+		      END
+		  )`, serviceCode, driverID).Scan(&serviceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", apperr.New(404, "active compatible service not found")
+	}
+	if err != nil {
+		return "", err
+	}
+
+	var driverServiceID string
+	err = tx.QueryRow(ctx, `
+		INSERT INTO public.driver_services
+		  (driver_id, service_id, is_active, is_approved, approved_by, approved_at, assigned_at)
+		VALUES ($1::uuid, $2::uuid, TRUE, FALSE, NULL, NULL, NOW())
+		ON CONFLICT (driver_id, service_id) DO UPDATE
+		  SET is_active = TRUE, is_approved = FALSE, approved_by = NULL,
+		      approved_at = NULL, assigned_at = NOW()
+		RETURNING id::text`, driverID, serviceID).Scan(&driverServiceID)
+	if err != nil {
+		return "", err
+	}
+	if err := s.audit(ctx, tx, adminUID, "admin", "create", "driver_service", driverServiceID,
+		map[string]any{"after": map[string]any{
+			"driver_id": driverID, "service_id": serviceID,
+			"is_active": true, "is_approved": false,
+		}}); err != nil {
+		return "", err
+	}
+	if err := s.emitDriverEvent(ctx, tx, driverUID, "driver.service_assigned", requestID); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return driverServiceID, nil
+}
+
+func (s *Service) DeactivateDriverServiceForAdmin(ctx context.Context, adminUID, driverServiceID, requestID string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var driverID, driverUID string
+	var previousActive bool
+	err = tx.QueryRow(ctx, `
+		SELECT ds.driver_id::text, d.user_id, ds.is_active
+		FROM public.driver_services ds
+		JOIN public.drivers d ON d.id = ds.driver_id
+		WHERE ds.id = $1::uuid
+		FOR UPDATE OF ds`, driverServiceID).Scan(&driverID, &driverUID, &previousActive)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return apperr.New(404, "driver service not found")
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE public.driver_services SET is_active = FALSE
+		WHERE id = $1::uuid`, driverServiceID); err != nil {
+		return err
+	}
+	if err := s.audit(ctx, tx, adminUID, "admin", "update", "driver_service", driverServiceID,
+		map[string]any{
+			"before": map[string]any{"is_active": previousActive},
+			"after":  map[string]any{"is_active": false},
+		}); err != nil {
+		return err
+	}
+	if err := s.emitDriverEvent(ctx, tx, driverUID, "driver.service_deactivated", requestID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Service) ListDriverFeaturesForAdmin(ctx context.Context, driverID string) ([]AdminDriverFeature, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT f.code, f.name, f.enabled,
+		       COALESCE(a.is_active AND (a.expires_at IS NULL OR a.expires_at > NOW()), FALSE),
+		       a.expires_at
+		FROM public.drivers d
+		CROSS JOIN public.features f
+		LEFT JOIN public.driver_feature_assignments a
+		  ON a.driver_id = d.id AND a.feature_id = f.id
+		WHERE d.id = $1::uuid AND d.deleted_at IS NULL
+		  AND f.eligibility_subject <> 'vehicle'
+		ORDER BY f.name`, driverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []AdminDriverFeature{}
+	for rows.Next() {
+		var item AdminDriverFeature
+		if err := rows.Scan(&item.Code, &item.Name, &item.Enabled, &item.Assigned, &item.ExpiresAt); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		var exists bool
+		if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM public.drivers WHERE id = $1::uuid AND deleted_at IS NULL)`, driverID).Scan(&exists); err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, apperr.New(404, "driver not found")
+		}
+	}
+	return out, nil
+}
+
 var validAccountStatuses = map[string]bool{
 	"pending": true, "active": true, "suspended": true, "rejected": true,
 }

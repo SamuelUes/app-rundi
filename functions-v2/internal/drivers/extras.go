@@ -378,6 +378,10 @@ func (s *Service) GrantFeature(ctx context.Context, adminUID, entityType, entity
 		table = "vehicle_feature_assignments"
 		ownerCol = "vehicle_id"
 	}
+	featureFilter := ""
+	if entityType == "driver" {
+		featureFilter = " AND f.enabled = TRUE AND f.eligibility_subject <> 'vehicle'"
+	}
 	var ownerRef string
 	if entityType == "vehicle" {
 		ownerRef = entityID // vehicle UUID
@@ -393,12 +397,17 @@ func (s *Service) GrantFeature(ctx context.Context, adminUID, entityType, entity
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO public.%s (%s, feature_id, is_active, granted_by)
-		SELECT $1::uuid, f.id, TRUE, $2 FROM public.features f WHERE f.code = $3
-		ON CONFLICT (%s, feature_id) DO UPDATE SET is_active = TRUE, revoked_by = NULL, revoked_at = NULL, granted_by = $2`,
-		table, ownerCol, ownerCol), ownerRef, adminUID, featureCode); err != nil {
+		SELECT $1::uuid, f.id, TRUE, $2 FROM public.features f WHERE f.code = $3%s
+		ON CONFLICT (%s, feature_id) DO UPDATE SET is_active = TRUE, granted_by = $2,
+		  granted_at = NOW(), expires_at = NULL, revoked_by = NULL, revoked_at = NULL`,
+		table, ownerCol, featureFilter, ownerCol), ownerRef, adminUID, featureCode)
+	if err != nil {
 		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.New(404, "feature not found")
 	}
 	var uid string
 	ownerQuery := `SELECT user_id FROM public.drivers WHERE id = $1::uuid`
@@ -408,6 +417,12 @@ func (s *Service) GrantFeature(ctx context.Context, adminUID, entityType, entity
 	if err := tx.QueryRow(ctx, ownerQuery, ownerRef).Scan(&uid); err != nil {
 		return err
 	}
+	if entityType == "driver" {
+		if err := s.audit(ctx, tx, adminUID, "admin", "update", "driver", ownerRef,
+			map[string]any{"after": map[string]any{"feature_code": featureCode, "is_active": true}}); err != nil {
+			return err
+		}
+	}
 	if err := s.emitDriverEvent(ctx, tx, uid, "driver.updated", requestID); err != nil {
 		return err
 	}
@@ -415,7 +430,7 @@ func (s *Service) GrantFeature(ctx context.Context, adminUID, entityType, entity
 }
 
 // RevokeFeature — revoca el grant.
-func (s *Service) RevokeFeature(ctx context.Context, entityType, entityID, featureCode string) error {
+func (s *Service) RevokeFeature(ctx context.Context, adminUID, entityType, entityID, featureCode, requestID string) error {
 	table := "driver_feature_assignments"
 	ownerCol := "driver_id"
 	if entityType == "vehicle" {
@@ -436,12 +451,23 @@ func (s *Service) RevokeFeature(ctx context.Context, entityType, entityID, featu
 		return err
 	}
 	defer tx.Rollback(ctx)
-	_, err = tx.Exec(ctx, fmt.Sprintf(`
-		UPDATE public.%s a SET is_active = FALSE, revoked_at = NOW()
-		FROM public.features f
-		WHERE a.%s = $1::uuid AND a.feature_id = f.id AND f.code = $2`,
-		table, ownerCol), ownerRef, featureCode)
+	var assignmentID string
+	var previousActive bool
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT a.id::text, a.is_active
+		FROM public.%s a
+		JOIN public.features f ON f.id = a.feature_id
+		WHERE a.%s = $1::uuid AND f.code = $2
+		FOR UPDATE OF a`, table, ownerCol), ownerRef, featureCode).Scan(&assignmentID, &previousActive)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return apperr.New(404, "feature assignment not found")
+		}
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE public.%s SET is_active = FALSE, revoked_at = NOW(), revoked_by = $2
+		WHERE id = $1::uuid`, table), assignmentID, adminUID); err != nil {
 		return err
 	}
 	var uid string
@@ -452,7 +478,13 @@ func (s *Service) RevokeFeature(ctx context.Context, entityType, entityID, featu
 	if err := tx.QueryRow(ctx, ownerQuery, ownerRef).Scan(&uid); err != nil {
 		return err
 	}
-	if err := s.emitDriverEvent(ctx, tx, uid, "driver.updated", ""); err != nil {
+	if entityType == "driver" {
+		if err := s.audit(ctx, tx, adminUID, "admin", "update", "driver", ownerRef,
+			map[string]any{"before": map[string]any{"is_active": previousActive}, "after": map[string]any{"is_active": false}}); err != nil {
+			return err
+		}
+	}
+	if err := s.emitDriverEvent(ctx, tx, uid, "driver.updated", requestID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

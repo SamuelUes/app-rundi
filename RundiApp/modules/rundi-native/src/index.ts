@@ -81,7 +81,10 @@ declare class RideProgressModuleType extends NativeModule {
     rideId: string,
     title: string,
     body: string,
-    progress: number
+    progress: number,
+    vehicleType?: string | null,
+    subText?: string | null,
+    actionLabel?: string | null
   ): Promise<boolean>;
   hideRideProgress(): Promise<boolean>;
 }

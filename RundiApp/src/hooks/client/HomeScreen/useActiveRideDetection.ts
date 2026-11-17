@@ -50,7 +50,7 @@ export function useActiveRideDetection(
             if (activeRideData.status === 'pending_payment') {
               const paymentMethod = activeRideData.paymentMethod || activeRideData.payment?.method || 'cash';
               const finalAmount = activeRideData.finalFare || activeRideData.estimatedPrice || 0;
-              const driverName = activeRideData.driver?.name || 'Conductor';
+              const driverName = activeRideData.driver?.name || activeRideData.driverName || 'Conductor';
               const driverPhoto = activeRideData.driver?.photoURL || undefined;
 
               if (paymentMethod === 'card') {

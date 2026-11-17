@@ -109,6 +109,9 @@ func (h *Handler) listDrivers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) grantDriverFeature(w http.ResponseWriter, r *http.Request) {
+	if !adminOnly(w, r) {
+		return
+	}
 	h.grantFeature(w, r, "driver")
 }
 
@@ -127,16 +130,22 @@ func (h *Handler) grantFeature(w http.ResponseWriter, r *http.Request, entityTyp
 }
 
 func (h *Handler) revokeDriverFeature(w http.ResponseWriter, r *http.Request) {
+	if !adminOnly(w, r) {
+		return
+	}
 	h.revokeFeature(w, r, "driver")
 }
 
 func (h *Handler) revokeVehicleFeature(w http.ResponseWriter, r *http.Request) {
+	if !adminOnly(w, r) {
+		return
+	}
 	h.revokeFeature(w, r, "vehicle")
 }
 
 func (h *Handler) revokeFeature(w http.ResponseWriter, r *http.Request, entityType string) {
-	if err := h.svc.RevokeFeature(r.Context(), entityType,
-		chi.URLParam(r, "id"), chi.URLParam(r, "code")); err != nil {
+	if err := h.svc.RevokeFeature(r.Context(), ctxUID(r), entityType,
+		chi.URLParam(r, "id"), chi.URLParam(r, "code"), ctxRID(r)); err != nil {
 		apperr.Write(w, err)
 		return
 	}

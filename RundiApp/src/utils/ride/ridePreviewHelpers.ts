@@ -83,6 +83,7 @@ export const buildOfferCacheEntry = (
   driverId: userId,
   clientId: currentRide.clientId,
   clientName: resolvedClientName,
+  clientPhoto: currentRide.clientPhoto ?? null,
   origin: normalizeLocationForCache(currentRide.origin),
   destination: normalizeLocationForCache(currentRide.destination),
   extraDestinations: normalizeStopsForCache(currentRide.extraDestinations),

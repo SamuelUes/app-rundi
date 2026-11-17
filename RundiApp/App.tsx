@@ -1,7 +1,6 @@
 import React from 'react';
-import { View, Platform } from 'react-native';
+import { View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { NavigationBar } from 'expo-navigation-bar';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { NavigationContainer } from '@react-navigation/native';
@@ -25,6 +24,7 @@ import { useNotifications } from './src/hooks/shared/notifications/useNotificati
 import LocationPermissionGate from './src/components/permissions/LocationPermissionGate';
 import AppSplashOverlay from './src/components/ui/AppSplashOverlay';
 import ProgrammedRidePromptOverlay from './src/components/programmed/ProgrammedRidePromptOverlay';
+import { applyNavigationBarStyle } from './src/utils/system/navigationBar';
 // import { initializeReactNativeFirebase } from './src/config/firebase-rn-native';
 // import { getApp } from '@react-native-firebase/app';
 
@@ -72,6 +72,13 @@ function AppContent() {
   // Iniciar tracking de proximidad para conductores (permite viaje por aproximación)
   useDriverProximityTracking();
 
+  // Barra de navegación Android acorde al tema (imperativo: el componente
+  // <NavigationBar> hace llamadas nativas sin await que rechazan cuando la
+  // Activity ya no existe y ensucian el log con "Uncaught (in promise)").
+  React.useEffect(() => {
+    applyNavigationBarStyle(isDark ? 'light' : 'dark');
+  }, [isDark]);
+
   const appReady = (fontsLoaded || !!fontError) && (isLanguageReady || loadTimedOut);
   const hideNativeSplash = React.useCallback(() => {
     SplashScreen.hideAsync().catch(() => {});
@@ -104,9 +111,6 @@ function AppContent() {
           />
         )}
         <StatusBar style={appReady && !isDark ? 'dark' : 'light'} />
-        {Platform.OS === 'android' && (
-          <NavigationBar style={isDark ? 'light' : 'dark'} />
-        )}
       </View>
     </SafeAreaProvider>
   );

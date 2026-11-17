@@ -414,7 +414,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     }
     setConfirmingScheduledRideId(ride.id);
     try {
-      await ridesService.confirmProgrammedRideDriver(ride.id);
+      await ridesService.confirmProgrammedRideDriver(ride.id, ride.driverInvitationAt ?? 0);
       alertService.showSuccessAlert(
         t('driver.available.alerts.scheduledConfirmedTitle'),
         t('driver.available.alerts.scheduledConfirmedBody'),
@@ -443,6 +443,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
       clientId: ride.clientId,
       clientName: ride.clientName,
       clientPhone: ride.clientPhone,
+      clientPhoto: (ride as any).clientPhoto ?? null,
       origin: {
         lat: originLat,
         lng: originLng,
@@ -470,6 +471,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
       clientComment: ride.clientComment,
       isProgrammed: Boolean(ride.isProgrammed),
       scheduledAt: ride.scheduledAt ?? null,
+      driverInvitationAt: ride.driverInvitationAt ?? 0,
     };
 
     navigation.navigate('RidePreview', { ride: payload });

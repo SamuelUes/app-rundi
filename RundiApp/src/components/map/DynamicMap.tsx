@@ -65,6 +65,8 @@ interface DynamicMapProps {
   routeCoordinates?: Array<{ latitude: number; longitude: number }>;
   secondaryRouteCoordinates?: Array<{ latitude: number; longitude: number }>;
   tertiaryRouteCoordinates?: Array<{ latitude: number; longitude: number }>;
+  distanceLineCoordinates?: Array<{ latitude: number; longitude: number }>;
+  cameraFitCoordinates?: Array<{ latitude: number; longitude: number }>;
   autoFitEnabled?: boolean;
   nearbyDrivers?: NearbyDriver[]; // Conductores cercanos
   draggableMarker?: boolean; // Permitir arrastrar el marcador
@@ -125,6 +127,8 @@ function DynamicMapComponent({
   userLocationHoldingDarkIcon,
   manualOriginIcon,
   manualOriginHoldIcon,
+  distanceLineCoordinates,
+  cameraFitCoordinates,
   onMarkerDragStart,
   onMarkerPress,
   googleRenderer,
@@ -172,6 +176,8 @@ function DynamicMapComponent({
       secondaryRouteCoordinates={restProps.secondaryRouteCoordinates}
       secondaryRouteColor={restProps.secondaryRouteColor}
       tertiaryRouteCoordinates={restProps.tertiaryRouteCoordinates}
+      distanceLineCoordinates={distanceLineCoordinates}
+      cameraFitCoordinates={cameraFitCoordinates}
       tertiaryRouteColor={restProps.tertiaryRouteColor}
       googleRenderer={googleRenderer ?? defaultGoogleRenderer}
     />

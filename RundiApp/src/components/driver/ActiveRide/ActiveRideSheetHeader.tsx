@@ -65,6 +65,17 @@ export function ActiveRideSheetHeader({
             <Text numberOfLines={1} style={[styles.clientName, { color: colors.text }]}>
               {clientName}
             </Text>
+            <View
+              style={[
+                styles.statusChip,
+                { backgroundColor: `${statusColor}1F`, borderColor: `${statusColor}40` },
+              ]}
+            >
+              <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+              <Text numberOfLines={1} style={[styles.statusChipText, { color: statusColor }]}>
+                {statusLabel}
+              </Text>
+            </View>
           </View>
         </View>
         <View style={styles.headerRight}>
@@ -111,31 +122,18 @@ export function ActiveRideSheetHeader({
           </TouchableOpacity>
         </View>
       </View>
-      <View style={styles.headerMetaRow}>
-        <View
-          style={[
-            styles.statusChip,
-            { backgroundColor: `${statusColor}1F`, borderColor: `${statusColor}40` },
-          ]}
-        >
-          <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-          <Text numberOfLines={1} style={[styles.statusChipText, { color: statusColor }]}>
-            {statusLabel}
-          </Text>
-        </View>
-        <View style={styles.metaRight}>
-          <Text numberOfLines={1} style={[styles.fareText, { color: colors.text }]}>
-            {fareLabel}
-          </Text>
-          {paymentLabel && paymentIcon && (
-            <View style={styles.paymentChip}>
-              <MaterialIcons name={paymentIcon} size={12} color={colors.textSecondary} />
-              <Text numberOfLines={1} style={[styles.paymentChipText, { color: colors.textSecondary }]}>
-                {paymentLabel}
-              </Text>
-            </View>
-          )}
-        </View>
+      <View style={styles.fareStrip}>
+        <Text numberOfLines={1} style={[styles.fareText, { color: colors.text }]}>
+          {fareLabel}
+        </Text>
+        {paymentLabel && paymentIcon && (
+          <View style={styles.paymentChip}>
+            <MaterialIcons name={paymentIcon} size={12} color={colors.textSecondary} />
+            <Text numberOfLines={1} style={[styles.paymentChipText, { color: colors.textSecondary }]}>
+              {paymentLabel}
+            </Text>
+          </View>
+        )}
       </View>
     </View>
   );

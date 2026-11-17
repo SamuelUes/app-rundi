@@ -73,6 +73,7 @@ export function SearchRideSearchOverlay({
   const metaColor = colors.textSecondary || '#999';
   const accentColor = colors.primary || '#b38737';
   const successColor = colors.success || '#4caf50';
+  const recentIconColor = colors.SecondBorder || '#6e44ff';
 
   const renderSavedItem = (location: SavedLocation, index: number, keyPrefix: string, icon: 'star' | 'history') => (
     <TouchableOpacity
@@ -81,7 +82,7 @@ export function SearchRideSearchOverlay({
       onPress={() => onSelectSavedLocation(location)}
       accessibilityRole="button"
     >
-      <RideIcon name={icon} iconSet={iconSet} size={17} color={accentColor} />
+      <RideIcon name={icon} iconSet={iconSet} size={17} color={icon === 'history' ? recentIconColor : accentColor} />
       <View style={styles.searchResultBody}>
         <Text style={styles.searchResultMain} numberOfLines={1}>
           {location.label}
@@ -203,7 +204,7 @@ export function SearchRideSearchOverlay({
             </View>
           )}
 
-          {recentLocations.length > 0 && (
+          {recentLocations.length > 0 && !searchLoading && searchResults.length === 0 && (
             <View style={styles.savedSection}>
               <Text style={styles.savedSectionTitle}>{tr('labels.recent')}</Text>
               {recentLocations.map((location, index) => renderSavedItem(location, index, 'recent', 'history'))}

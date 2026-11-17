@@ -73,6 +73,7 @@ export type DriverStackParamList = {
       clientId: string;
       clientName?: string;
       clientPhone?: string;
+      clientPhoto?: string | null;
       origin: { lat: number; lng: number; address?: string };
       destination: { lat: number; lng: number; address?: string };
       extraDestinations?: Array<{ lat: number; lng: number; address?: string }>;

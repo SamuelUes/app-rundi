@@ -65,8 +65,24 @@ func TestConfirmCashCode(t *testing.T) {
 	if unauthorizedAttempts != 0 {
 		t.Fatalf("unauthorized attempt incremented counter: %d", unauthorizedAttempts)
 	}
-	if err := confirm(driverUID, ""); err == nil {
-		t.Fatal("confirmed without required code")
+	// El código es opcional (paridad v1): confirmar sin código liquida el
+	// pago aunque exista una fila en payment_cash_codes. Sobre otro ride
+	// para no consumir el flujo de intentos del principal.
+	var rideNoCodeID string
+	if err := pool.QueryRow(ctx, `INSERT INTO public.rides(client_id, driver_id, status)
+		VALUES ($1, $2, 'completed') RETURNING id::text`, clientID, driverUID).Scan(&rideNoCodeID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO public.payments
+		(ride_id, amount, commission, payment_method, payment_provider)
+		VALUES ($1, 40, 4.8, 'cash', 'cash')`, rideNoCodeID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO public.payment_cash_codes(ride_id, code) VALUES ($1, '0042')`, rideNoCodeID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ConfirmCash(ctx, rideNoCodeID, driverUID, "", t.Name()); err != nil {
+		t.Fatalf("confirm without optional code: %v", err)
 	}
 	for i := 0; i < 5; i++ {
 		if err := confirm(driverUID, "1111"); err == nil {
