@@ -2,15 +2,15 @@ import type { ImageSourcePropType } from 'react-native';
 
 export const MAP_ICONS = {
   ORIGIN_PIN: require('../assets/icons/origin_marker/origin_marker.png'),
-  DESTINATION_PIN: require('../assets/icons/select-final-destination/selectfinaldestination.png'),
-  MULTI_STOP_PIN: require('../assets/icons/select-extra-destination/selectextradestination.png'),
+  DESTINATION_PIN: require('../assets/icons/select-final-destination/selectfinaldestination.webp'),
+  MULTI_STOP_PIN: require('../assets/icons/select-extra-destination/selectextradestination.webp'),
   MULTI_STOP_LIST_PIN: require('../assets/icons/multiplelocationmarker/multiplelocationmarker.png'),
-  USER_LOCATION_LIGHT: require('../assets/icons/actuall-position-white/actuallpositionwhite2x.png'),
-  USER_LOCATION_DARK: require('../assets/icons/actuall-position-black/actuallpositionblack2x.png'),
-  USER_LOCATION_HOLDING_LIGHT: require('../assets/icons/actuall-position-white-holding/actuallpositionwhiteholding2x.png'),
-  USER_LOCATION_HOLDING_DARK: require('../assets/icons/actuall-position-black-holding/actuallpositionblackholding2x.png'),
-  MANUAL_ORIGIN: require('../assets/icons/select-origin-position/selectoriginposition.png'),
-  MANUAL_ORIGIN_HOLD: require('../assets/icons/select-origin-position-holding/selectoriginpositionholding.png'),
+  USER_LOCATION_LIGHT: require('../assets/icons/actuall-position-white/actuallpositionwhite2x.webp'),
+  USER_LOCATION_DARK: require('../assets/icons/actuall-position-black/actuallpositionblack2x.webp'),
+  USER_LOCATION_HOLDING_LIGHT: require('../assets/icons/actuall-position-white-holding/actuallpositionwhiteholding2x.webp'),
+  USER_LOCATION_HOLDING_DARK: require('../assets/icons/actuall-position-black-holding/actuallpositionblackholding2x.webp'),
+  MANUAL_ORIGIN: require('../assets/icons/select-origin-position/selectoriginposition.webp'),
+  MANUAL_ORIGIN_HOLD: require('../assets/icons/select-origin-position-holding/selectoriginpositionholding.webp'),
   REQUEST_PIN: require('../assets/icons/requests_pin/requests_pin2x.png'),
   DRIVER_PROFILE_BUBBLE: require('../assets/icons/driver-profile-bubble/driverprofilebubble_2x.png'),
 } as const;

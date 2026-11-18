@@ -13,7 +13,10 @@ import (
 
 	"cloud.google.com/go/firestore"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
+	"github.com/rundi/functions-v2/internal/fs"
 	"github.com/rundi/functions-v2/internal/projections"
 )
 
@@ -83,7 +86,29 @@ func reconcileCandidate(ctx context.Context, pool *pgxpool.Pool, c *firestore.Cl
 		return false, fmt.Errorf("read status: %w", err)
 	}
 	if applied >= candidateRevision {
-		return false, nil
+		if spec.aggType != "ride" {
+			return false, nil
+		}
+		var liveID string
+		if err := pool.QueryRow(ctx, `SELECT COALESCE(NULLIF(firebase_ride_id, ''), id::text) FROM public.rides WHERE id=$1::uuid`, id).Scan(&liveID); err != nil {
+			return false, fmt.Errorf("read ride projection id: %w", err)
+		}
+		snap, err := c.Collection(fs.ColTripsLive).Doc(liveID).Get(ctx)
+		if err != nil && status.Code(err) != codes.NotFound {
+			return false, fmt.Errorf("read ride projection: %w", err)
+		}
+		if err == nil && snap.Exists() {
+			var liveVersion float64 = -1
+			switch v := snap.Data()["appliedVersion"].(type) {
+			case int64:
+				liveVersion = float64(v)
+			case float64:
+				liveVersion = v
+			}
+			if liveVersion >= candidateRevision {
+				return false, nil
+			}
+		}
 	}
 	payload, err := spec.build(ctx, pool, id)
 	if err != nil {

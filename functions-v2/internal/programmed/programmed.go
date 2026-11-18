@@ -675,6 +675,13 @@ func (s *Service) promote(ctx context.Context, ref *firestore.DocumentRef, d map
 	}
 	clientID, _ := d["clientId"].(string)
 	driverID, _ := d["driverId"].(string)
+	var arrivalPhoto string
+	if withDriver && driverID != "" && str(d["rideType"]) == "designated_driver" {
+		arrivalPhoto, err = fs.ReadFreshArrivalPhoto(ctx, s.fs, driverID)
+		if err != nil {
+			return err
+		}
+	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return err
@@ -732,7 +739,8 @@ func (s *Service) promote(ctx context.Context, ref *firestore.DocumentRef, d map
 		}
 		if eligibilityErr == nil {
 			if _, err := tx.Exec(ctx, `UPDATE public.rides SET driver_id=$2, status='accepted', accepted_at=NOW(),
-				final_fare=COALESCE(client_suggested_price, estimated_price) WHERE id=$1::uuid`, rideID, driverID); err != nil {
+				final_fare=COALESCE(client_suggested_price, estimated_price),
+				arrival_vehicle_photo=NULLIF($3, '') WHERE id=$1::uuid`, rideID, driverID, arrivalPhoto); err != nil {
 				return err
 			}
 			status = "accepted"

@@ -5,6 +5,7 @@ import alertService from '../../../services/notification/alertService';
 import type { TFunction } from 'i18next';
 import type { ManualOverrideState } from './useClientLocation';
 import type { RegionStatus } from './useRegionAvailability';
+import type { NearbyPlace } from '../../../services/map/googleMapsService';
 
 const COORDS_EPSILON = 0.00002;
 const REGION_IDLE_DELAY_MS = 900;
@@ -42,6 +43,7 @@ export function useMapPinInteraction(
   t: TFunction,
   selectionDisabled: boolean,
   onRestoreLocation: (location: CommittedCoords) => void,
+  resolveSnap?: (location: CommittedCoords) => Promise<NearbyPlace | null>,
 ) {
   const [mapCenter, setMapCenter] = useState<{ latitude: number; longitude: number } | null>(null);
   const [pendingAddress, setPendingAddress] = useState(() => t('client.home.map.loadingAddress'));
@@ -50,6 +52,7 @@ export function useMapPinInteraction(
   const [isSavingLocation, setIsSavingLocation] = useState(false);
   const [isHoldingPin, setIsHoldingPin] = useState(false);
   const [isPinLocked, setIsPinLocked] = useState(true);
+  const [selectedPlaceName, setSelectedPlaceName] = useState<string | null>(null);
 
   const mapGestureActiveRef = useRef(false);
   const lastCommittedCoordsRef = useRef<CommittedCoords | null>(null);
@@ -108,6 +111,7 @@ export function useMapPinInteraction(
   ]);
 
   const restoreCommitted = useCallback(() => {
+    setSelectedPlaceName(null);
     setMapCenter(lastCommittedCoordsRef.current);
     if (lastCommittedCoordsRef.current) onRestoreLocation(lastCommittedCoordsRef.current);
     setHasPendingManualSelection(false);
@@ -121,6 +125,14 @@ export function useMapPinInteraction(
     let startedSaving = false;
     setIsResolvingAddress(true);
     try {
+      const place = resolveSnap ? await resolveSnap(location) : null;
+      if (!isCurrent()) return;
+      if (place) {
+        location = { latitude: place.latitude, longitude: place.longitude };
+        setMapCenter(location);
+        setSelectedPlaceName(place.name);
+        onRestoreLocation(location);
+      }
       const [region, address] = await Promise.all([
         checkRegionForCoords(location.latitude, location.longitude),
         mapsService.reverseGeocode(location).catch(() => null),
@@ -174,12 +186,13 @@ export function useMapPinInteraction(
         setIsSavingLocation(false);
       }
     }
-  }, [checkRegionForCoords, onRestoreLocation, resolveAddressText, restoreCommitted, saveClientLocation, setRegionStatus, t]);
+  }, [checkRegionForCoords, onRestoreLocation, resolveAddressText, resolveSnap, restoreCommitted, saveClientLocation, setRegionStatus, t]);
 
   const beginGesture = useCallback(() => {
     if (selectionDisabled || savingRef.current) return;
     if (mapGestureActiveRef.current) return;
     selectionGenerationRef.current += 1;
+    setSelectedPlaceName(null);
     clearRegionIdleTimeout();
     mapGestureActiveRef.current = true;
     setIsPinLocked(false);
@@ -278,6 +291,7 @@ export function useMapPinInteraction(
 
   return {
     mapCenter,
+    selectedPlaceName,
     pendingAddress,
     hasPendingManualSelection,
     isResolvingAddress,

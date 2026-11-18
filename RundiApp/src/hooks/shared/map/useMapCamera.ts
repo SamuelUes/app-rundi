@@ -27,12 +27,12 @@ export const zoomFromAltitudeRaw = (altitude: number, latitude: number) => {
   return Math.log2((EARTH_CIRCUMFERENCE * cosLat) / safeAltitude);
 };
 
-export const resolveZoomForAltitude = (altitude: number, latitude: number) => {
+export const resolveZoomForAltitude = (altitude: number, latitude: number, maxAltitude = MAX_ALTITUDE) => {
   const safeLatitude = Number.isFinite(latitude) ? latitude : 0;
-  const clampedAltitude = clampValue(altitude, MIN_ALTITUDE, MAX_ALTITUDE);
+  const clampedAltitude = clampValue(altitude, MIN_ALTITUDE, maxAltitude);
   let zoom = zoomFromAltitudeRaw(clampedAltitude, safeLatitude);
   zoom = clampValue(zoom, GOOGLE_MIN_ZOOM, GOOGLE_MAX_ZOOM);
-  const adjustedAltitude = clampValue(altitudeFromZoom(zoom, safeLatitude), MIN_ALTITUDE, MAX_ALTITUDE);
+  const adjustedAltitude = clampValue(altitudeFromZoom(zoom, safeLatitude), MIN_ALTITUDE, maxAltitude);
   return { altitude: adjustedAltitude, zoom };
 };
 
@@ -94,7 +94,8 @@ export function useMapCamera(
   latitude: number,
   longitude: number,
   onRegionChangeCenter?: (center: { latitude: number; longitude: number; altitude?: number; isGesture?: boolean }) => void,
-  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number; altitude?: number; isGesture?: boolean }) => void,
+  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number; altitude?: number; zoom?: number; isGesture?: boolean }) => void,
+  allowRouteZoomOut = false,
 ): MapCameraApi {
   const mapRef = useRef<MapView>(null);
   const [isMapReady, setIsMapReady] = useState(false);
@@ -106,16 +107,14 @@ export function useMapCamera(
   const defaultCameraSettings = useMemo(() => resolveZoomForAltitude(DEFAULT_ALTITUDE, latitude), [latitude]);
   const minZoomSettings = useMemo(() => resolveZoomForAltitude(MIN_ALTITUDE, latitude), [latitude]);
   const maxZoomSettings = useMemo(() => resolveZoomForAltitude(MAX_ALTITUDE, latitude), [latitude]);
-  const minZoomLevel = useMemo(() => Math.min(minZoomSettings.zoom, maxZoomSettings.zoom), [minZoomSettings.zoom, maxZoomSettings.zoom]);
+  const minZoomLevel = allowRouteZoomOut ? GOOGLE_MIN_ZOOM : Math.min(minZoomSettings.zoom, maxZoomSettings.zoom);
   const maxZoomLevel = useMemo(() => Math.max(minZoomSettings.zoom, maxZoomSettings.zoom), [maxZoomSettings.zoom, minZoomSettings.zoom]);
+  const maxAltitude = allowRouteZoomOut ? EARTH_CIRCUMFERENCE : MAX_ALTITUDE;
 
   const lastCameraAltitudeRef = useRef<number>(defaultCameraSettings.altitude);
+  const lastCameraZoomRef = useRef<number>(defaultCameraSettings.zoom);
   const gestureActiveRef = useRef(false);
   const gestureTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    lastCameraAltitudeRef.current = defaultCameraSettings.altitude;
-  }, [defaultCameraSettings.altitude]);
 
   useEffect(() => () => {
     if (gestureTimeoutRef.current) clearTimeout(gestureTimeoutRef.current);
@@ -135,8 +134,14 @@ export function useMapCamera(
     if (!map || typeof map.getCamera !== 'function') return lastCameraAltitudeRef.current;
     try {
       const camera = await map.getCamera();
+      if (typeof camera?.zoom === 'number' && Number.isFinite(camera.zoom)) {
+        lastCameraZoomRef.current = camera.zoom;
+        const altitude = clampValue(altitudeFromZoom(camera.zoom, camera.center?.latitude ?? latitude), MIN_ALTITUDE, maxAltitude);
+        lastCameraAltitudeRef.current = altitude;
+        return altitude;
+      }
       if (camera && typeof camera.altitude === 'number') {
-        const clamped = clampValue(camera.altitude, MIN_ALTITUDE, MAX_ALTITUDE);
+        const clamped = clampValue(camera.altitude, MIN_ALTITUDE, maxAltitude);
         lastCameraAltitudeRef.current = clamped;
         return clamped;
       }
@@ -144,7 +149,7 @@ export function useMapCamera(
       console.warn('[useMapCamera] No se pudo obtener la cámara:', error);
     }
     return lastCameraAltitudeRef.current;
-  }, [isMapReady]);
+  }, [isMapReady, latitude, maxAltitude]);
 
   const applyCamera = useCallback(
     (
@@ -163,7 +168,7 @@ export function useMapCamera(
         : { latitude: 0, longitude: 0 };
       const center = camera.center && isValidCoord(camera.center) ? camera.center : fallbackCenter;
       const altitudeBase = camera.altitudeMeters ?? lastCameraAltitudeRef.current ?? defaultCameraSettings.altitude;
-      const { zoom, altitude } = resolveZoomForAltitude(altitudeBase, center.latitude);
+      const { zoom, altitude } = resolveZoomForAltitude(altitudeBase, center.latitude, maxAltitude);
       const payload: Camera = {
         center,
         pitch: camera.pitch ?? 0,
@@ -176,7 +181,7 @@ export function useMapCamera(
       }
       lastCameraAltitudeRef.current = altitude;
     },
-    [defaultCameraSettings.altitude, latitude, longitude],
+    [defaultCameraSettings.altitude, latitude, longitude, maxAltitude],
   );
 
   const animateCameraToCoordinate = useCallback(
@@ -202,7 +207,7 @@ export function useMapCamera(
       markGestureActive();
       const altitude = (await updateAltitudeFromCamera()) ?? lastCameraAltitudeRef.current;
       if (onRegionChangeCompleteCenter) {
-        onRegionChangeCompleteCenter({ latitude: region.latitude, longitude: region.longitude, altitude, isGesture: details?.isGesture });
+        onRegionChangeCompleteCenter({ latitude: region.latitude, longitude: region.longitude, altitude, zoom: lastCameraZoomRef.current, isGesture: details?.isGesture });
       }
     },
     [markGestureActive, updateAltitudeFromCamera, onRegionChangeCompleteCenter],

@@ -4,6 +4,7 @@ import type { ImageSourcePropType } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import GoogleMap from './GoogleMaps';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
+import type { NearbyPlace } from '../../services/map/googleMapsService';
 
 type RideRequestMarker = {
   id: string;
@@ -44,7 +45,8 @@ interface DynamicMapProps {
   zoomEnabled?: boolean;
   // Center coordinate callbacks when the camera/region changes
   onRegionChangeCenter?: (center: { latitude: number; longitude: number; altitude?: number; isGesture?: boolean }) => void;
-  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number; altitude?: number; isGesture?: boolean }) => void;
+  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number; altitude?: number; zoom?: number; isGesture?: boolean }) => void;
+  nearbyPlaces?: NearbyPlace[];
   onDriverPress?: (driverId: string) => void; // when user taps a driver marker
   showMarker?: boolean;
   markerPosition?: { latitude: number; longitude: number };
@@ -110,6 +112,7 @@ interface DynamicMapProps {
   tertiaryRouteColor?: string;
   googleRenderer?: 'LATEST' | 'LEGACY';
   fitEdgePadding?: { top?: number; right?: number; bottom?: number; left?: number };
+  allowRouteZoomOut?: boolean;
 }
 
 function DynamicMapComponent({

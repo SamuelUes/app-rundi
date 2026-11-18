@@ -28,19 +28,21 @@ export default function AvailableRideCard({ ride, onPress, colors }: AvailableRi
       : null;
 
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress}>
-      <View style={styles.header}>
-        <MaterialIcons name="place" size={20} color={colors.primary} />
-        <Text style={styles.title} numberOfLines={1}>
-          {originLabel}
-        </Text>
-      </View>
-
-      <View style={styles.destination}>
-        <MaterialIcons name="flag" size={20} color={colors.error} />
-        <Text style={styles.destinationText} numberOfLines={1}>
-          {destinationLabel}
-        </Text>
+    <TouchableOpacity style={styles.card} onPress={onPress} accessibilityRole="button">
+      <View style={styles.route}>
+        <View style={styles.rail}>
+          <View style={[styles.originDot, { backgroundColor: colors.primary }]} />
+          <View style={styles.connector} />
+          <View style={styles.destinationDot} />
+        </View>
+        <View style={styles.addresses}>
+          <Text style={styles.title} numberOfLines={2}>
+            {originLabel}
+          </Text>
+          <Text style={styles.destinationText} numberOfLines={2}>
+            {destinationLabel}
+          </Text>
+        </View>
       </View>
 
       <View style={styles.footer}>
@@ -54,7 +56,7 @@ export default function AvailableRideCard({ ride, onPress, colors }: AvailableRi
         </View>
 
         <View style={styles.distanceContainer}>
-          <MaterialIcons name="straighten" size={16} color={colors.textSecondary} />
+          <MaterialIcons name="route" size={16} color={colors.textSecondary} />
           <Text style={styles.distance}>
             {distanceValue
               ? t('common.components.availableRideCard.distanceValue', { value: distanceValue })
@@ -69,39 +71,60 @@ export default function AvailableRideCard({ ride, onPress, colors }: AvailableRi
 const createStyles = (colors: any) => StyleSheet.create({
   card: {
     backgroundColor: colors.card,
-    borderRadius: 12,
+    borderRadius: 20,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
     borderColor: colors.border,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 10,
+    elevation: 2,
   },
-  header: {
+  route: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  title: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    marginLeft: 8,
-  },
-  destination: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    gap: 12,
     marginBottom: 16,
   },
-  destinationText: {
+  rail: {
+    width: 12,
+    alignItems: 'center',
+    paddingVertical: 5,
+  },
+  originDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  connector: {
+    width: 2,
     flex: 1,
+    minHeight: 14,
+    marginVertical: 4,
+    backgroundColor: colors.border,
+  },
+  destinationDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 2,
+    borderWidth: 2,
+    borderColor: colors.textSecondary,
+  },
+  addresses: {
+    flex: 1,
+    gap: 10,
+  },
+  title: {
     fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  destinationText: {
+    fontSize: 14,
+    lineHeight: 20,
     color: colors.textSecondary,
-    marginLeft: 8,
   },
   footer: {
     flexDirection: 'row',
@@ -121,9 +144,10 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginRight: 8,
   },
   price: {
-    fontSize: 18,
+    fontSize: 19,
     fontWeight: 'bold',
     color: colors.primary,
+    fontVariant: ['tabular-nums'],
   },
   distanceContainer: {
     flexDirection: 'row',

@@ -16,6 +16,8 @@ export interface OfferItem {
   kind?: string;
   status?: 'pending' | 'accepted' | 'rejected';
   estimatedArrivalTime?: string;
+  arrivalVehiclePhoto?: string | null;
+  crewFollower?: { driverId: string; name?: string; photoURL?: string; rating?: number } | null;
   driver: {
     name: string;
     rating: number | null;
@@ -238,6 +240,8 @@ export function useRideOffers(
       kind: offer?.kind,
       status: offer?.status || 'pending',
       estimatedArrivalTime: offer?.estimatedArrivalTime,
+      arrivalVehiclePhoto: offer?.arrivalVehiclePhoto ?? null,
+      crewFollower: offer?.crewFollower ?? null,
       driver: {
         name: mergeName(driverFallbackName, info, {}, offer?.driver),
         rating: mergeRating(info, {}, offer?.driver ?? offer),

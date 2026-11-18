@@ -72,7 +72,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
     isDriverOnline,
     driverStatusLoaded,
     handleRefresh,
-  } = useAvailableRidesData(user?.id, coords, serviceAreaId);
+  } = useAvailableRidesData(user?.id, coords, serviceAreaId, user?.role);
 
   const { modalProps: arrivalPhotoModalProps, runWithArrivalPhoto } = useArrivalPhotoGate(user?.id);
   const [rechargeFundsSummary, setRechargeFundsSummary] = useState<{ availableBalance: number; blocked: boolean } | null>(
@@ -488,23 +488,25 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
             isDark ? styles.designatedSectionDark : styles.designatedSectionLight,
           ]}
         >
-          <View style={styles.sectionTitleRow}>
+          <View style={[styles.sectionIcon, isDark ? styles.sectionIconDark : styles.sectionIconLight]}>
             <MaterialIcons
               name={isScheduledSection ? 'event' : 'verified-user'}
-              size={15}
-              color={isDark ? '#FFD666' : '#D18A1B'}
+              size={19}
+              color={isDark ? '#E8C47F' : '#946A24'}
             />
-            <Text style={styles.sectionLabel}>
+          </View>
+          <View style={styles.sectionContent}>
+            <Text style={[styles.sectionLabel, { color: colors.text }]}>
               {isScheduledSection
                 ? t('driver.available.sections.scheduledTitle')
                 : t('driver.available.sections.designatedTitle')}
             </Text>
+            <Text style={[styles.sectionSubLabel, { color: colors.textSecondary }]}>
+              {isScheduledSection
+                ? t('driver.available.sections.scheduledSubtitle')
+                : t('driver.available.sections.designatedSubtitle')}
+            </Text>
           </View>
-          <Text style={[styles.sectionSubLabel, { color: colors.text + '99' }]}>
-            {isScheduledSection
-              ? t('driver.available.sections.scheduledSubtitle')
-              : t('driver.available.sections.designatedSubtitle')}
-          </Text>
         </View>
       );
     }
@@ -523,7 +525,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
         onViewVehiclePhoto={(url) => setPhotoModalUrl(url)}
         onConfirmScheduled={
           ride.isProgrammed
-            ? () => runWithArrivalPhoto(isDesignatedRideRequest(ride), () => handleConfirmScheduledRide(ride), ride.id)
+            ? () => runWithArrivalPhoto(isDesignatedRideRequest(ride), () => handleConfirmScheduledRide(ride))
             : undefined
         }
         confirmingScheduled={confirmingScheduledRideId === ride.id}
@@ -897,32 +899,43 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   designatedSection: {
-    padding: 14,
-    borderRadius: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-  },
-  designatedSectionLight: {
-    backgroundColor: '#FFF7E5',
-    borderColor: '#F5D38C',
-  },
-  designatedSectionDark: {
-    backgroundColor: 'rgba(209,138,27,0.15)',
-    borderColor: '#D18A1B',
-  },
-  sectionTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 12,
+    padding: 12,
+    borderRadius: 16,
+    marginBottom: 12,
+  },
+  designatedSectionLight: {
+    backgroundColor: '#F4EFE5',
+  },
+  designatedSectionDark: {
+    backgroundColor: '#29261F',
+  },
+  sectionIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sectionIconLight: {
+    backgroundColor: '#EADCC1',
+  },
+  sectionIconDark: {
+    backgroundColor: '#443923',
+  },
+  sectionContent: {
+    flex: 1,
   },
   sectionLabel: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
-    color: '#D18A1B',
   },
   sectionSubLabel: {
     fontSize: 12,
-    marginTop: 4,
+    lineHeight: 17,
+    marginTop: 2,
   },
   rideCard: {
     borderRadius: 20,
@@ -945,12 +958,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
   },
   designatedCard: {
-    borderColor: '#E3C580',
-    backgroundColor: '#FFF9F0',
+    borderColor: '#E8DFCF',
+    backgroundColor: '#FFFCF7',
   },
   designatedCardDark: {
-    borderColor: '#D4AF37',
-    backgroundColor: '#2B2007',
+    borderColor: '#4A4030',
+    backgroundColor: '#24221E',
   },
   scheduledCardLight: {
     borderStyle: 'dashed',
@@ -1000,7 +1013,7 @@ const styles = StyleSheet.create({
   },
   cardTopRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 10,
   },
   avatarPlaceholder: {
@@ -1028,7 +1041,7 @@ const styles = StyleSheet.create({
   },
   cardHeaderColumn: {
     flex: 1,
-    paddingTop: 1,
+    minWidth: 0,
   },
   clientName: {
     fontSize: 16,
@@ -1039,15 +1052,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 5,
-    marginTop: 6,
+    marginTop: 12,
   },
   metaChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    borderRadius: 7,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
+    borderRadius: 9,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
   },
   metaChipText: {
     fontSize: 11,
@@ -1067,7 +1080,7 @@ const styles = StyleSheet.create({
   },
   routeBlock: {
     flexDirection: 'row',
-    marginTop: 12,
+    marginTop: 16,
     gap: 10,
   },
   routeRail: {
@@ -1132,6 +1145,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 13,
     paddingVertical: 7,
+    minHeight: 44,
     backgroundColor: 'transparent',
   },
   vehicleButtonText: {

@@ -38,6 +38,11 @@ interface Coordinates {
   longitude: number;
 }
 
+export interface NearbyPlace extends Coordinates {
+  id: string;
+  name: string;
+}
+
 interface RouteResult {
   distance: number; // metros
   duration: number; // segundos
@@ -45,6 +50,33 @@ interface RouteResult {
 }
 
 class GoogleMapsService {
+  async getNearbyPlaces(center: Coordinates): Promise<NearbyPlace[]> {
+    try {
+      const response = await axios.post(`${PLACES_NEW_BASE_URL}/places:searchNearby`, {
+        languageCode: 'es',
+        maxResultCount: 20,
+        rankPreference: 'DISTANCE',
+        locationRestriction: { circle: { center, radius: 130 } },
+      }, {
+        timeout: 4000,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
+          'X-Goog-FieldMask': 'places.id,places.displayName,places.location',
+        },
+      });
+      return (response.data?.places ?? []).flatMap((place: any) => {
+        const { latitude, longitude } = place.location ?? {};
+        if (typeof place.id !== 'string' || !place.displayName?.text ||
+            !Number.isFinite(latitude) || !Number.isFinite(longitude)) return [];
+        return [{ id: place.id, name: place.displayName.text, latitude, longitude }];
+      });
+    } catch (error: any) {
+      console.warn('[Google Maps] Nearby search failed:', error?.response?.status ?? error?.message);
+      return [];
+    }
+  }
+
   /**
    * Geocoding - Convertir dirección a coordenadas
    */

@@ -955,6 +955,15 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
           onRegionChangeCenter={centerPinActive ? handleRegionChangeCenter : undefined}
           onRegionChangeCompleteCenter={centerPinActive ? handleRegionChangeCompleteCenter : undefined}
           autoFitEnabled={autoFitEnabled}
+          allowRouteZoomOut
+          fitEdgePadding={{
+            top: 140,
+            left: 60,
+            right: 60,
+            bottom: bottomPanelReady
+              ? Math.min(windowHeight - 220, (panelLevel === 2 ? fullSheetHeight : panelLevel === 1 ? expandedSheetHeight : collapsedSheetHeight) + 16)
+              : 80,
+          }}
           destinationMarker={visibleDestinationMarker}
           extraStopMarkers={visibleExtraStopMarkers}
           showPinBubbles

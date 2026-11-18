@@ -8,8 +8,8 @@ database/
 dev/
 docs/
 
-# RundiApp/android/
-# RundiApp/ios/
+RundiApp/android/
+RundiApp/ios/
 
 tools/
 

@@ -22,6 +22,9 @@ export interface ProximityRidePreview {
   clientName?: string;
   clientPhone?: string;
   clientPhoto?: string | null;
+  rideType?: string | null;
+  clientVehiclePhoto?: string | null;
+  clientComment?: string | null;
   origin: { lat: number; lng: number; address?: string };
   destination: { lat: number; lng: number; address?: string };
   extraDestinations?: Array<{ lat: number; lng: number; address?: string }>;
@@ -606,6 +609,9 @@ function toPreview(ride: any): ProximityRidePreview {
     clientName: ride.client?.name ?? ride.clientName,
     clientPhone: ride.client?.phone ?? ride.clientPhone,
     clientPhoto: ride.clientPhoto ?? ride.client?.photoUrl ?? ride.client?.profilePhoto ?? null,
+    rideType: ride.rideType ?? ride.ride_type ?? null,
+    clientVehiclePhoto: ride.clientVehiclePhoto ?? ride.client_vehicle_photo ?? null,
+    clientComment: ride.clientComment ?? ride.comment ?? ride.notes ?? null,
     origin: {
       lat: origin?.latitude ?? origin?.lat ?? ride.origin?.lat ?? 0,
       lng: origin?.longitude ?? origin?.lng ?? ride.origin?.lng ?? 0,

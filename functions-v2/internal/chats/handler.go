@@ -27,14 +27,15 @@ func (h *Handler) Routes() chi.Router {
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		RideID string `json:"rideId"`
+		RideID      string `json:"rideId"`
+		OtherUserID string `json:"otherUserId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.RideID == "" {
 		apperr.Write(w, apperr.New(400, "rideId requerido"))
 		return
 	}
 	uid, _ := r.Context().Value(middleware.CtxUID).(string)
-	chatID, err := h.svc.RideChat(r.Context(), uid, body.RideID)
+	chatID, err := h.svc.RideChat(r.Context(), uid, body.RideID, body.OtherUserID)
 	if err != nil {
 		apperr.Write(w, err)
 		return

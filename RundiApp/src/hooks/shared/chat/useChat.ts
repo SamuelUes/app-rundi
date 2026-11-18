@@ -25,8 +25,10 @@ export interface ChatMessage {
  * Typing/presence por chat no existen en v2 (reglas no los permiten):
  * se conserva la API del hook devolviendo valores neutros.
  */
-export function useChat(rideId: string, userId: string, _userName: string, _isVisible = false) {
+export function useChat(rideId: string, userId: string, _userName: string, _isVisible = false, otherUserId?: string) {
   const [connected, setConnected] = useState(false);
+  const [connectionError, setConnectionError] = useState(false);
+  const [connectionAttempt, setConnectionAttempt] = useState(0);
   const [liveMessages, setLiveMessages] = useState<ChatMessage[]>([]);
   const [olderMessages, setOlderMessages] = useState<ChatMessage[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -63,6 +65,10 @@ export function useChat(rideId: string, userId: string, _userName: string, _isVi
 
     let mounted = true;
     let unsubscribe: Unsubscribe | null = null;
+    setConnectionError(false);
+    setConnected(false);
+    setLiveMessages([]);
+    initializedRef.current = false;
     oldestDocRef.current = null;
     historyExhaustedRef.current = false;
     setOlderMessages([]);
@@ -75,7 +81,7 @@ export function useChat(rideId: string, userId: string, _userName: string, _isVi
         // — no va por /chats, que resuelve solo rides.
         const { chatId } = rideId.startsWith('support-')
           ? { chatId: rideId }
-          : await createRideChat(rideId);
+          : await createRideChat(rideId, otherUserId);
         if (!mounted) return;
         chatIdRef.current = chatId;
         unsubscribe = await listenChatMessages(chatId, (msgs, oldestDoc) => {
@@ -86,11 +92,22 @@ export function useChat(rideId: string, userId: string, _userName: string, _isVi
           setHasMore(msgs.length >= CHAT_PAGE_SIZE && !historyExhaustedRef.current);
           setLiveMessages(msgs.map(toUIMessage));
           initializedRef.current = true;
+          setConnected(true);
+        }, CHAT_PAGE_SIZE, (error) => {
+          if (!mounted) return;
+          console.error('Error escuchando chat:', error);
+          chatIdRef.current = null;
+          setConnected(false);
+          setConnectionError(true);
         });
-        setConnected(true);
+        if (!mounted) unsubscribe();
       } catch (error) {
         console.error('Error conectando chat:', error);
-        setConnected(false);
+        if (mounted) {
+          chatIdRef.current = null;
+          setConnected(false);
+          setConnectionError(true);
+        }
       }
     })();
 
@@ -100,7 +117,7 @@ export function useChat(rideId: string, userId: string, _userName: string, _isVi
       chatIdRef.current = null;
       setConnected(false);
     };
-  }, [rideId, userId, toUIMessage]);
+  }, [rideId, userId, otherUserId, toUIMessage, connectionAttempt]);
 
   const loadOlder = useCallback(async () => {
     const chatId = chatIdRef.current;
@@ -134,13 +151,13 @@ export function useChat(rideId: string, userId: string, _userName: string, _isVi
       if (!text) return;
       const chatId = chatIdRef.current;
       if (!chatId) {
-        console.error('Chat no inicializado');
-        return;
+        throw new Error('Chat no inicializado');
       }
       try {
         await sendChatMessage(chatId, userId, text);
       } catch (error) {
         console.error('Error enviando mensaje:', error);
+        throw error;
       }
     },
     [userId],
@@ -152,6 +169,8 @@ export function useChat(rideId: string, userId: string, _userName: string, _isVi
 
   return {
     connected,
+    connectionError,
+    retryConnection: () => setConnectionAttempt((attempt) => attempt + 1),
     otherUserOnline: false,
     messages,
     hasMore,

@@ -20,7 +20,7 @@ export function RideTrackingDesignatedDriverNotice({
   if (!visible) return null;
 
   return (
-    <View pointerEvents="box-none" style={[styles.position, { top }]}>
+    <View pointerEvents="box-none" style={[styles.position, { top: 150 }]}>
       <View style={[styles.notice, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <View style={[styles.iconWrap, { backgroundColor: `${colors.primary}1A` }]}>
           <MaterialIcons name="verified-user" size={20} color={colors.primary} />

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -71,6 +72,8 @@ type CreateRequest struct {
 	RideID      *string `json:"rideId,omitempty"`
 }
 
+var rideUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
 // CreateComplaint — dedupe: mismo user + ride + open/in_progress → devuelve
 // la existente (misma semántica v1).
 func (s *Service) CreateComplaint(ctx context.Context, uid, role string, in CreateRequest) (*Complaint, error) {
@@ -92,6 +95,19 @@ func (s *Service) CreateComplaint(ctx context.Context, uid, role string, in Crea
 		driverID = &uid
 	}
 	if in.RideID != nil {
+		query := `SELECT id::text FROM public.rides WHERE firebase_ride_id = $1`
+		if rideUUID.MatchString(*in.RideID) {
+			query = `SELECT id::text FROM public.rides WHERE id = $1::uuid`
+		}
+		var resolved string
+		err := s.pool.QueryRow(ctx, query, *in.RideID).Scan(&resolved)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperr.New(404, "ride no encontrado")
+		}
+		if err != nil {
+			return nil, err
+		}
+		in.RideID = &resolved
 		row := s.pool.QueryRow(ctx, `
 			SELECT `+complaintCols+` FROM public.support_complaints
 			WHERE created_by_user_id = $1 AND ride_id = $2::uuid
@@ -99,6 +115,8 @@ func (s *Service) CreateComplaint(ctx context.Context, uid, role string, in Crea
 			ORDER BY created_at DESC LIMIT 1`, uid, *in.RideID)
 		if existing, err := scanComplaint(row); err == nil {
 			return existing, nil
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
 		}
 	}
 	var prio, desc *string

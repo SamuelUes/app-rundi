@@ -35,6 +35,7 @@ import { HomeScreenOffersOfferCard } from '../../components/client/HomeScreenOff
 import { HomeScreenOffersBottomSheet } from '../../components/client/HomeScreenOffers/HomeScreenOffersBottomSheet';
 import { HomeScreenOffersHint } from '../../components/client/HomeScreenOffers/HomeScreenOffersHint';
 import { useRideFlowTransition } from '../../hooks/client/useRideFlowTransition';
+import { isDesignatedRideRequest } from '../../utils/ride/availableRidesHelpers';
 
 const { USER_LOCATION_LIGHT, USER_LOCATION_DARK } = MAP_ICONS;
 const MAX_DRIVER_RADIUS_KM = typeof RIDES_RADIUS_KM === 'number' ? RIDES_RADIUS_KM : 6;
@@ -707,6 +708,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
         vehicleType={vehicleType}
         ratingLabel={ratingLabel}
         photoUri={photoUri}
+        isDesignatedRide={isDesignatedRideRequest(rideSnapshot) || isDesignatedRideRequest(effectiveProgrammedRide)}
         acceptedAnim={acceptedAnim}
         onSelect={() => handleSelectFromList(item.driverId)}
         onMessageDriver={() => handleMessageDriver(item)}
@@ -733,6 +735,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           destinationMarker={destinationCoords || undefined}
           distanceLineCoordinates={driverDistanceLine}
           cameraFitCoordinates={cameraFitCoordinates}
+          allowRouteZoomOut
           fitEdgePadding={{
             top: 120,
             right: 48,
@@ -1024,7 +1027,12 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderRadius: 22,
     padding: 14,
     marginBottom: 10,
-    borderWidth: 1,
+    borderWidth: 0.4,
+    shadowColor: '#000',
+    shadowOffset: { width: 1, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 2,
   },
   offerPriceHeader: {
     minHeight: 66,

@@ -735,6 +735,7 @@ const driver = {
             cameraError: 'Could not take the photo. Try again.',
             requiredPhoto: 'Capture all six required photos.',
             uploadError: 'Could not upload and save the inspection. Try again.',
+            lookupError: 'Could not check the inspection. Check your connection and try again.',
           },
           alerts: {
             goOnRouteError: 'We could not mark you on the way.',
@@ -862,6 +863,7 @@ const driver = {
           },
           arrivalPhoto: {
             title: 'Photo of the vehicle you arrive in',
+            open: 'Arrival vehicle photo',
             subtitle: 'The client will see this photo. It is reused for 12 hours.',
             take: 'Take photo',
             retake: 'Retake',

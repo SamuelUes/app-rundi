@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useClientLocation } from './useClientLocation';
+import { useClientLocation } from '../../hooks/client/HomeScreen/useClientLocation';
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,

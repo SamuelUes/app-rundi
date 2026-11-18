@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -32,6 +32,7 @@ interface DesignatedDriverEvidenceModalProps {
   driverId: string;
   onClose: () => void;
   onCompleted: () => void;
+  onDismiss?: () => void;
   onCancelRide: () => void;
 }
 
@@ -50,6 +51,7 @@ export function DesignatedDriverEvidenceModal({
   driverId,
   onClose,
   onCompleted,
+  onDismiss,
   onCancelRide,
 }: DesignatedDriverEvidenceModalProps) {
   const { t } = useTranslation();
@@ -58,6 +60,14 @@ export function DesignatedDriverEvidenceModal({
   const [documentsConfirmed, setDocumentsConfirmed] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadIndex, setUploadIndex] = useState(0);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const uploadedRef = useRef<Partial<Record<DesignatedDriverPhotoType, { uri: string; path: string }>>>({});
+  useEffect(() => {
+    uploadedRef.current = {};
+    setPhotos({});
+    setDocumentsConfirmed(false);
+    setSubmitError(null);
+  }, [rideId, driverId]);
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const canSubmit = isDesignatedDriverEvidenceComplete(photos, documentsConfirmed);
 
@@ -73,7 +83,11 @@ export function DesignatedDriverEvidenceModal({
         quality: 0.75,
       });
       const uri = result && !result.canceled ? result.assets?.[0]?.uri : undefined;
-      if (uri) setPhotos((current) => ({ ...current, [type]: uri }));
+      if (uri) {
+        delete uploadedRef.current[type];
+        setPhotos((current) => ({ ...current, [type]: uri }));
+        setSubmitError(null);
+      }
     } catch {
       alertService.showErrorAlert(t('driver.activeRide.evidence.cameraError'));
     }
@@ -83,28 +97,36 @@ export function DesignatedDriverEvidenceModal({
     if (!canSubmit || uploading) return;
     setUploading(true);
     setUploadIndex(0);
+    setSubmitError(null);
     try {
       const uploadedPhotos = {} as Record<DesignatedDriverPhotoType, string>;
       for (const [index, type] of REQUIRED_DESIGNATED_DRIVER_PHOTOS.entries()) {
         const uri = photos[type];
         if (!uri) throw new Error(t('driver.activeRide.evidence.requiredPhoto'));
-        uploadedPhotos[type] = await uploadDesignatedDriverEvidencePhoto(rideId, driverId, uri, type);
+        const cached = uploadedRef.current[type];
+        const path = cached?.uri === uri
+          ? cached.path
+          : await uploadDesignatedDriverEvidencePhoto(rideId, driverId, uri, type);
+        uploadedRef.current[type] = { uri, path };
+        uploadedPhotos[type] = path;
         setUploadIndex(index + 1);
       }
       await inspectionsService.submitDesignatedDriverRideInspection(rideId, uploadedPhotos, true);
       setPhotos({});
       setDocumentsConfirmed(false);
+      uploadedRef.current = {};
       onCompleted();
       onClose();
     } catch (error: any) {
-      alertService.showErrorAlert(error?.message || t('driver.activeRide.evidence.uploadError'));
+      console.warn('[designated evidence] submit failed', { status: error?.response?.status, message: error?.message });
+      setSubmitError(t('driver.activeRide.evidence.uploadError'));
     } finally {
       setUploading(false);
     }
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={uploading ? undefined : onClose}>
+    <Modal visible={visible} transparent animationType="fade" onDismiss={onDismiss} onRequestClose={uploading ? undefined : onClose}>
       <View style={styles.overlay}>
         <View style={styles.sheet}>
           <View style={styles.header}>
@@ -181,6 +203,7 @@ export function DesignatedDriverEvidenceModal({
               </Text>
             </View>
           ) : null}
+          {submitError ? <Text accessibilityRole="alert" style={styles.submitError}>{submitError}</Text> : null}
 
           <Pressable
             style={[styles.submitButton, (!canSubmit || uploading) && styles.disabled]}
@@ -282,6 +305,7 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   attestationText: { flex: 1, color: colors.text, fontSize: 13, lineHeight: 19 },
   progressRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 8 },
   progressText: { color: colors.textSecondary, fontSize: 12 },
+  submitError: { color: colors.error, fontSize: 13, lineHeight: 18, marginBottom: 8 },
   submitButton: {
     minHeight: 48,
     flexDirection: 'row',

@@ -4,7 +4,7 @@ import {
   Text,
   StyleSheet,
   TextInput,
-  FlatList,
+  ScrollView,
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
@@ -82,30 +82,35 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
   // quejas antiguas solo registraban al creador. joinSupportChat valida la
   // participación y registra al usuario antes de conectar los listeners.
   const [chatAccess, setChatAccess] = useState(false);
+  const [joinError, setJoinError] = useState(false);
+  const [joinAttempt, setJoinAttempt] = useState(0);
   useEffect(() => {
     let cancelled = false;
     setChatAccess(false);
+    setJoinError(false);
     if (!complaintId || !safeUserId) return;
     (async () => {
       try {
         await joinSupportChatApi(complaintId);
+        if (!cancelled) setChatAccess(true);
       } catch (err) {
         console.warn('[SupportChat] joinSupportChat falló:', err);
-      } finally {
-        if (!cancelled) setChatAccess(true);
+        if (!cancelled) {
+          setJoinError(true);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [complaintId, safeUserId]);
+  }, [complaintId, safeUserId, joinAttempt]);
 
   const hasActiveChat = Boolean(threadId && safeUserId && chatAccess);
   const chat = useChat(chatAccess ? threadId ?? '' : '', safeUserId, safeUserName, isFocused && hasActiveChat);
   const { activeCall } = useCalls(complaintId, { handleNativeActions: false });
 
   const [inputText, setInputText] = useState('');
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<ScrollView>(null);
 
   const categoryOptions = useMemo(
     () =>
@@ -148,8 +153,6 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
     setCreatingFunctionsError(null);
 
     try {
-      const createdByRole = (user as any).role === 'driver' ? 'driver' : 'client';
-
       const complaint = await createComplaint({
         rideId: rideId || undefined,
         category: category || 'service',
@@ -172,10 +175,16 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
     }
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!hasActiveChat || !inputText.trim()) return;
-    chat.sendMessage(inputText.trim());
+    const text = inputText.trim();
     setInputText('');
+    try {
+      await chat.sendMessage(text);
+    } catch {
+      setInputText((current) => current ? `${text} ${current}` : text);
+      Alert.alert(t('shared.chat.alerts.errorTitle', 'Error'), t('shared.chat.alerts.sendError', 'No se pudo enviar el mensaje. Inténtalo de nuevo.'));
+    }
   };
 
   const handleCallButton = () => {
@@ -223,9 +232,21 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
           </TouchableOpacity>
         </View>
 
-        <FlatList
-          data={[]}
-          ListHeaderComponent={
+        {(joinError || chat.connectionError) && (
+          <TouchableOpacity
+            onPress={() => joinError ? setJoinAttempt((attempt) => attempt + 1) : chat.retryConnection()}
+            style={{ padding: 12, alignItems: 'center' }}
+            accessibilityRole="button"
+          >
+            <Text style={{ color: colors.primary }}>{t('shared.chat.status.retry')}</Text>
+          </TouchableOpacity>
+        )}
+
+        <ScrollView
+          ref={flatListRef}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
             <SupportChatHeader
               rideId={rideId}
               complaintId={complaintId}
@@ -251,24 +272,16 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
               ns={ns}
               styles={styles}
             />
-          }
-          ListFooterComponent={
             <SupportChatMessages
               hasActiveChat={hasActiveChat}
               complaintId={complaintId}
               messages={chat.messages}
-              flatListRef={flatListRef}
               colors={colors}
               t={t}
               ns={ns}
               styles={styles}
             />
-          }
-          renderItem={null as any}
-          keyExtractor={(_, index) => `header-${index}`}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        />
+        </ScrollView>
       </View>
 
       <SupportChatInput
@@ -577,11 +590,6 @@ const createStyles = (colors: any, isDark: boolean, insets: { top: number; botto
     },
     chatInputPillFocused: {
       borderColor: colors.primary,
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.22,
-      shadowRadius: 8,
-      elevation: 3,
     },
     chatInput: {
       flex: 1,

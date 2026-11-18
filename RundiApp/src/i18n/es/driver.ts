@@ -737,6 +737,7 @@ const driver = {
          cameraError: 'No se pudo tomar la foto. Intenta nuevamente.',
          requiredPhoto: 'Toma las seis fotos requeridas.',
          uploadError: 'No se pudieron subir y guardar las fotos. Intenta nuevamente.',
+         lookupError: 'No se pudo comprobar la inspección. Revisa tu conexión e inténtalo de nuevo.',
        },
        alerts: {
          goOnRouteError: 'No pudimos marcarte en camino.',
@@ -865,6 +866,7 @@ const driver = {
           },
           arrivalPhoto: {
             title: 'Foto del vehículo en que llegan',
+            open: 'Foto del vehículo de llegada',
             subtitle: 'El cliente verá esta foto. Se reutiliza por 12 horas.',
             take: 'Tomar foto',
             retake: 'Repetir',

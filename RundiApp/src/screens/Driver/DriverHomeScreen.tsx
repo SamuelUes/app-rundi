@@ -803,8 +803,8 @@ const createStyles = (
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: isDark ? 0.35 : 0.12,
-      shadowRadius: 10,
-      elevation: 6,
+      shadowRadius: 3,
+      elevation: 1,
     },
     navChipPressed: {
       transform: [{ scale: 0.95 }],

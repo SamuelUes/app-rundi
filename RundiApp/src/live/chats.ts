@@ -59,6 +59,7 @@ export async function listenChatMessages(
   chatId: string,
   cb: (messages: ChatMessage[], oldestDoc: QueryDocumentSnapshot | null) => void,
   pageSize: number = CHAT_PAGE_SIZE,
+  onError?: (error: Error) => void,
 ): Promise<Unsubscribe> {
   const db = await getFirebaseFirestore();
   const q = query(
@@ -68,7 +69,7 @@ export async function listenChatMessages(
   );
   return onSnapshot(q, (snap) => {
     cb([...snap.docs].reverse().map(toMessage), snap.docs[snap.docs.length - 1] ?? null);
-  });
+  }, onError);
 }
 
 export interface ChatOlderPage {

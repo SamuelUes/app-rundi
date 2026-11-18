@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Modal,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -32,9 +34,11 @@ export function RideVerificationCodeModal({
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [code, setCode] = useState('');
+  const [shown, setShown] = useState(false);
 
   useEffect(() => {
     if (visible) setCode('');
+    else setShown(false);
   }, [visible]);
 
   useEffect(() => {
@@ -48,9 +52,10 @@ export function RideVerificationCodeModal({
       visible={visible}
       transparent
       animationType="fade"
+      onShow={() => setShown(true)}
       onRequestClose={loading ? undefined : onClose}
     >
-      <View style={styles.overlay}>
+      <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.sheet}>
           <View style={styles.header}>
             <View style={styles.headerCopy}>
@@ -69,14 +74,14 @@ export function RideVerificationCodeModal({
             </Pressable>
           </View>
 
-          <OtpCodeInput
+          {visible && shown && <OtpCodeInput
             value={code}
             onChange={setCode}
             length={4}
             disabled={loading}
             autoFocus
             accessibilityLabel={t('driver.activeRide.verification.inputLabel')}
-          />
+          />}
 
           {!!error && <Text style={styles.errorText}>{error}</Text>}
 
@@ -100,7 +105,7 @@ export function RideVerificationCodeModal({
             </Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

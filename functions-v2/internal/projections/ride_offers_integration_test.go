@@ -72,7 +72,24 @@ func TestCounterOfferProjection(t *testing.T) {
 		VALUES ($1::uuid, $2, 'counter_offer', 'sent', 143)`, rideID, driverID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE public.rides SET version = version + 1 WHERE id = $1::uuid`, rideID); err != nil {
+	photoRef := client.Collection(fs.ColArrivalPhotos).Doc(driverID)
+	t.Cleanup(func() { _, _ = photoRef.Delete(ctx) })
+	crewRef := client.Collection(fs.ColDriverCrews).Doc(driverID)
+	t.Cleanup(func() { _, _ = crewRef.Delete(ctx) })
+	if _, err := crewRef.Set(ctx, map[string]any{
+		"status": "active", "captainId": driverID, "followerId": "colleague-" + suffix,
+		"follower": map[string]any{
+			"driverId": "colleague-" + suffix, "name": "Colleague", "photoURL": "profile.jpg",
+			"licenseNumber": "private",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	photoPath := "rides-documents/rides-inspection/designated-arrival/" + driverID + "/photo.jpg"
+	if _, err := photoRef.Set(ctx, map[string]any{"path": photoPath, "takenAt": time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE public.rides SET ride_type = 'designated_driver', version = version + 1 WHERE id = $1::uuid`, rideID); err != nil {
 		t.Fatal(err)
 	}
 	if err := projectCounterOffers(ctx, pool, client, rideID, "ride.price_offered"); err != nil {
@@ -89,6 +106,13 @@ func TestCounterOfferProjection(t *testing.T) {
 	}
 	if data["lastOfferBy"] != "driver" {
 		t.Fatalf("lastOfferBy=%v want driver", data["lastOfferBy"])
+	}
+	if data["arrivalVehiclePhoto"] != photoPath {
+		t.Fatalf("arrivalVehiclePhoto=%v want %s", data["arrivalVehiclePhoto"], photoPath)
+	}
+	follower, ok := data["crewFollower"].(map[string]any)
+	if !ok || follower["name"] != "Colleague" || follower["licenseNumber"] != nil {
+		t.Fatalf("unexpected follower: %#v", data["crewFollower"])
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO public.ride_offers(ride_id, driver_id, kind, status, offered_price, created_at)
 		VALUES ($1::uuid, $2, 'counter_offer', 'sent', 150, NOW() + interval '1 second')`, rideID, driverID); err != nil {

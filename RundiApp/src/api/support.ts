@@ -43,7 +43,7 @@ export async function getMyComplaints(opts?: {
   const { data } = await client.get<{ complaints: Complaint[] }>('/support/complaints', {
     params: opts,
   });
-  return data.complaints;
+  return data.complaints ?? [];
 }
 
 /** Staff (operator/admin): estado, prioridad, asignación, notas de resolución. */

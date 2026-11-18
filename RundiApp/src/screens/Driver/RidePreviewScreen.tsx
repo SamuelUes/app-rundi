@@ -7,20 +7,24 @@ import React, {
 } from 'react';
 import {
   Linking,
+  Keyboard,
+  type LayoutChangeEvent,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Reanimated, {
   runOnJS,
+  cancelAnimation,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
-  withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
@@ -53,7 +57,7 @@ import { useArrivalPhotoGate } from '../../hooks/driver/shared/useArrivalPhotoGa
 
 const PROXIMITY_AUTO_DISMISS_MS = 5000; // auto-cierre si no hay cambios ni interacción
 const PROXIMITY_DISMISS_POLL_MS = 500;
-const SHEET_SPRING = { damping: 26, stiffness: 300 };
+const SHEET_SPRING = { damping: 26, stiffness: 300, overshootClamping: true };
 
 interface RidePreviewParams {
   ride: RidePreviewData;
@@ -75,6 +79,7 @@ export default function RidePreviewScreen() {
   const { t } = useTranslation();
 
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const { ride } = route.params as RidePreviewParams;
   const initialNearby = (route.params as RidePreviewParams)?.nearbyRides || [];
   const isAutoPresented = Boolean((route.params as RidePreviewParams)?.autoPresented);
@@ -168,6 +173,10 @@ export default function RidePreviewScreen() {
     lastActivityAtRef.current = Date.now();
   }, []);
 
+  useEffect(() => {
+    noteUserActivity();
+  }, [arrivalPhotoModalProps.visible, noteUserActivity]);
+
   const rideChangeFingerprint = [
     currentRide.id,
     currentRide.clientSuggestedPrice ?? '',
@@ -199,10 +208,10 @@ export default function RidePreviewScreen() {
   }, [isAutoPresented, navigation, currentRide.id, acceptingRide, navigationLocked, activeRideGuard]);
 
   useEffect(() => {
-    if (!isAutoPresented) return;
+    if (!isAutoPresented || isDesignatedRide) return;
     const timer = setInterval(() => {
       if (!isFocused || autoDismissHandledRef.current || cancellationHandledRef.current) return;
-      if (sendingOffer || acceptingRide || isRejectingRide || customOfferVisible || photoModalUrl) {
+      if (sendingOffer || acceptingRide || isRejectingRide || customOfferVisible || photoModalUrl || arrivalPhotoModalProps.visible) {
         return;
       }
       if (Date.now() - lastActivityAtRef.current < PROXIMITY_AUTO_DISMISS_MS) return;
@@ -212,6 +221,7 @@ export default function RidePreviewScreen() {
     return () => clearInterval(timer);
   }, [
     isAutoPresented,
+    isDesignatedRide,
     isFocused,
     currentRide.id,
     sendingOffer,
@@ -219,6 +229,7 @@ export default function RidePreviewScreen() {
     isRejectingRide,
     customOfferVisible,
     photoModalUrl,
+    arrivalPhotoModalProps.visible,
     navigation,
     cancellationHandledRef,
   ]);
@@ -235,20 +246,54 @@ export default function RidePreviewScreen() {
   const [isSheetExpanded, setIsSheetExpanded] = useState(true);
   const sheetProgress = useSharedValue(1);
   const dragStartProgress = useSharedValue(1);
+  const sheetTarget = useSharedValue(1);
+  const isDraggingSheet = useSharedValue(false);
   const [priceContentHeight, setPriceContentHeight] = useState(0);
+  const [screenHeight, setScreenHeight] = useState(0);
+  const [headerHeight, setHeaderHeight] = useState(0);
+  const [actionsHeight, setActionsHeight] = useState(0);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const negotiationScrollRef = useRef<ScrollView>(null);
+  const sheetBottomPadding = keyboardHeight > 0 ? 12 : Math.max(insets.bottom, 12) + 8;
+  const availableContentHeight = screenHeight && headerHeight && actionsHeight
+    ? Math.max(0, screenHeight - keyboardHeight - insets.top - 12 - headerHeight - actionsHeight - sheetBottomPadding)
+    : priceContentHeight;
+  const expandedContentHeight = Math.min(priceContentHeight, availableContentHeight);
 
-  const expandSheet = useCallback(() => {
-    sheetProgress.value = withSpring(1, SHEET_SPRING);
-    setIsSheetExpanded(true);
-  }, [sheetProgress]);
+  useEffect(() => {
+    if (!isFocused) {
+      setKeyboardHeight(0);
+      setKeyboardVisible(false);
+      return;
+    }
+    const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillChangeFrame' : 'keyboardDidShow', (event) => {
+      if (Platform.OS === 'ios') {
+        const height = Math.max(0, windowHeight - event.endCoordinates.screenY);
+        setKeyboardHeight(height);
+        setKeyboardVisible(height > 0);
+      } else {
+        setKeyboardVisible(true);
+      }
+      requestAnimationFrame(() => negotiationScrollRef.current?.scrollToEnd({ animated: true }));
+    });
+    const hide = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => {
+      setKeyboardHeight(0);
+      setKeyboardVisible(false);
+    });
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [isFocused, windowHeight]);
 
-  const collapseSheet = useCallback(() => {
-    sheetProgress.value = withSpring(0, SHEET_SPRING);
-    setIsSheetExpanded(false);
-  }, [sheetProgress]);
+  const updateSheetState = useCallback((expanded: boolean) => {
+    setIsSheetExpanded(expanded);
+    if (!expanded) Keyboard.dismiss();
+  }, []);
 
   useRidePreviewVoice(
-    voiceSettings.enabled,
+    voiceSettings.enabled && isFocused,
     currentRide,
     totalDistanceKm,
     speakVoice,
@@ -258,45 +303,64 @@ export default function RidePreviewScreen() {
   const { routeCoordinates, loadingRoute } = useRidePreviewRoute(currentRide, t);
 
   const toggleSheet = useCallback(() => {
-    if (isSheetExpanded) collapseSheet();
-    else expandSheet();
-  }, [isSheetExpanded, collapseSheet, expandSheet]);
+    const target = sheetTarget.value === 1 ? 0 : 1;
+    sheetTarget.value = target;
+    sheetProgress.value = withSpring(target, SHEET_SPRING);
+    updateSheetState(target === 1);
+  }, [sheetProgress, sheetTarget, updateSheetState]);
 
   const sheetPan = useMemo(
     () =>
       Gesture.Pan()
         .activeOffsetY([-8, 8])
+        .failOffsetX([-24, 24])
         .onStart(() => {
           'worklet';
+          cancelAnimation(sheetProgress);
+          isDraggingSheet.value = true;
           dragStartProgress.value = sheetProgress.value;
         })
         .onUpdate((e) => {
           'worklet';
-          const denom = Math.max(priceContentHeight, 1);
+          const denom = Math.max(expandedContentHeight, 1);
           const next = dragStartProgress.value - e.translationY / denom;
           sheetProgress.value = Math.min(1, Math.max(0, next));
         })
         .onEnd((e) => {
           'worklet';
-          const denom = Math.max(priceContentHeight, 1);
+          const denom = Math.max(expandedContentHeight, 1);
           const projected = sheetProgress.value - (e.velocityY * 0.18) / denom;
           const target = projected > 0.5 ? 1 : 0;
+          sheetTarget.value = target;
+          isDraggingSheet.value = false;
           sheetProgress.value = withSpring(target, SHEET_SPRING);
-          runOnJS(setIsSheetExpanded)(target === 1);
+          runOnJS(updateSheetState)(target === 1);
+        })
+        .onFinalize(() => {
+          'worklet';
+          if (isDraggingSheet.value) {
+            isDraggingSheet.value = false;
+            sheetProgress.value = withSpring(sheetTarget.value, SHEET_SPRING);
+          }
         }),
-    [priceContentHeight, sheetProgress, dragStartProgress],
+    [expandedContentHeight, sheetProgress, dragStartProgress, sheetTarget, isDraggingSheet, updateSheetState],
   );
 
   const handleGesture = useMemo(() => {
-    const tap = Gesture.Tap().onEnd(() => {
+    const tap = Gesture.Tap().maxDistance(8).onEnd((_event, success) => {
       'worklet';
-      runOnJS(toggleSheet)();
+      if (success) {
+        const target = sheetTarget.value === 1 ? 0 : 1;
+        sheetTarget.value = target;
+        sheetProgress.value = withSpring(target, SHEET_SPRING);
+        runOnJS(updateSheetState)(target === 1);
+      }
     });
-    return Gesture.Exclusive(tap, sheetPan);
-  }, [sheetPan, toggleSheet]);
+    return Gesture.Race(sheetPan, tap);
+  }, [sheetPan, sheetTarget, sheetProgress, updateSheetState]);
 
   const collapsibleStyle = useAnimatedStyle(() => ({
-    height: sheetProgress.value * priceContentHeight,
+    height: sheetProgress.value * expandedContentHeight,
     opacity: sheetProgress.value,
   }));
 
@@ -323,6 +387,8 @@ export default function RidePreviewScreen() {
       driverOfferedPrice: typeof next.driverOfferedPrice === 'number' ? next.driverOfferedPrice : currentRide.driverOfferedPrice,
       driverOfferStatus: currentRide.driverOfferStatus || null,
       clientPhoto: next.clientPhoto ?? null,
+      rideType: next.rideType ?? null,
+      clientVehiclePhoto: next.clientVehiclePhoto ?? null,
       paymentMethod: (next.paymentMethod as RidePreviewData['paymentMethod']) || currentRide.paymentMethod,
       negotiationStatus: (next as Record<string, unknown>).negotiationStatus as string | null || currentRide.negotiationStatus || null,
       clientComment: ((next as Record<string, unknown>).clientComment as string | null) || ((next as Record<string, unknown>).comment as string | null) || ((next as Record<string, unknown>).notes as string | null) || currentRide.clientComment || null,
@@ -332,16 +398,11 @@ export default function RidePreviewScreen() {
   }, [nearbyQueue, currentRide, isAutoPresented, navigation]);
 
   const handleMeasuredContentLayout = useCallback(
-    (event: any) => {
+    (event: LayoutChangeEvent) => {
       const { height } = event.nativeEvent.layout;
-      if (height !== priceContentHeight) {
-        setPriceContentHeight(height);
-        if (height > 0 && isSheetExpanded) {
-          sheetProgress.value = withTiming(1, { duration: 260 });
-        }
-      }
+      setPriceContentHeight((previous) => previous === height ? previous : height);
     },
-    [priceContentHeight, isSheetExpanded, sheetProgress],
+    [],
   );
 
   const formatCurrency = (value?: number | null) => {
@@ -374,8 +435,8 @@ export default function RidePreviewScreen() {
 
   const handleMessageClient = () => {
     navigation.navigate('Chat', {
-      rideId: ride.id,
-      otherUserId: ride.clientId,
+      rideId: currentRide.id,
+      otherUserId: currentRide.clientId,
       otherUserName: resolvedClientName,
     });
   };
@@ -404,7 +465,7 @@ export default function RidePreviewScreen() {
     );
   };
 
-  const renderNegotiationContent = () => {
+  const renderNegotiationContent = (measurement = false) => {
     return (
       <RidePreviewNegotiation
         negotiationStatus={currentRide.negotiationStatus}
@@ -424,11 +485,11 @@ export default function RidePreviewScreen() {
         colors={colors}
         isDark={isDark}
         formatCurrency={formatCurrency}
-        customOfferInputRef={customOfferInputRef}
+        customOfferInputRef={measurement ? { current: null } : customOfferInputRef}
         onCustomOfferPress={handleCustomOfferPress}
         onCustomOfferChange={handleCustomOfferChange}
-        onSendCustomOffer={() => runWithArrivalPhoto(isDesignatedRide, handleSendCustomOffer, ride.id)}
-        onApplySuggestion={(value: number) => runWithArrivalPhoto(isDesignatedRide, () => handleApplySuggestion(value), ride.id)}
+        onSendCustomOffer={() => runWithArrivalPhoto(isDesignatedRide, handleSendCustomOffer)}
+        onApplySuggestion={(value: number) => runWithArrivalPhoto(isDesignatedRide, () => handleApplySuggestion(value))}
         onOpenPhotoModal={(url) => setPhotoModalUrl(url)}
         styles={styles}
         t={t}
@@ -440,11 +501,19 @@ export default function RidePreviewScreen() {
     <View
       style={[styles.container, { backgroundColor: colors.background }]}
       onTouchStart={isAutoPresented ? noteUserActivity : undefined}
+      onLayout={(event) => setScreenHeight(event.nativeEvent.layout.height)}
     >
       <View style={styles.mapContainer}>
         <DynamicMap
           latitude={currentRide.origin.lat}
           longitude={currentRide.origin.lng}
+          allowRouteZoomOut
+          fitEdgePadding={{
+            top: 100,
+            left: 60,
+            right: 60,
+            bottom: Math.min(windowHeight - 180, Math.max(160, headerHeight + actionsHeight + sheetBottomPadding + (isSheetExpanded ? expandedContentHeight : 0) + 24)),
+          }}
           originMarker={{ latitude: currentRide.origin.lat, longitude: currentRide.origin.lng }}
           destinationMarker={{ latitude: currentRide.destination.lat, longitude: currentRide.destination.lng }}
           originTitle={t('common.mapPins.origin')}
@@ -503,49 +572,62 @@ export default function RidePreviewScreen() {
           styles.bottomSheet,
           {
             backgroundColor: colors.card,
-            paddingBottom: Math.max(insets.bottom, 12) + 8,
+            bottom: keyboardHeight,
+            paddingBottom: sheetBottomPadding,
           },
         ]}
       >
-        <GestureHandlerRootView>
-          <GestureDetector gesture={handleGesture}>
-            <View
-              style={styles.handleArea}
-              accessibilityRole="button"
-              accessibilityLabel={t('driver.ridePreview.accessibility.toggleDetails')}
-            >
+        <View onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}>
+          <GestureHandlerRootView>
+            <GestureDetector gesture={handleGesture}>
               <View
-                style={[
-                  styles.handleBar,
-                  { backgroundColor: isDark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.16)' },
-                ]}
-              />
-            </View>
-          </GestureDetector>
-        </GestureHandlerRootView>
+                style={styles.handleArea}
+                accessibilityRole="button"
+                accessibilityLabel={t('driver.ridePreview.accessibility.toggleDetails')}
+                accessibilityState={{ expanded: isSheetExpanded }}
+                accessibilityActions={[{ name: 'activate' }]}
+                onAccessibilityAction={(event) => {
+                  if (event.nativeEvent.actionName === 'activate') toggleSheet();
+                }}
+              >
+                <View
+                  style={[
+                    styles.handleBar,
+                    { backgroundColor: isDark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.16)' },
+                  ]}
+                />
+              </View>
+            </GestureDetector>
+          </GestureHandlerRootView>
 
-        <View style={styles.measurementContainer} onLayout={handleMeasuredContentLayout}>
-          {renderNegotiationContent()}
+          <View
+            style={styles.measurementContainer}
+            onLayout={handleMeasuredContentLayout}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          >
+            {renderNegotiationContent(true)}
+          </View>
+
+          <RidePreviewClientInfo
+            resolvedClientName={resolvedClientName}
+            estimatedPrice={currentRide.estimatedPrice}
+            clientComment={currentRide.clientComment}
+            clientProfile={clientProfile}
+            clientPhotoUrl={resolvedClientPhoto}
+            distanceKm={totalDistanceKm}
+            durationMin={durationMin}
+            paymentMethod={currentRide.paymentMethod}
+            featureLabels={getRideFeatureLabels(currentRide, t)}
+            colors={colors}
+            isDark={isDark}
+            formatCurrency={formatCurrency}
+            onMessageClient={handleMessageClient}
+            onCallClient={handleCallClient}
+            styles={styles}
+            t={t}
+          />
         </View>
-
-        <RidePreviewClientInfo
-          resolvedClientName={resolvedClientName}
-          estimatedPrice={currentRide.estimatedPrice}
-          clientComment={currentRide.clientComment}
-          clientProfile={clientProfile}
-          clientPhotoUrl={resolvedClientPhoto}
-          distanceKm={totalDistanceKm}
-          durationMin={durationMin}
-          paymentMethod={currentRide.paymentMethod}
-          featureLabels={getRideFeatureLabels(currentRide, t)}
-          colors={colors}
-          isDark={isDark}
-          formatCurrency={formatCurrency}
-          onMessageClient={handleMessageClient}
-          onCallClient={handleCallClient}
-          styles={styles}
-          t={t}
-        />
 
         <Reanimated.View
           style={[
@@ -553,22 +635,50 @@ export default function RidePreviewScreen() {
             collapsibleStyle,
           ]}
         >
-          <View pointerEvents={isSheetExpanded ? 'auto' : 'none'}>
+          <ScrollView
+            ref={negotiationScrollRef}
+            pointerEvents={isSheetExpanded ? 'auto' : 'none'}
+            accessibilityElementsHidden={!isSheetExpanded}
+            importantForAccessibility={isSheetExpanded ? 'auto' : 'no-hide-descendants'}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
+            showsVerticalScrollIndicator={priceContentHeight > expandedContentHeight}
+            onLayout={() => {
+              if (keyboardVisible && customOfferVisible) {
+                negotiationScrollRef.current?.scrollToEnd({ animated: true });
+              }
+            }}
+          >
             {renderNegotiationContent()}
-          </View>
+          </ScrollView>
         </Reanimated.View>
 
-        <RidePreviewActions
-          acceptingRide={acceptingRide}
-          isRejectingRide={isRejectingRide}
-          acceptButtonScale={acceptButtonScale}
-          rejectButtonScale={rejectButtonScale}
-          colors={colors}
-          onAccept={() => runWithArrivalPhoto(isDesignatedRide, handleAcceptRide, ride.id)}
-          onReject={handleRejectRide}
-          styles={styles}
-          t={t}
-        />
+        <View onLayout={(event) => setActionsHeight(event.nativeEvent.layout.height)}>
+          {isDesignatedRide && (
+            <TouchableOpacity
+              style={styles.arrivalPhotoButton}
+              onPress={() => runWithArrivalPhoto(true, () => {})}
+              accessibilityRole="button"
+              accessibilityLabel={t('driver.crew.arrivalPhoto.open')}
+            >
+              <Ionicons name="camera-outline" size={18} color={isDark ? '#E8C47F' : '#805C1F'} />
+              <Text style={[styles.arrivalPhotoButtonText, { color: isDark ? '#E8C47F' : '#805C1F' }]}>
+                {t('driver.crew.arrivalPhoto.open')}
+              </Text>
+            </TouchableOpacity>
+          )}
+          <RidePreviewActions
+            acceptingRide={acceptingRide}
+            isRejectingRide={isRejectingRide}
+            acceptButtonScale={acceptButtonScale}
+            rejectButtonScale={rejectButtonScale}
+            colors={colors}
+            onAccept={() => runWithArrivalPhoto(isDesignatedRide, handleAcceptRide)}
+            onReject={handleRejectRide}
+            styles={styles}
+            t={t}
+          />
+        </View>
       </View>
 
       <RidePreviewPhotoModal
@@ -586,6 +696,19 @@ export default function RidePreviewScreen() {
 }
 
 const styles = StyleSheet.create({
+  arrivalPhotoButton: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    minHeight: 44,
+    paddingHorizontal: 16,
+  },
+  arrivalPhotoButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
   container: {
     flex: 1,
   },
@@ -675,6 +798,8 @@ const styles = StyleSheet.create({
   },
   handleArea: {
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
     paddingVertical: 12,
   },
   handleBar: {
@@ -782,6 +907,8 @@ const styles = StyleSheet.create({
   },
   measurementContainer: {
     position: 'absolute',
+    left: 0,
+    right: 0,
     opacity: 0,
     zIndex: -1,
     pointerEvents: 'none',

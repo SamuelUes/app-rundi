@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react-native';
-import { useMapPinInteraction } from './useMapPinInteraction';
-import mapsService from '../../../services/map/mapsService';
-import alertService from '../../../services/notification/alertService';
+import { useMapPinInteraction } from '../../hooks/client/HomeScreen/useMapPinInteraction';
+import mapsService from '../../services/map/mapsService';
+import alertService from '../../services/notification/alertService';
 
 jest.mock('../../../services/map/mapsService', () => ({
   __esModule: true,
@@ -25,12 +25,12 @@ function deferred() {
   return { promise, resolve };
 }
 
-function setup(checkRegion) {
+function setup(checkRegion, resolveSnap) {
   const save = jest.fn().mockResolvedValue(undefined);
   const setRegion = jest.fn();
   const restore = jest.fn();
   const hook = renderHook(() => useMapPinInteraction(
-    origin, null, null, '', save, checkRegion, setRegion, addressFallback, t, false, restore,
+    origin, null, null, '', save, checkRegion, setRegion, addressFallback, t, false, restore, resolveSnap,
   ));
   const move = (location) => {
     act(() => {
@@ -41,6 +41,30 @@ function setup(checkRegion) {
   };
   return { ...hook, save, setRegion, restore, move };
 }
+
+test('saves the snapped coordinates and shows the place name', async () => {
+  const place = { id: 'place', name: 'Parque', latitude: first.latitude + 0.00001, longitude: first.longitude };
+  const { move, save, result, restore } = setup(jest.fn().mockResolvedValue(allowed), jest.fn().mockResolvedValue(place));
+  move(first);
+  await act(async () => { jest.advanceTimersByTime(900); });
+  expect(save).toHaveBeenCalledWith({ latitude: place.latitude, longitude: place.longitude }, 'Address', expect.any(Object));
+  expect(restore).toHaveBeenCalledWith({ latitude: place.latitude, longitude: place.longitude });
+  expect(result.current.selectedPlaceName).toBe('Parque');
+});
+
+test('a late snap from an earlier gesture cannot move or save the pin', async () => {
+  const oldSnap = deferred();
+  const resolveSnap = jest.fn().mockReturnValueOnce(oldSnap.promise).mockResolvedValueOnce(null);
+  const { move, save, restore } = setup(jest.fn().mockResolvedValue(allowed), resolveSnap);
+  move(first);
+  await act(async () => { jest.advanceTimersByTime(900); });
+  move(second);
+  await act(async () => { jest.advanceTimersByTime(900); });
+  await act(async () => { oldSnap.resolve({ id: 'old', name: 'Old', ...first }); });
+  expect(save).toHaveBeenCalledTimes(1);
+  expect(save).toHaveBeenCalledWith(second, 'Address', expect.any(Object));
+  expect(restore).not.toHaveBeenCalled();
+});
 
 beforeEach(() => {
   jest.useFakeTimers();

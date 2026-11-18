@@ -14,12 +14,13 @@ import { useMapCamera, isValidCoord, toLatLng, coordsAreClose } from '../../hook
 import { useMarkerHeading } from '../../hooks/shared/map/useMarkerHeading';
 import { useTracksViewChanges } from '../../hooks/shared/map/useTracksViewChanges';
 import { MAP_ICONS } from '../../constants/mapIcons';
-import { DARK_MAP_STYLE } from '../../constants/mapStyles';
+import { DARK_MAP_STYLE, LIGHT_MAP_STYLE } from '../../constants/mapStyles';
 import { MainMarkerContent, MarkerType } from './mapMarkers/MarkerContent';
 import PinMarkerWithBubble from './mapMarkers/PinMarkerWithBubble';
 import NearbyDriversLayer from './mapMarkers/NearbyDriversLayer';
 import RideRequestsLayer, { RideRequest } from './mapMarkers/RideRequestsLayer';
 import { simplifyPolyline, coordsSignature } from '../../utils/geo/polylineSimplify';
+import type { NearbyPlace } from '../../services/map/googleMapsService';
 
 export interface ExtraStopMarker {
   latitude: number;
@@ -57,7 +58,8 @@ interface GoogleMapProps {
   scrollEnabled?: boolean;
   zoomEnabled?: boolean;
   onRegionChangeCenter?: (center: { latitude: number; longitude: number; altitude?: number; isGesture?: boolean }) => void;
-  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number; altitude?: number; isGesture?: boolean }) => void;
+  onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number; altitude?: number; zoom?: number; isGesture?: boolean }) => void;
+  nearbyPlaces?: NearbyPlace[];
   showMarker?: boolean;
   markerPosition?: { latitude: number; longitude: number } | null;
   markerType?: MarkerType;
@@ -116,10 +118,20 @@ interface GoogleMapProps {
   tertiaryRouteColor?: string;
   googleRenderer?: 'LATEST' | 'LEGACY';
   fitEdgePadding?: Partial<EdgePadding>;
+  allowRouteZoomOut?: boolean;
 }
 
 const DEFAULT_GOOGLE_RENDERER: 'LATEST' | 'LEGACY' =
   Platform.select({ android: 'LATEST', ios: 'LATEST', default: 'LATEST' }) || 'LATEST';
+
+function NearbyPlaceMarker({ place }: { place: NearbyPlace }) {
+  const { tracksViewChanges } = useTracksViewChanges();
+  return (
+    <Marker coordinate={place} anchor={{ x: 0.5, y: 0.5 }} tappable={false} tracksViewChanges={tracksViewChanges}>
+      <View style={styles.placeDot} />
+    </Marker>
+  );
+}
 
 export default function GoogleMap({
   latitude,
@@ -146,6 +158,7 @@ export default function GoogleMap({
   distanceLineCoordinates = [],
   cameraFitCoordinates,
   nearbyDrivers = [],
+  nearbyPlaces = [],
   draggableMarker = false,
   onMarkerDragEnd,
   rideRequests = [],
@@ -186,9 +199,11 @@ export default function GoogleMap({
   tertiaryRouteColor = '#FF9800',
   googleRenderer = DEFAULT_GOOGLE_RENDERER,
   fitEdgePadding,
+  allowRouteZoomOut = false,
 }: GoogleMapProps) {
   const { isDark } = useTheme();
   const [isMarkerHeld, setIsMarkerHeld] = useState(false);
+  const [mapSize, setMapSize] = useState({ width: 0, height: 0 });
   const markerScale = useRef(new Animated.Value(1)).current;
 
   const resolvedUserLight = userLocationLightIcon || MAP_ICONS.USER_LOCATION_LIGHT;
@@ -199,7 +214,7 @@ export default function GoogleMap({
   const holdingUserMarkerIcon = isDark ? resolvedUserHoldingDark : resolvedUserHoldingLight;
   const userMarkerIcon = isMarkerHeld ? holdingUserMarkerIcon || baseUserMarkerIcon : baseUserMarkerIcon;
 
-  const camera = useMapCamera(latitude, longitude, onRegionChangeCenter, onRegionChangeCompleteCenter);
+  const camera = useMapCamera(latitude, longitude, onRegionChangeCenter, onRegionChangeCompleteCenter, allowRouteZoomOut);
   const {
     mapRef,
     currentZoom,
@@ -238,7 +253,8 @@ export default function GoogleMap({
     if (isDark) {
       return DARK_MAP_STYLE;
     }
-    return null;
+    // Android's native map ignores a null style after one has been applied.
+    return Platform.OS === 'android' ? LIGHT_MAP_STYLE : null;
   }, [customMapStyle, isDark]);
 
   useEffect(() => {
@@ -364,10 +380,8 @@ export default function GoogleMap({
     const coordinatesSignature = markersToFit
       .map((coord) => `${coord.latitude.toFixed(5)}:${coord.longitude.toFixed(5)}`)
       .join('|');
-    return cameraFitCoordinates?.length
-      ? `${coordinatesSignature}|${JSON.stringify(fitEdgePadding)}`
-      : coordinatesSignature;
-  }, [markersToFit, cameraFitCoordinates, fitEdgePadding]);
+    return `${coordinatesSignature}|${JSON.stringify(fitEdgePadding)}|${showPinBubbles}|${mapSize.width}:${mapSize.height}`;
+  }, [markersToFit, fitEdgePadding, showPinBubbles, mapSize]);
 
   const computeCentroid = useCallback((coords: LatLng[]): LatLng => {
     const accumulator = coords.reduce(
@@ -386,12 +400,8 @@ export default function GoogleMap({
   }, []);
 
   useEffect(() => {
-    if (!autoFitEnabled || !isMapReady) {
+    if (!autoFitEnabled || !isMapReady || !mapSize.width || !mapSize.height) {
       lastFitSignatureRef.current = '';
-      return;
-    }
-
-    if (gestureActiveRef.current && !cameraFitCoordinates?.length) {
       return;
     }
 
@@ -403,38 +413,51 @@ export default function GoogleMap({
       return;
     }
 
-    lastFitSignatureRef.current = cameraFitSignature;
-
-    const map = mapRef.current as any;
-
-    if (markersToFit.length === 1) {
-      applyCamera({ center: markersToFit[0], altitudeMeters: defaultCameraSettings.altitude }, 420);
-      return;
-    }
-
-    if (map && typeof map.fitToCoordinates === 'function') {
-      try {
-        // Extra top room so the floating info pills above pins never get
-        // clipped by the top edge of the map.
-        const edgePadding: EdgePadding = {
-          top: fitEdgePadding?.top ?? (showPinBubbles ? 190 : 90),
-          right: fitEdgePadding?.right ?? (showPinBubbles ? 90 : 44),
-          bottom: fitEdgePadding?.bottom ?? 260,
-          left: fitEdgePadding?.left ?? (showPinBubbles ? 90 : 44),
-        };
-        map.fitToCoordinates(markersToFit, {
-          edgePadding,
-          animated: true,
-        });
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const fit = () => {
+      if (gestureActiveRef.current && !cameraFitCoordinates?.length) {
+        retry = setTimeout(fit, 300);
         return;
-      } catch (error) {
-        console.warn('[GoogleMap] fitToCoordinates falló, usando applyCamera como respaldo:', error);
       }
-    }
 
-    const targetCenter = markersToFit.length === 1 ? markersToFit[0] : computeCentroid(markersToFit);
-    applyCamera({ center: targetCenter, altitudeMeters: defaultCameraSettings.altitude }, 420);
-  }, [markersToFit, cameraFitSignature, autoFitEnabled, isMapReady, computeCentroid, applyCamera, defaultCameraSettings.altitude, gestureActiveRef, fitEdgePadding, showPinBubbles]);
+      lastFitSignatureRef.current = cameraFitSignature;
+      const map = mapRef.current as any;
+
+      if (markersToFit.length === 1) {
+        applyCamera({ center: markersToFit[0], altitudeMeters: defaultCameraSettings.altitude }, 420);
+        return;
+      }
+
+      if (map && typeof map.fitToCoordinates === 'function') {
+        try {
+          const requestedPadding: EdgePadding = {
+            top: fitEdgePadding?.top ?? (showPinBubbles ? 190 : 90),
+            right: fitEdgePadding?.right ?? (showPinBubbles ? 90 : 44),
+            bottom: fitEdgePadding?.bottom ?? 260,
+            left: fitEdgePadding?.left ?? (showPinBubbles ? 90 : 44),
+          };
+          // Keep a usable viewport even when an expanded sheet covers most of the map.
+          const verticalScale = Math.min(1, Math.max(0, mapSize.height - 80) / Math.max(1, requestedPadding.top + requestedPadding.bottom));
+          const horizontalScale = Math.min(1, Math.max(0, mapSize.width - 80) / Math.max(1, requestedPadding.left + requestedPadding.right));
+          const edgePadding: EdgePadding = {
+            top: Math.max(0, requestedPadding.top * verticalScale),
+            bottom: Math.max(0, requestedPadding.bottom * verticalScale),
+            left: Math.max(0, requestedPadding.left * horizontalScale),
+            right: Math.max(0, requestedPadding.right * horizontalScale),
+          };
+          map.fitToCoordinates(markersToFit, { edgePadding, animated: true });
+          return;
+        } catch (error) {
+          console.warn('[GoogleMap] fitToCoordinates falló, usando applyCamera como respaldo:', error);
+        }
+      }
+
+      const targetCenter = computeCentroid(markersToFit);
+      applyCamera({ center: targetCenter, altitudeMeters: defaultCameraSettings.altitude }, 420);
+    };
+    fit();
+    return () => { if (retry) clearTimeout(retry); };
+  }, [markersToFit, cameraFitSignature, cameraFitCoordinates, autoFitEnabled, isMapReady, mapSize, computeCentroid, applyCamera, defaultCameraSettings.altitude, gestureActiveRef, fitEdgePadding, showPinBubbles]);
 
   const handleMapPress = (event: MapPressEvent) => {
     if (disableMarkerPress || gestureActiveRef.current) {
@@ -527,7 +550,14 @@ export default function GoogleMap({
   const routeCasingColor = isDark ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.9)';
 
   return (
-    <View style={[styles.container, style]}>
+    <View
+      testID="google-map-container"
+      style={[styles.container, style]}
+      onLayout={({ nativeEvent: { layout } }) => {
+        setMapSize((current) => current.width === layout.width && current.height === layout.height
+          ? current : { width: layout.width, height: layout.height });
+      }}
+    >
       <MapView
         ref={mapRef}
         style={styles.map}
@@ -556,6 +586,9 @@ export default function GoogleMap({
         minZoomLevel={minZoomLevel}
         maxZoomLevel={maxZoomLevel}
       >
+        {nearbyPlaces.map((place) => (
+          <NearbyPlaceMarker key={`place-${place.id}`} place={place} />
+        ))}
         {shouldShowUserMarker && effectiveUserLocation && userMarkerIcon && (
           <PinMarkerWithBubble
             coordinate={effectiveUserLocation}
@@ -828,6 +861,14 @@ export default function GoogleMap({
 }
 
 const styles = StyleSheet.create({
+  placeDot: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 4,
+    borderColor: '#E2E2E2',
+    backgroundColor: '#222222',
+  },
   container: {
     flex: 1,
   },

@@ -13,6 +13,9 @@ export interface Inspection {
   vehicleRearPhoto?: string;
   interiorFrontPhoto?: string;
   interiorRearPhoto?: string;
+  insuranceDocumentPhoto?: string;
+  registrationDocumentPhoto?: string;
+  documentsConfirmed?: boolean;
   status: string;
   inspectedAt: string;
 }
@@ -23,6 +26,9 @@ export interface SubmitInspectionInput {
   vehicleRearPhoto?: string;
   interiorFrontPhoto?: string;
   interiorRearPhoto?: string;
+  insuranceDocumentPhoto?: string;
+  registrationDocumentPhoto?: string;
+  documentsConfirmed?: boolean;
 }
 
 export async function submitInspection(input: SubmitInspectionInput): Promise<Inspection> {

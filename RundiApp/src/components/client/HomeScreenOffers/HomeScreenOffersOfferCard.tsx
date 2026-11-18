@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Pressable, TouchableOpacity, Animated } from 'react-native';
+import { View, Text, Pressable, TouchableOpacity, Animated, Modal, StyleSheet, useWindowDimensions, ActivityIndicator } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import StorageImage from '../../shared/StorageImage';
 import type { OfferItem } from '../../../hooks/client/HomeScreenOffers/useRideOffers';
@@ -27,6 +27,7 @@ interface HomeScreenOffersOfferCardProps {
   vehicleType: string | null;
   ratingLabel: string | null;
   photoUri: string | null;
+  isDesignatedRide: boolean;
   acceptedAnim: Animated.Value;
   onSelect: () => void;
   onMessageDriver: () => void;
@@ -67,6 +68,7 @@ export function HomeScreenOffersOfferCard({
   vehicleType,
   ratingLabel,
   photoUri,
+  isDesignatedRide,
   acceptedAnim,
   onSelect,
   onMessageDriver,
@@ -76,11 +78,28 @@ export function HomeScreenOffersOfferCard({
   t,
 }: HomeScreenOffersOfferCardProps) {
   const [photoFailed, setPhotoFailed] = useState(false);
+  const [arrivalPhotoOpen, setArrivalPhotoOpen] = useState(false);
+  const [arrivalPhotoFailed, setArrivalPhotoFailed] = useState(false);
+  const [modalPhotoFailed, setModalPhotoFailed] = useState(false);
+  const [modalPhotoLoading, setModalPhotoLoading] = useState(true);
+  const [followerPhotoFailed, setFollowerPhotoFailed] = useState(false);
+  const { height: windowHeight } = useWindowDimensions();
   useEffect(() => {
     setPhotoFailed(false);
   }, [photoUri]);
+  useEffect(() => {
+    setArrivalPhotoFailed(false);
+    setModalPhotoFailed(false);
+    setModalPhotoLoading(true);
+  }, [item.arrivalVehiclePhoto]);
+  useEffect(() => {
+    setFollowerPhotoFailed(false);
+  }, [item.crewFollower?.photoURL]);
 
   const isAccepted = item.status === 'accepted';
+  const designatedPalette = isDark
+    ? { card: '#252421', border: '#494237', selectedBorder: '#C49A50', surface: '#302E29', accent: '#E8C47F', muted: '#BAB3A7', modal: '#262522', image: '#181817' }
+    : { card: '#FFFCF6', border: '#EADFCB', selectedBorder: '#B38737', surface: '#F5F0E6', accent: '#805C1F', muted: '#71695D', modal: '#FFFCF6', image: '#EDE8DE' };
 
   const vehicleLabel = vehicleType
     ? t(
@@ -99,14 +118,18 @@ export function HomeScreenOffersOfferCard({
       style={({ pressed }) => [
         styles.offerCard,
         {
-          backgroundColor: selected
+          backgroundColor: isDesignatedRide
+            ? designatedPalette.card
+            : selected
             ? isDark
               ? 'rgba(33,33,33,0.9)'
               : '#FFF6E6'
             : isDark
               ? '#1F1F1F'
               : '#F5F5F5',
-          borderColor: selected
+          borderColor: isDesignatedRide
+            ? selected ? designatedPalette.selectedBorder : designatedPalette.border
+            : selected
             ? isDark
               ? 'rgba(255,255,255,0.12)'
               : 'rgba(227, 197, 146, 0.1)'
@@ -119,7 +142,17 @@ export function HomeScreenOffersOfferCard({
       accessibilityRole="button"
       accessibilityLabel={`${displayName}, ${arrivalLabel}, ${driverPriceLabel}`}
     >
-      <View style={styles.offerPriceHeader}>
+      {isDesignatedRide ? (
+        <View style={designatedStyles.heading}>
+          <View style={[designatedStyles.serviceIcon, { backgroundColor: designatedPalette.surface }]}>
+            <Ionicons name="shield-checkmark-outline" size={16} color={designatedPalette.accent} />
+          </View>
+          <Text style={[designatedStyles.serviceLabel, { color: designatedPalette.accent }]}>
+            {t('client.homeOffers.list.designatedOffer')}
+          </Text>
+        </View>
+      ) : null}
+      <View style={[styles.offerPriceHeader, isDesignatedRide && { backgroundColor: designatedPalette.surface }]}>
         <View style={styles.offerPriceHeading}>
           <Text style={[styles.offerPriceEyebrow, { color: colors.textSecondary }]}>
             {offerCaption}
@@ -216,6 +249,159 @@ export function HomeScreenOffersOfferCard({
         </View>
 
       </View>
+
+      {isDesignatedRide ? (
+        <View style={[designatedStyles.crewPanel, { borderColor: designatedPalette.border, backgroundColor: designatedPalette.surface }]}>
+          <View style={designatedStyles.crewHeading}>
+            <Ionicons name="people-outline" size={16} color={designatedPalette.accent} />
+            <Text style={[designatedStyles.headingText, { color: designatedPalette.accent }]}>
+              {t('client.homeOffers.list.crewTitle')}
+            </Text>
+          </View>
+          {item.crewFollower ? (
+            <View style={designatedStyles.crewMember}>
+              {item.crewFollower.photoURL && !followerPhotoFailed ? (
+                <StorageImage
+                  uri={item.crewFollower.photoURL}
+                  style={designatedStyles.crewAvatar}
+                  contentFit="cover"
+                  onError={() => setFollowerPhotoFailed(true)}
+                />
+              ) : (
+                <View style={[designatedStyles.crewAvatar, designatedStyles.crewAvatarFallback, { backgroundColor: isDark ? '#51432C' : '#EADBC0' }]}>
+                  <Text style={[designatedStyles.crewInitials, { color: colors.primary }]}>
+                    {getInitials(item.crewFollower.name)}
+                  </Text>
+                </View>
+              )}
+              <View style={designatedStyles.vehicleText}>
+                <Text style={[designatedStyles.vehicleTitle, { color: colors.text }]} numberOfLines={1}>
+                  {item.crewFollower.name || t('client.homeOffers.list.crewColleague')}
+                </Text>
+                <Text style={[designatedStyles.vehicleHint, { color: colors.textSecondary }]}>
+                  {t('client.homeOffers.list.crewColleague')}
+                </Text>
+              </View>
+              {typeof item.crewFollower.rating === 'number' && item.crewFollower.rating > 0 ? (
+                <Text style={[designatedStyles.crewRating, { color: colors.text }]}>
+                  {'★ '}{item.crewFollower.rating.toFixed(1)}
+                </Text>
+              ) : null}
+            </View>
+          ) : (
+            <Text style={[designatedStyles.vehicleHint, { color: designatedPalette.muted }]}>
+              {t('client.homeOffers.list.crewUnavailable')}
+            </Text>
+          )}
+          <Text style={[designatedStyles.crewNote, { color: designatedPalette.muted }]}>
+            {t('client.homeOffers.list.crewNote')}
+          </Text>
+        </View>
+      ) : null}
+
+      {isDesignatedRide ? (
+        <Pressable
+          style={({ pressed }) => [designatedStyles.vehicleRow, { backgroundColor: designatedPalette.surface, borderColor: designatedPalette.border }, pressed && { opacity: 0.8 }]}
+          disabled={!item.arrivalVehiclePhoto || arrivalPhotoFailed}
+          onPress={(event) => {
+            event.stopPropagation();
+            setArrivalPhotoOpen(true);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={t('client.homeOffers.list.arrivalVehiclePhoto')}
+        >
+          {item.arrivalVehiclePhoto && !arrivalPhotoFailed ? (
+            <StorageImage
+              uri={item.arrivalVehiclePhoto}
+              style={designatedStyles.vehicleThumbnail}
+              contentFit="cover"
+              onError={() => setArrivalPhotoFailed(true)}
+            />
+          ) : (
+            <View style={[designatedStyles.vehiclePlaceholder, { backgroundColor: isDark ? '#403A30' : '#E8DFCF' }]}>
+              <Ionicons name="car-outline" size={23} color={designatedPalette.accent} />
+            </View>
+          )}
+          <View style={designatedStyles.vehicleText}>
+            <Text style={[designatedStyles.vehicleTitle, { color: colors.text }]}>
+              {t('client.homeOffers.list.arrivalVehiclePhoto')}
+            </Text>
+            <Text style={[designatedStyles.vehicleHint, { color: designatedPalette.muted }]}>
+              {item.arrivalVehiclePhoto && !arrivalPhotoFailed
+                ? t('client.homeOffers.list.viewArrivalVehiclePhoto')
+                : t('client.homeOffers.list.arrivalVehiclePhotoMissing')}
+            </Text>
+          </View>
+          {item.arrivalVehiclePhoto && !arrivalPhotoFailed ? (
+            <View style={[designatedStyles.expandIcon, { backgroundColor: designatedPalette.card }]}>
+              <Ionicons name="expand-outline" size={17} color={designatedPalette.accent} />
+            </View>
+          ) : null}
+        </Pressable>
+      ) : null}
+
+      <Modal visible={arrivalPhotoOpen} transparent animationType="fade" onRequestClose={() => setArrivalPhotoOpen(false)}>
+        <View style={designatedStyles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setArrivalPhotoOpen(false)} accessibilityElementsHidden importantForAccessibility="no" />
+          <View accessibilityViewIsModal style={[designatedStyles.modalContent, { backgroundColor: designatedPalette.modal, borderColor: designatedPalette.border }]}>
+            <View style={designatedStyles.modalHeader}>
+              <View style={designatedStyles.modalHeading}>
+                <Text style={[designatedStyles.modalEyebrow, { color: designatedPalette.accent }]}>
+                  {t('client.homeOffers.list.designatedOffer')}
+                </Text>
+                <Text style={[designatedStyles.modalTitle, { color: colors.text }]}>
+                  {t('client.homeOffers.list.arrivalVehiclePhoto')}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setArrivalPhotoOpen(false)}
+                style={({ pressed }) => [designatedStyles.closeButton, { backgroundColor: designatedPalette.surface }, pressed && { opacity: 0.7 }]}
+                accessibilityRole="button"
+                accessibilityLabel={t('common.actions.close')}
+                testID="arrival-photo-close"
+              >
+                <Ionicons name="close" size={22} color={colors.text} />
+              </Pressable>
+            </View>
+            <View style={[designatedStyles.modalImageFrame, { height: Math.min(420, Math.max(180, windowHeight * 0.42)), backgroundColor: designatedPalette.image }]}>
+              {modalPhotoFailed || !item.arrivalVehiclePhoto ? (
+                <View style={designatedStyles.modalPlaceholder}>
+                  <Ionicons name="image-outline" size={30} color={designatedPalette.muted} />
+                  <Text style={[designatedStyles.modalPlaceholderText, { color: designatedPalette.muted }]}>
+                    {t('client.homeOffers.list.arrivalVehiclePhotoMissing')}
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  <StorageImage
+                    uri={item.arrivalVehiclePhoto}
+                    style={designatedStyles.modalImage}
+                    contentFit="contain"
+                    onLoad={() => setModalPhotoLoading(false)}
+                    onError={() => { setModalPhotoLoading(false); setModalPhotoFailed(true); }}
+                  />
+                  {modalPhotoLoading ? (
+                    <View style={designatedStyles.loadingOverlay} pointerEvents="none">
+                      <ActivityIndicator color={designatedPalette.accent} />
+                    </View>
+                  ) : null}
+                </>
+              )}
+            </View>
+            <View style={designatedStyles.modalFooter}>
+              <View style={[designatedStyles.footerIcon, { backgroundColor: designatedPalette.surface }]}>
+                <Ionicons name="car-outline" size={20} color={designatedPalette.accent} />
+              </View>
+              <View style={designatedStyles.vehicleText}>
+                <Text style={[designatedStyles.footerTitle, { color: colors.text }]} numberOfLines={1}>{displayName}</Text>
+                <Text style={[designatedStyles.vehicleHint, { color: designatedPalette.muted }]} numberOfLines={2}>
+                  {[vehicleLabel, plate !== '—' ? plate : null].filter(Boolean).join(' · ') || t('client.homeOffers.list.arrivalVehiclePhoto')}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {selected ? (
         <>
@@ -391,3 +577,40 @@ export function HomeScreenOffersOfferCard({
     </Pressable>
   );
 }
+
+const designatedStyles = StyleSheet.create({
+  heading: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  serviceIcon: { width: 28, height: 28, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  serviceLabel: { fontSize: 12, fontWeight: '800', letterSpacing: 0.2, flexShrink: 1 },
+  headingText: { fontSize: 12, fontWeight: '700' },
+  crewPanel: { borderWidth: 0.1, borderRadius: 14, padding: 12, marginTop: 12 },
+  crewHeading: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  crewMember: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 9 },
+  crewAvatar: { width: 38, height: 38, borderRadius: 19 },
+  crewAvatarFallback: { alignItems: 'center', justifyContent: 'center' },
+  crewInitials: { fontSize: 13, fontWeight: '700' },
+  crewRating: { fontSize: 12, fontWeight: '700' },
+  crewNote: { fontSize: 11, lineHeight: 15, marginTop: 8 },
+  vehicleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 8, borderWidth: 0.1, borderRadius: 14, marginTop: 8 },
+  vehicleThumbnail: { width: 64, height: 54, borderRadius: 10 },
+  vehiclePlaceholder: { width: 64, height: 54, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  expandIcon: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  vehicleText: { flex: 1, minWidth: 0 },
+  vehicleTitle: { fontSize: 13, fontWeight: '700', flexShrink: 1 },
+  vehicleHint: { fontSize: 12, marginTop: 3 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(10,10,10,0.78)', justifyContent: 'center', paddingHorizontal: 20, paddingVertical: 24 },
+  modalContent: { width: '100%', maxWidth: 520, alignSelf: 'center', borderRadius: 24, borderWidth: 0.1, padding: 16 },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
+  modalHeading: { flex: 1, minWidth: 0 },
+  modalEyebrow: { fontSize: 10, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 4 },
+  modalTitle: { fontSize: 19, lineHeight: 24, fontWeight: '800' },
+  closeButton: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  modalImageFrame: { width: '100%', borderRadius: 16, overflow: 'hidden' },
+  modalImage: { width: '100%', height: '100%' },
+  loadingOverlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, alignItems: 'center', justifyContent: 'center' },
+  modalPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 16 },
+  modalPlaceholderText: { fontSize: 13, textAlign: 'center' },
+  modalFooter: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 14 },
+  footerIcon: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  footerTitle: { fontSize: 14, fontWeight: '700' },
+});

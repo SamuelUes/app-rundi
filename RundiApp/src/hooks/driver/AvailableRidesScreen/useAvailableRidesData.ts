@@ -90,6 +90,7 @@ export function useAvailableRidesData(
   userId: string | undefined,
   coords: { latitude?: number; longitude?: number } | null,
   serviceAreaId: string | null,
+  userRole: string | undefined,
 ) {
   const [rides, setRides] = useState<Ride[]>([]);
   const [scheduledRides, setScheduledRides] = useState<Ride[]>([]);
@@ -234,7 +235,7 @@ export function useAvailableRidesData(
         (snapshot) => {
           const info = snapshot.data() as any;
           setDriverIsDesignatedMode(
-            Array.isArray(info?.activeServiceCodes) && info.activeServiceCodes.includes('designated_driver'),
+            userRole === 'designated_driver' && info?.designatedMode === true,
           );
         },
         (error) => {
@@ -261,7 +262,7 @@ export function useAvailableRidesData(
       unsub?.();
       unsubVehicle?.();
     };
-  }, [userId]);
+  }, [userId, userRole]);
 
   // Listener: active ride guard
   useEffect(() => {

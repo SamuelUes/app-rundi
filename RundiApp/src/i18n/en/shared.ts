@@ -8,6 +8,9 @@ const shared = {
             online: 'Online',
             offline: 'Offline',
             connecting: 'Connecting…',
+            connected: 'Chat connected',
+            connectionError: 'Unable to connect',
+            retry: 'Retry connection',
           },
           quickMessages: [
             '👍 Ok',

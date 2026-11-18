@@ -20,9 +20,8 @@ import {
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
-import { getAuth } from 'firebase/auth';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
-import { getFirebaseFirestore } from '../../config/firebase';
+import { getFirebaseAuth, getFirebaseFirestore } from '../../config/firebase';
 import { FS_COL } from '../../constants/firestore';
 import { getPendingPayments, registerCashPayment } from '../../api/payments';
 import { getPendingRating } from '../../api/ratings';
@@ -286,6 +285,7 @@ export default function CashPaymentScreen({ route, navigation }: any) {
   const [ride, setRide] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
+  const confirmingRef = useRef(false);
   const [paymentStatus, setPaymentStatus] = useState<string>('pending');
   const [driverPhotoURL, setDriverPhotoURL] = useState<string | null>(null);
   const [driverNameFromInfo, setDriverNameFromInfo] = useState<string | null>(null);
@@ -516,12 +516,18 @@ export default function CashPaymentScreen({ route, navigation }: any) {
   
   // Confirmar pago en efectivo
   const handleConfirmPayment = async () => {
-    if (confirming) {
+    if (confirmingRef.current) {
       return;
     }
-
+    confirmingRef.current = true;
+    setConfirming(true);
     try {
       console.log('💳 Cliente confirmando pago para rideId:', rideId);
+      const auth = await getFirebaseAuth();
+      if (!auth.currentUser) {
+        alertService.showErrorAlert(t('client.cashPayment.alerts.loginRequired'));
+        return;
+      }
 
       const finalAmount = ride?.finalFare || ride?.estimatedPrice || paramAmount || 0;
       const numericAmount = typeof finalAmount === 'string' ? parseFloat(finalAmount) : finalAmount;
@@ -530,16 +536,10 @@ export default function CashPaymentScreen({ route, navigation }: any) {
         t('client.cashPayment.biometricPrompt', { amount: formatCurrency(numericAmount) })
       );
 
-      let authenticationMethod: 'biometric' | 'manual' = 'manual';
-      let biometricType: string | null = null;
-      let biometricAuthenticated = false;
-
       if (!biometricResult.success) {
         if (biometricResult.errorCode === 'NOT_SUPPORTED') {
-          biometricType = 'no_exist';
           console.log('Biometría no soportada por el dispositivo. Continuando como autenticación manual.');
         } else if (biometricResult.errorCode === 'NOT_ENROLLED') {
-          biometricType = 'not_enrolled';
           console.log('No hay biometría registrada en el dispositivo. Continuando como autenticación manual.');
         } else {
           alertService.showErrorAlert(
@@ -547,25 +547,6 @@ export default function CashPaymentScreen({ route, navigation }: any) {
           );
           return;
         }
-      } else {
-        authenticationMethod = 'biometric';
-        biometricType = biometricResult.biometryType || 'biometric';
-        biometricAuthenticated = true;
-      }
-
-      setConfirming(true);
-      
-      const auth = getAuth();
-      
-      if (!auth.currentUser) {
-        alertService.showErrorAlert(t('client.cashPayment.alerts.loginRequired'));
-        return;
-      }
-      
-      const { initializeFirebase } = await import('../../config/firebase');
-      const { app } = await initializeFirebase();
-      if (!app) {
-        throw new Error('Firebase no inicializado');
       }
 
       // El cliente DECLARA el pago (register-cash → pending_confirmation);
@@ -590,11 +571,12 @@ export default function CashPaymentScreen({ route, navigation }: any) {
       }
       
     } catch (error: any) {
-      console.error('❌ Error confirmando pago:', error);
+      console.error('❌ Error confirmando pago:', error?.stack || error);
       alertService.showErrorAlert(
         error.message || t('client.cashPayment.alerts.confirmError')
       );
     } finally {
+      confirmingRef.current = false;
       setConfirming(false);
     }
   };

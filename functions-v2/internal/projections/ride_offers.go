@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"cloud.google.com/go/firestore"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -11,6 +12,35 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+func freshArrivalPhoto(data map[string]any, driverID string, now time.Time) string {
+	return fs.FreshArrivalPhoto(data, driverID, now)
+}
+
+// Only share the follower's public presentation, never the crew's license or membership data.
+func offerCrewFollower(data map[string]any, captainID string) map[string]any {
+	crewStatus, _ := data["status"].(string)
+	crewCaptain, _ := data["captainId"].(string)
+	if crewStatus != "active" || crewCaptain != captainID {
+		return nil
+	}
+	followerID, _ := data["followerId"].(string)
+	follower, _ := data["follower"].(map[string]any)
+	snapshotID, _ := follower["driverId"].(string)
+	if followerID == "" || followerID == captainID || follower == nil || snapshotID != followerID {
+		return nil
+	}
+	result := map[string]any{"driverId": followerID, "name": nil, "photoURL": nil, "rating": nil}
+	for _, field := range []string{"name", "photoURL"} {
+		if value, ok := follower[field].(string); ok && value != "" {
+			result[field] = value
+		}
+	}
+	if rating, ok := follower["rating"].(float64); ok && rating >= 0 && rating <= 5 {
+		result["rating"] = rating
+	}
+	return result
+}
 
 func counterOfferStatus(rideStatus string, assignedDriver *string, driverID, offerStatus string) string {
 	if rideStatus == "requested" || rideStatus == "driver_offered" {
@@ -92,7 +122,7 @@ func projectCounterOffers(ctx context.Context, pool *pgxpool.Pool, c *firestore.
 		       r.estimated_price, r.client_suggested_price,
 		       r.origin_latitude, r.origin_longitude, r.origin_address,
 		       r.destination_latitude, r.destination_longitude, r.destination_address,
-		       r.waypoints, r.pricing_snapshot
+		       r.waypoints, r.pricing_snapshot, r.ride_type
 		FROM public.ride_offers o
 		JOIN public.rides_with_complete_route r ON r.id = o.ride_id
 		LEFT JOIN public.users uc ON uc.id = r.client_id
@@ -104,7 +134,7 @@ func projectCounterOffers(ctx context.Context, pool *pgxpool.Pool, c *firestore.
 	defer rows.Close()
 	for rows.Next() {
 		var driverID, clientID, offerStatus, rideStatus string
-		var assignedDriver, firebaseID, clientName, clientPhoto *string
+		var assignedDriver, firebaseID, clientName, clientPhoto, rideType *string
 		var estPrice, clientSug, oLat, oLng, dLat, dLng *float64
 		var oAddr, dAddr *string
 		var waypoints, pricingSnap []byte
@@ -113,7 +143,7 @@ func projectCounterOffers(ctx context.Context, pool *pgxpool.Pool, c *firestore.
 		if err := rows.Scan(&driverID, &clientID, &price, &offerStatus, &rideStatus,
 			&assignedDriver, &version, &firebaseID, &clientName, &clientPhoto,
 			&estPrice, &clientSug, &oLat, &oLng, &oAddr, &dLat, &dLng, &dAddr,
-			&waypoints, &pricingSnap); err != nil {
+			&waypoints, &pricingSnap, &rideType); err != nil {
 			return err
 		}
 		ref := c.Collection(fs.ColDriverOffers).Doc(rideID + "_" + driverID)
@@ -122,6 +152,28 @@ func projectCounterOffers(ctx context.Context, pool *pgxpool.Pool, c *firestore.
 			"kind":         "counter_offer",
 			"offeredPrice": price, "status": counterOfferStatus(rideStatus, assignedDriver, driverID, offerStatus),
 			"offerProjectionVersion": version, "updatedAt": firestore.ServerTimestamp,
+		}
+		if rideType != nil && *rideType == "designated_driver" {
+			photo, err := c.Collection(fs.ColArrivalPhotos).Doc(driverID).Get(ctx)
+			if err != nil && status.Code(err) != codes.NotFound {
+				return fmt.Errorf("read arrival photo: %w", err)
+			}
+			data["arrivalVehiclePhoto"] = nil
+			if err == nil {
+				if photoPath := freshArrivalPhoto(photo.Data(), driverID, time.Now()); photoPath != "" {
+					data["arrivalVehiclePhoto"] = photoPath
+				}
+			}
+			crew, err := c.Collection(fs.ColDriverCrews).Doc(driverID).Get(ctx)
+			if err != nil && status.Code(err) != codes.NotFound {
+				return fmt.Errorf("read offer crew: %w", err)
+			}
+			data["crewFollower"] = nil
+			if err == nil {
+				if follower := offerCrewFollower(crew.Data(), driverID); follower != nil {
+					data["crewFollower"] = follower
+				}
+			}
 		}
 		if firebaseID != nil {
 			data["firebaseRideId"] = *firebaseID

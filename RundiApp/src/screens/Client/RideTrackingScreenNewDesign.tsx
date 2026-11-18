@@ -20,7 +20,7 @@ import {
   Platform,
   Share,
   Animated,
-  Dimensions,
+  useWindowDimensions,
   ScrollView,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -68,9 +68,7 @@ import { RideVerificationCodeCard } from '../../components/client/RideTracking/R
 import { isDesignatedRideRequest } from '../../utils/ride/availableRidesHelpers';
 import { shouldShowSeparateCrewMarkers } from '../../utils/driver/designatedCrew';
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const PANEL_MIN_HEIGHT = 252;
-const PANEL_MAX_HEIGHT = SCREEN_HEIGHT * 0.65;
+const PANEL_MIN_HEIGHT = 268;
 
 interface DriverLocation {
   latitude: number;
@@ -343,11 +341,12 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
   }, [rideData]);
   const { destinationCoords, originCoords, waypointCoords, routeCoordinates, routeDistanceMeters, routeDurationSeconds } = useRideRoute(rideData);
 
-  // Panel retráctil (tap para expandir/contraer)
-  const { isPanelExpanded, panelHeight, togglePanel } = useCollapsiblePanel({
+  // Panel retráctil (tap o arrastre desde el control)
+  const { height: windowHeight } = useWindowDimensions();
+  const { isPanelExpanded, panelHeight, togglePanel, panHandlers } = useCollapsiblePanel({
     initialExpanded: true,
     minHeight: PANEL_MIN_HEIGHT,
-    maxHeight: PANEL_MAX_HEIGHT,
+    maxHeight: Math.max(PANEL_MIN_HEIGHT, windowHeight * 0.65),
     useAnimatedHeight: true,
   });
   const hasNavigatedToPaymentRef = useRef(false);
@@ -622,6 +621,13 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
         <DynamicMap
           latitude={driverLocation?.latitude || clientCoords?.latitude || 12.1364}
           longitude={driverLocation?.longitude || clientCoords?.longitude || -86.2514}
+          allowRouteZoomOut
+          fitEdgePadding={{
+            top: 100,
+            left: 60,
+            right: 60,
+            bottom: Math.min(windowHeight - 180, (isPanelExpanded ? Math.max(PANEL_MIN_HEIGHT, windowHeight * 0.65) : PANEL_MIN_HEIGHT) + 16),
+          }}
           style={styles.map}
           showMarker={!!driverLocation}
           showUserLocation={false}
@@ -691,15 +697,18 @@ export default function RideTrackingScreenNewDesign({ route, navigation }: RideT
       ]}
     >
       {/* Handle para expandir/contraer */}
-      <TouchableOpacity
-        onPress={togglePanel}
-        activeOpacity={0.8}
-        style={styles.grabber}
-        accessibilityRole="button"
-        accessibilityLabel={tr(isPanelExpanded ? 'accessibility.collapsePanel' : 'accessibility.expandPanel')}
-      >
-        <View style={styles.grabberBar} />
-      </TouchableOpacity>
+      <View {...panHandlers}>
+        <TouchableOpacity
+          onPress={togglePanel}
+          activeOpacity={0.8}
+          style={styles.grabber}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: isPanelExpanded }}
+          accessibilityLabel={tr(isPanelExpanded ? 'accessibility.collapsePanel' : 'accessibility.expandPanel')}
+        >
+          <View style={styles.grabberBar} />
+        </TouchableOpacity>
+      </View>
 
       {/* ETA siempre visible */}
       <View style={styles.etaSection}>
@@ -842,10 +851,10 @@ const createStyles = (colors: any) => StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 23,
-    backgroundColor: colors.button,
+    backgroundColor: colors.background,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: '#fefefe',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.18,
     shadowRadius: 8,
@@ -875,6 +884,8 @@ const createStyles = (colors: any) => StyleSheet.create({
   grabber: {
     paddingVertical: 10,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
   },
   grabberBar: {
     width: 36,

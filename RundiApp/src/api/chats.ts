@@ -6,7 +6,7 @@
 import client from './client';
 
 /** createRideChat — crea/devuelve el chat del viaje (chatId = ride-{rideId}). */
-export async function createRideChat(rideId: string): Promise<{ chatId: string }> {
-  const { data } = await client.post<{ chatId: string }>('/chats', { rideId });
+export async function createRideChat(rideId: string, otherUserId?: string): Promise<{ chatId: string }> {
+  const { data } = await client.post<{ chatId: string }>('/chats', { rideId, otherUserId });
   return data;
 }

@@ -323,20 +323,20 @@ func projectActiveVehicle(ctx context.Context, pool *pgxpool.Pool, c *firestore.
 // SQL) y la versión. Campos ausentes en la fila se omiten — nunca se borran.
 func projectRide(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, ev Event, p map[string]any) error {
 	var (
-		fbID, clientID, driverID, followerID, followerSt        *string
-		statusV, rideType, vehicleType, paymentType, desigVeh   *string
-		estPrice, finalFare, clientSug, driverOff               *float64
-		estDist, estDur, actDist, actDur, passengers, waypCnt   *int64
-		notes, clientPhoto, cancelReason, canceledBy            *string
-		multiStops                                              *bool
-		pricingSnap                                             json.RawMessage
-		reqAt, accAt, startAt, compAt, cancAt                   *time.Time
-		version                                                 *int64
-		oLat, oLng, dLat, dLng                                  *float64
-		oAddr, dAddr                                            *string
-		waypoints                                               json.RawMessage
-		svcArea                                                 *string
-		clientName, clientPhone, clientProfilePhoto, driverName *string
+		fbID, clientID, driverID, followerID, followerSt           *string
+		statusV, rideType, vehicleType, paymentType, desigVeh      *string
+		estPrice, finalFare, clientSug, driverOff                  *float64
+		estDist, estDur, actDist, actDur, passengers, waypCnt      *int64
+		notes, clientPhoto, arrivalPhoto, cancelReason, canceledBy *string
+		multiStops                                                 *bool
+		pricingSnap                                                json.RawMessage
+		reqAt, accAt, startAt, compAt, cancAt                      *time.Time
+		version                                                    *int64
+		oLat, oLng, dLat, dLng                                     *float64
+		oAddr, dAddr                                               *string
+		waypoints                                                  json.RawMessage
+		svcArea                                                    *string
+		clientName, clientPhone, clientProfilePhoto, driverName    *string
 	)
 	err := pool.QueryRow(ctx, `
 		SELECT v.firebase_ride_id, v.client_id, v.driver_id, v.follower_driver_id,
@@ -344,7 +344,7 @@ func projectRide(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, e
 		       v.payment_type, v.designated_driver_vehicle,
 		       v.estimated_price, v.final_fare, v.client_suggested_price, v.driver_offered_price,
 		       v.estimated_distance, v.estimated_duration, v.actual_distance, v.actual_duration,
-		       v.passengers, v.notes, v.client_vehicle_photo, v.waypoints_count, v.has_multiple_stops,
+		       v.passengers, v.notes, v.client_vehicle_photo, v.arrival_vehicle_photo, v.waypoints_count, v.has_multiple_stops,
 		       v.cancel_reason, v.canceled_by, v.pricing_snapshot,
 		       v.requested_at, v.accepted_at, v.started_at, v.completed_at, v.canceled_at, v.version,
 		       v.origin_latitude, v.origin_longitude, v.origin_address,
@@ -359,7 +359,7 @@ func projectRide(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, e
 		&statusV, &rideType, &vehicleType, &paymentType, &desigVeh,
 		&estPrice, &finalFare, &clientSug, &driverOff,
 		&estDist, &estDur, &actDist, &actDur,
-		&passengers, &notes, &clientPhoto, &waypCnt, &multiStops,
+		&passengers, &notes, &clientPhoto, &arrivalPhoto, &waypCnt, &multiStops,
 		&cancelReason, &canceledBy, &pricingSnap,
 		&reqAt, &accAt, &startAt, &compAt, &cancAt, &version,
 		&oLat, &oLng, &oAddr, &dLat, &dLng, &dAddr, &waypoints,
@@ -397,6 +397,10 @@ func projectRide(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, e
 	put("designatedDriverVehicle", desigVeh)
 	put("notes", notes)
 	put("clientVehiclePhoto", clientPhoto)
+	data["arrivalVehiclePhoto"] = nil
+	if arrivalPhoto != nil {
+		data["arrivalVehiclePhoto"] = *arrivalPhoto
+	}
 	put("cancelReason", cancelReason)
 	put("canceledBy", canceledBy)
 	put("clientName", clientName)
@@ -488,21 +492,30 @@ func projectRide(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, e
 	if v, ok := p["serviceCode"]; ok && v != nil {
 		data["serviceCode"] = v
 	}
-	if v, ok := p["version"]; ok && v != nil {
-		data["appliedVersion"] = v
+	// The projected fields come from the current SQL row, not the event.
+	// Compare that row's version, even when an older event triggered the read.
+	var projectedVersion any = p["version"]
+	if version != nil {
+		projectedVersion = *version
 	}
-
+	if projectedVersion != nil {
+		data["appliedVersion"] = projectedVersion
+	}
 	liveRef := c.Collection(fs.ColTripsLive).Doc(liveID)
+	return writeRideProjection(ctx, c, liveRef, data, projectedVersion)
+}
+
+func writeRideProjection(ctx context.Context, c *firestore.Client, liveRef *firestore.DocumentRef, data map[string]any, version any) error {
 	return c.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		snap, err := tx.Get(liveRef)
 		if err != nil && status.Code(err) != codes.NotFound {
 			return err
 		}
 		if err == nil {
-			if av, ok := snap.Data()["appliedVersion"].(int64); ok {
-				if v, ok2 := p["version"].(float64); ok2 && int64(v) <= av {
-					return nil // duplicado/fuera de orden: ya aplicado
-				}
+			current, currentOK := statusVersion(snap.Data()["appliedVersion"])
+			incoming, incomingOK := statusVersion(version)
+			if currentOK && incomingOK && incoming <= current {
+				return nil
 			}
 		}
 		return tx.Set(liveRef, data, firestore.MergeAll)

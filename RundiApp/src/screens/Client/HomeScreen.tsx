@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { FS_COL } from '../../constants/firestore';
@@ -40,6 +41,7 @@ import { useRegionAvailability } from '../../hooks/client/HomeScreen/useRegionAv
 import { usePendingActions } from '../../hooks/client/HomeScreen/usePendingActions';
 import { useUpcomingProgrammedRide } from '../../hooks/client/HomeScreen/useUpcomingProgrammedRide';
 import { useMapPinInteraction } from '../../hooks/client/HomeScreen/useMapPinInteraction';
+import { useNearbyPlaces } from '../../hooks/client/HomeScreen/useNearbyPlaces';
 import DynamicMap from '../../components/map/DynamicMap';
 import { PinInfoBubble } from '../../components/map/mapMarkers/MarkerContent';
 import { MAP_ICONS } from '../../constants/mapIcons';
@@ -60,6 +62,7 @@ export default function HomeScreen({ navigation }: any) {
   const { user } = useAuth();
   const { colors, isDark } = useTheme();
   const { t } = useTranslation();
+  const isFocused = useIsFocused();
 
   const preflightSummary = getPreflightResult();
   const initialRegion = preflightSummary?.region;
@@ -289,6 +292,8 @@ export default function HomeScreen({ navigation }: any) {
 
   const { rides: recurringRides } = useRecurringRides(user?.id);
   const [gpsCameraTarget, setGpsCameraTarget] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [placesCenter, setPlacesCenter] = useState(committedCoords);
+  const { visiblePlaces, updateViewport, resolveSnap } = useNearbyPlaces(placesCenter, isFocused && !isOutsideSupportedArea);
 
   // Recordatorio in-app: viaje programado a >30min pero el mismo día.
   const scheduledRideNotice = useMemo(() => {
@@ -313,6 +318,7 @@ export default function HomeScreen({ navigation }: any) {
 
   const {
     mapCenter,
+    selectedPlaceName,
     hasPendingManualSelection,
     isResolvingAddress,
     isSavingLocation,
@@ -337,6 +343,7 @@ export default function HomeScreen({ navigation }: any) {
     t,
     isOutsideSupportedArea,
     setGpsCameraTarget,
+    resolveSnap,
   );
 
   const homeControlsVisibility = useRef(new Animated.Value(1)).current;
@@ -581,6 +588,7 @@ export default function HomeScreen({ navigation }: any) {
         markerPosition={displayCoords}
         markerType="manual_origin"
         nearbyDrivers={availableDrivers}
+        nearbyPlaces={isOutsideSupportedArea ? [] : visiblePlaces}
         disableMarkerPress={isSavingLocation}
         scrollEnabled={!isSavingLocation}
         zoomEnabled={!isSavingLocation}
@@ -590,10 +598,16 @@ export default function HomeScreen({ navigation }: any) {
           handlePanDrag();
         }}
         cameraTarget={gpsCameraTarget}
-        onRegionChangeCenter={handleRegionChangeCenter}
-        onRegionChangeCompleteCenter={handleRegionChangeCompleteCenter}
+        onRegionChangeCenter={(center) => {
+          setPlacesCenter({ latitude: center.latitude, longitude: center.longitude });
+          handleRegionChangeCenter(center);
+        }}
+        onRegionChangeCompleteCenter={(center) => {
+          updateViewport(center);
+          handleRegionChangeCompleteCenter(center);
+        }}
         showPinBubbles
-        originLabel={t('client.home.map.yourLocation')}
+        originLabel={selectedPlaceName || t('client.home.map.yourLocation')}
         originBubbleCompact
         originBubbleDark={isDark}
         userLocationLightIcon={USER_LOCATION_LIGHT}
@@ -611,7 +625,7 @@ export default function HomeScreen({ navigation }: any) {
       {showCenterPinOverlay && (
         <View pointerEvents="none" style={styles.centerPinOverlay}>
           <View style={styles.centerPinBubble}>
-            <PinInfoBubble text={t('client.home.map.yourLocation')} compact isDark={isDark} />
+            <PinInfoBubble text={selectedPlaceName || t('client.home.map.yourLocation')} compact isDark={isDark} />
           </View>
           <Animated.Image
             source={markerHoldIcon}

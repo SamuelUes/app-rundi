@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"path"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -52,10 +51,7 @@ func eventID(prefix string, parts ...string) string {
 }
 
 func validPhotoPath(uid, objectPath string) bool {
-	prefix := "rides-documents/rides-inspection/designated-arrival/" + uid + "/"
-	return len(objectPath) <= 500 && strings.HasPrefix(objectPath, prefix) &&
-		path.Clean(objectPath) == objectPath && len(objectPath) > len(prefix) &&
-		!strings.Contains(strings.TrimPrefix(objectPath, prefix), "/")
+	return fs.ValidArrivalPhotoPath(uid, objectPath)
 }
 
 func readBody(w http.ResponseWriter, r *http.Request, body any) bool {

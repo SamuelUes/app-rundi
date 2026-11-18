@@ -39,6 +39,9 @@ function toSnakeInspection(i: Inspection) {
     vehicle_rear_photo: i.vehicleRearPhoto,
     interior_front_photo: i.interiorFrontPhoto,
     interior_rear_photo: i.interiorRearPhoto,
+    insurance_document_photo: i.insuranceDocumentPhoto,
+    registration_document_photo: i.registrationDocumentPhoto,
+    documents_confirmed: i.documentsConfirmed,
     status: i.status,
     inspected_at: i.inspectedAt,
   };
@@ -84,19 +87,16 @@ export const submitDesignatedDriverRideInspection = async (
     throw new Error(tr('errors.requiredEvidenceMissing'));
   }
 
-  // Gap v2: la tabla designated_driver_inspections solo tiene 4 columnas
-  // (vehicle_front/rear + interior_front/rear); los docs insurance_document /
-  // registration_document se envían como extras — el backend debe extender
-  // el schema (v1 tenía insurance_document_photo/registration_document_photo).
   const saved = await submitInspection({
     rideId,
     vehicleFrontPhoto: photos.front_driver_seat,
     vehicleRearPhoto: photos.rear_left_seat,
     interiorFrontPhoto: photos.front_passenger_seat,
     interiorRearPhoto: photos.rear_right_seat,
-    ...(photos.insurance_document ? { insuranceDocumentPhoto: photos.insurance_document } : {}),
-    ...(photos.registration_document ? { registrationDocumentPhoto: photos.registration_document } : {}),
-  } as Parameters<typeof submitInspection>[0]);
+    insuranceDocumentPhoto: photos.insurance_document,
+    registrationDocumentPhoto: photos.registration_document,
+    documentsConfirmed,
+  });
   return { id: saved.id };
 };
 

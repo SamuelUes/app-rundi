@@ -64,7 +64,7 @@ export function RideTrackingLocations({
           <View style={styles.routeIconCol}>
             <View style={[styles.routeLine, index === 0 && styles.routeLineHidden]} />
             {point.kind === 'dot' ? (
-              <View style={[styles.routeDot, { backgroundColor: point.color }]} />
+              <View style={[styles.routeDot, { borderWidth: 3, borderColor: point.color }]} />
             ) : (
               <MaterialIcons name="place" size={22} color={point.color} />
             )}

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useIsFocused } from '@react-navigation/native';
 import type { TFunction } from 'i18next';
 import type { VoiceAssistantCategory } from '../../../services/support/voiceAssistantService';
 import type { SpeechOptions } from 'expo-speech';
@@ -27,6 +28,7 @@ export function useDriverVoiceAnnouncements({
   speakVoice,
   stopVoiceCategory,
 }: UseDriverVoiceAnnouncementsParams) {
+  const isFocused = useIsFocused();
   const announcedRideIdsRef = useRef<Set<string>>(new Set());
   const lastPendingActionRef = useRef<string | null>(null);
   const lastAvailabilityAnnouncementRef = useRef<boolean | null>(null);
@@ -43,14 +45,14 @@ export function useDriverVoiceAnnouncements({
       return;
     }
 
-    if (!initialVoiceWelcomeRef.current) {
+    if (isFocused && !initialVoiceWelcomeRef.current) {
       initialVoiceWelcomeRef.current = true;
       speakVoice(t('driver.home.voice.ready'), 'status', undefined, true);
     }
-  }, [voiceSettings.enabled, speakVoice, stopVoiceCategory, t]);
+  }, [voiceSettings.enabled, isFocused, speakVoice, stopVoiceCategory, t]);
 
   useEffect(() => {
-    if (!voiceSettings.enabled) return;
+    if (!voiceSettings.enabled || !isFocused) return;
 
     if (lastAvailabilityAnnouncementRef.current === null) {
       lastAvailabilityAnnouncementRef.current = isAvailable;
@@ -67,10 +69,10 @@ export function useDriverVoiceAnnouncements({
         'status',
       );
     }
-  }, [isAvailable, voiceSettings.enabled, speakVoice, t]);
+  }, [isAvailable, voiceSettings.enabled, isFocused, speakVoice, t]);
 
   useEffect(() => {
-    if (!voiceSettings.enabled || !isAvailable || activeRide) return;
+    if (!voiceSettings.enabled || !isFocused || !isAvailable || activeRide) return;
 
     const currentIds = new Set(availableRideRequests.map((ride) => ride.id));
     announcedRideIdsRef.current.forEach((id) => {
@@ -95,10 +97,10 @@ export function useDriverVoiceAnnouncements({
       const phrase = t('driver.home.voice.nearbyRide', { distance: distanceText, price: roundedPrice });
       speakVoice(phrase, 'navigation');
     });
-  }, [availableRideRequests, voiceSettings.enabled, isAvailable, activeRide, speakVoice, coords?.latitude, coords?.longitude, t]);
+  }, [availableRideRequests, voiceSettings.enabled, isFocused, isAvailable, activeRide, speakVoice, coords?.latitude, coords?.longitude, t]);
 
   useEffect(() => {
-    if (!voiceSettings.enabled || !pendingAction) {
+    if (!voiceSettings.enabled || !isFocused || !pendingAction) {
       if (!pendingAction) lastPendingActionRef.current = null;
       return;
     }
@@ -107,10 +109,10 @@ export function useDriverVoiceAnnouncements({
     if (lastPendingActionRef.current === signature) return;
     lastPendingActionRef.current = signature;
     speakVoice(`${pendingAction.title}. ${pendingAction.subtitle}`, 'status');
-  }, [pendingAction, voiceSettings.enabled, speakVoice]);
+  }, [pendingAction, voiceSettings.enabled, isFocused, speakVoice]);
 
   useEffect(() => {
-    if (!voiceSettings.enabled || !activeRide) {
+    if (!voiceSettings.enabled || !isFocused || !activeRide) {
       if (!activeRide) lastActiveRideIdRef.current = null;
       return;
     }
@@ -125,5 +127,5 @@ export function useDriverVoiceAnnouncements({
       t('driver.home.voice.destinationFallback');
 
     speakVoice(t('driver.home.voice.activeRide', { client: clientName, destination: destinationText }), 'status');
-  }, [activeRide, voiceSettings.enabled, speakVoice, t]);
+  }, [activeRide, voiceSettings.enabled, isFocused, speakVoice, t]);
 }

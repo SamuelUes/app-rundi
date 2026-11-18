@@ -176,8 +176,8 @@ export function AvailableRidesItem({
   const chipTone = (tone: 'gold' | 'neutral' | 'feature') =>
     tone === 'gold'
       ? {
-          backgroundColor: isDark ? 'rgba(212,175,55,0.22)' : '#F6ECD4',
-          color: isDark ? '#FFD666' : '#5D4B00',
+          backgroundColor: isDark ? 'rgba(179,135,55,0.18)' : '#F5ECD9',
+          color: isDark ? '#E8C47F' : '#805C1F',
         }
       : tone === 'feature'
         ? {
@@ -288,55 +288,6 @@ export function AvailableRidesItem({
           <Text style={[styles.clientName, { color: colors.text }]} numberOfLines={1}>
             {name}
           </Text>
-          <View style={styles.metaChipsRow}>
-            {isDesignatedRide
-              ? renderChip('verified-user', t('driver.available.rideCard.designatedTag'), 'gold')
-              : null}
-            {featureLabels.map((label) =>
-              renderChip(
-                label === t('shared.searchRide.features.premium')
-                  ? 'stars'
-                  : label === t('shared.searchRide.features.senior')
-                    ? 'accessible'
-                    : label === t('shared.searchRide.features.petFriendly')
-                      ? 'pets'
-                      : 'nightlight',
-                label,
-                ['shared.searchRide.features.premium', 'shared.searchRide.features.senior', 'shared.searchRide.features.petFriendly']
-                  .some((key) => label === t(key))
-                  ? 'feature'
-                  : 'neutral',
-              ),
-            )}
-            {isScheduled && scheduledLabel
-              ? renderChip('schedule', scheduledLabel, 'gold')
-              : renderChip('near-me', proximityLabel, 'gold')}
-            {tripDistanceKm > 0
-              ? renderChip(
-                  'route',
-                  tripDurationMin > 0
-                    ? t('driver.available.rideCard.tripWithDuration', {
-                        distance: tripDistanceKm.toFixed(1),
-                        minutes: tripDurationMin,
-                      })
-                    : t('driver.available.rideCard.tripDistance', {
-                        distance: tripDistanceKm.toFixed(1),
-                      }),
-                )
-              : null}
-            {vehicleType
-              ? renderChip(vehicleType === 'moto' ? 'two-wheeler' : 'directions-car', t(`driver.available.rideCard.vehicle${vehicleType === 'moto' ? 'Moto' : 'Auto'}`))
-              : null}
-            {paymentMethod === 'cash'
-              ? renderChip('payments', t('driver.available.rideCard.paymentCash'))
-              : null}
-            {paymentMethod === 'card'
-              ? renderChip('credit-card', t('driver.available.rideCard.paymentCard'))
-              : null}
-            {stopsCount > 0
-              ? renderChip('alt-route', t('driver.available.rideCard.stops', { count: stopsCount }))
-              : null}
-          </View>
         </View>
 
         <View style={styles.priceColumn}>
@@ -344,6 +295,56 @@ export function AvailableRidesItem({
             {`C$${Number(price).toFixed(2)}`}
           </Text>
         </View>
+      </View>
+
+      <View style={styles.metaChipsRow}>
+        {isDesignatedRide
+          ? renderChip('verified-user', t('driver.available.rideCard.designatedTag'), 'gold')
+          : null}
+        {featureLabels.map((label) =>
+          renderChip(
+            label === t('shared.searchRide.features.premium')
+              ? 'stars'
+              : label === t('shared.searchRide.features.senior')
+                ? 'accessible'
+                : label === t('shared.searchRide.features.petFriendly')
+                  ? 'pets'
+                  : 'nightlight',
+            label,
+            ['shared.searchRide.features.premium', 'shared.searchRide.features.senior', 'shared.searchRide.features.petFriendly']
+              .some((key) => label === t(key))
+              ? 'feature'
+              : 'neutral',
+          ),
+        )}
+        {isScheduled && scheduledLabel
+          ? renderChip('schedule', scheduledLabel, 'gold')
+          : renderChip('near-me', proximityLabel, 'gold')}
+        {tripDistanceKm > 0
+          ? renderChip(
+              'route',
+              tripDurationMin > 0
+                ? t('driver.available.rideCard.tripWithDuration', {
+                    distance: tripDistanceKm.toFixed(1),
+                    minutes: tripDurationMin,
+                  })
+                : t('driver.available.rideCard.tripDistance', {
+                    distance: tripDistanceKm.toFixed(1),
+                  }),
+            )
+          : null}
+        {vehicleType
+          ? renderChip(vehicleType === 'moto' ? 'two-wheeler' : 'directions-car', t(`driver.available.rideCard.vehicle${vehicleType === 'moto' ? 'Moto' : 'Auto'}`))
+          : null}
+        {paymentMethod === 'cash'
+          ? renderChip('payments', t('driver.available.rideCard.paymentCash'))
+          : null}
+        {paymentMethod === 'card'
+          ? renderChip('credit-card', t('driver.available.rideCard.paymentCard'))
+          : null}
+        {stopsCount > 0
+          ? renderChip('alt-route', t('driver.available.rideCard.stops', { count: stopsCount }))
+          : null}
       </View>
 
       <View style={styles.routeBlock}>

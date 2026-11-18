@@ -29,6 +29,7 @@ import (
 	"github.com/rundi/functions-v2/internal/fs"
 	"github.com/rundi/functions-v2/internal/matching"
 	"github.com/rundi/functions-v2/internal/notifications"
+	"github.com/rundi/functions-v2/internal/outbox"
 	"github.com/rundi/functions-v2/internal/projections"
 )
 
@@ -411,19 +412,53 @@ func applyPendingEvent(ctx context.Context, pool *pgxpool.Pool, c *firestore.Cli
 		rideID, _ := payload["rideId"].(string)
 		uid, _ := payload["uid"].(string)
 		path, _ := payload["path"].(string)
-		if rideID == "" || uid == "" || path == "" {
+		if rideID == "" || !fs.ValidArrivalPhotoPath(uid, path) {
 			return "", fmt.Errorf("payload incompleto (rideId/uid/path)")
 		}
-		// El uid debe ser el driver o el follower del viaje (nunca un tercero).
-		tag, err := pool.Exec(ctx, `
-			UPDATE public.rides SET arrival_vehicle_photo = $2
-			WHERE id = $1::uuid AND (driver_id = $3 OR follower_driver_id = $3)`,
-			rideID, path, uid)
+		photo, err := c.Collection(fs.ColArrivalPhotos).Doc(uid).Get(ctx)
+		if status.Code(err) == codes.NotFound {
+			return "foto sustituida o eliminada", nil
+		}
 		if err != nil {
 			return "", err
 		}
-		if tag.RowsAffected() == 0 {
+		currentPath, _ := photo.Data()["path"].(string)
+		if currentPath != path {
+			return "foto sustituida", nil
+		}
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			return "", err
+		}
+		defer tx.Rollback(ctx)
+		var previous *string
+		var version int64
+		err = tx.QueryRow(ctx, `
+			SELECT arrival_vehicle_photo, version FROM public.rides
+			WHERE id = $1::uuid AND (driver_id = $2 OR follower_driver_id = $2)
+			FOR UPDATE`, rideID, uid).Scan(&previous, &version)
+		if errors.Is(err, pgx.ErrNoRows) {
 			return "", fmt.Errorf("uid %s no es participante del ride %s", uid, rideID)
+		}
+		if err != nil {
+			return "", err
+		}
+		if previous != nil && *previous == path {
+			return "arrival_vehicle_photo ya actualizado", nil
+		}
+		if err := tx.QueryRow(ctx, `
+			UPDATE public.rides SET arrival_vehicle_photo = $2, version = version + 1
+			WHERE id = $1::uuid RETURNING version`, rideID, path).Scan(&version); err != nil {
+			return "", err
+		}
+		if err := outbox.Insert(ctx, tx, outbox.Event{
+			Type: "ride.arrival_photo_updated", AggregateType: "ride", AggregateID: rideID,
+			Payload: map[string]any{"rideId": rideID, "version": version},
+		}); err != nil {
+			return "", err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return "", err
 		}
 		return "arrival_vehicle_photo actualizado", nil
 
@@ -483,14 +518,22 @@ func applyPendingEvent(ctx context.Context, pool *pgxpool.Pool, c *firestore.Cli
 		if !isPart {
 			return "", fmt.Errorf("uid %s no participa en chat %s", uid, chatID)
 		}
+		rideID, _ := snap.Data()["rideId"].(string)
+		complaintID, _ := snap.Data()["complaintId"].(string)
+		notificationType := notifications.ChatMessage
+		extra := map[string]string{"chatId": chatID, "senderId": uid}
+		if complaintID != "" {
+			notificationType = notifications.SupportChat
+			extra["complaintId"] = complaintID
+		}
 		for _, p := range parts {
 			to, _ := p.(string)
 			if to == "" || to == uid || notify == nil {
 				continue
 			}
-			if err := notify.Notify(ctx, to, "", notifications.ChatMessage, notifications.NotifyOpts{
+			if err := notify.Notify(ctx, to, rideID, notificationType, notifications.NotifyOpts{
 				Key:       "chat-" + chatID,
-				ExtraData: map[string]string{"type": "chat", "chatId": chatID},
+				ExtraData: extra,
 			}); err != nil {
 				return "", fmt.Errorf("notify chat participant: %w", err)
 			}

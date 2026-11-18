@@ -6,12 +6,15 @@ package chats
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"regexp"
 
 	"cloud.google.com/go/firestore"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/rundi/functions-v2/internal/apperr"
 	"github.com/rundi/functions-v2/internal/fs"
@@ -43,24 +46,80 @@ func (s *Service) resolveRideID(ctx context.Context, rideID string) (string, err
 	return id, err
 }
 
-// RideChat — crea/devuelve el chat del viaje. chatId = "ride-{rideId}".
-// Solo participantes (client_id/driver_id/follower_driver_id).
-func (s *Service) RideChat(ctx context.Context, uid, rideID string) (string, error) {
+// RideChat autoriza participantes asignados u ofertas activas. Cada oferta
+// tiene un chat privado para evitar compartir mensajes entre conductores.
+func (s *Service) RideChat(ctx context.Context, uid, rideID, otherUserID string) (string, error) {
 	rideID, err := s.resolveRideID(ctx, rideID)
 	if err != nil {
 		return "", err
 	}
-	var clientID string
+	var clientID, rideStatus string
 	var driverID, followerID *string
 	err = s.pool.QueryRow(ctx, `
-		SELECT client_id, driver_id, follower_driver_id
+		SELECT client_id, driver_id, follower_driver_id, status::text
 		FROM public.rides WHERE id = $1::uuid`, rideID).
-		Scan(&clientID, &driverID, &followerID)
+		Scan(&clientID, &driverID, &followerID, &rideStatus)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return "", apperr.New(404, "ride no encontrado")
 		}
 		return "", err
+	}
+	if driverID != nil && uid == clientID && otherUserID != "" &&
+		otherUserID != *driverID && (followerID == nil || otherUserID != *followerID) {
+		return "", apperr.New(403, "el destinatario no participa en el viaje")
+	}
+	// Pending offers have private client/driver conversations; never put
+	// competing drivers into the same ride chat.
+	candidate := ""
+	if driverID != nil && ((uid == clientID && (otherUserID == "" || otherUserID == *driverID)) ||
+		(uid == *driverID && (otherUserID == "" || otherUserID == clientID))) {
+		candidate = *driverID
+	} else if driverID == nil && (rideStatus == "requested" || rideStatus == "driver_offered") {
+		if uid == clientID {
+			candidate = otherUserID
+		} else if otherUserID == "" || otherUserID == clientID {
+			candidate = uid
+		}
+		if uid == clientID && candidate == clientID {
+			return "", apperr.New(403, "destinatario inválido")
+		}
+		if candidate != "" && candidate != clientID {
+			var offered bool
+			err = s.pool.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1 FROM public.ride_offers
+					WHERE ride_id = $1::uuid AND driver_id = $2 AND status = 'sent'
+					  AND (kind = 'counter_offer' OR expires_at > NOW())
+				)`, rideID, candidate).Scan(&offered)
+			if err != nil {
+				return "", err
+			}
+			if !offered {
+				return "", apperr.New(403, "no tienes una oferta activa para este viaje")
+			}
+		}
+	}
+	if candidate != "" && candidate != clientID {
+		hash := sha256.Sum256([]byte(candidate))
+		pairID := fmt.Sprintf("offer-%s-%x", rideID, hash[:])
+		ref := s.fs.Collection(fs.ColChats).Doc(pairID)
+		if driverID == nil {
+			_, err = ref.Set(ctx, map[string]any{
+				"participants": []string{clientID, candidate},
+				"rideId":       rideID, "type": "ride",
+			}, firestore.MergeAll)
+			return pairID, err
+		}
+		// Continue an existing offer conversation after assignment; otherwise
+		// retain the original ride chat and its history.
+		_, err = ref.Get(ctx)
+		if err == nil {
+			return pairID, nil
+		}
+		if status.Code(err) != codes.NotFound {
+			return "", err
+		}
 	}
 	participants := []string{clientID}
 	in := uid == clientID

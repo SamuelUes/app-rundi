@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import * as ImagePicker from 'expo-image-picker';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../../hooks/shared/theme/useTheme';
@@ -26,6 +27,11 @@ export function ArrivalVehiclePhotoModal({ visible, userId, currentPath, rideId,
   const [localUri, setLocalUri] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
+  const close = () => {
+    setLocalUri(null);
+    onCancel();
+  };
+
   const capture = async () => {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) return;
@@ -48,7 +54,8 @@ export function ArrivalVehiclePhotoModal({ visible, userId, currentPath, rideId,
       await designatedCrewService.uploadArrivalPhoto(userId, localUri, rideId);
       setLocalUri(null);
       onReady();
-    } catch {
+    } catch (error) {
+      console.warn('[ArrivalVehiclePhoto] Error guardando foto de llegada:', error);
       alertService.showErrorAlert(t('driver.crew.errors.generic'));
     } finally {
       setUploading(false);
@@ -56,10 +63,21 @@ export function ArrivalVehiclePhotoModal({ visible, userId, currentPath, rideId,
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={uploading ? undefined : onCancel}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={uploading ? undefined : close}>
       <View style={styles.overlay}>
         <View style={styles.sheet}>
-          <Text style={styles.title}>{t('driver.crew.arrivalPhoto.title')}</Text>
+          <View style={styles.header}>
+            <Text style={styles.title}>{t('driver.crew.arrivalPhoto.title')}</Text>
+            <Pressable
+              style={styles.closeButton}
+              onPress={close}
+              disabled={uploading}
+              accessibilityRole="button"
+              accessibilityLabel={t('common.actions.close')}
+            >
+              <MaterialIcons name="close" size={22} color={colors.text} />
+            </Pressable>
+          </View>
           <Text style={styles.subtitle}>{t('driver.crew.arrivalPhoto.subtitle')}</Text>
           <View style={styles.preview}>
             {localUri ? (
@@ -94,7 +112,9 @@ const createStyles = (colors: any, isDark: boolean) =>
   StyleSheet.create({
     overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: 20 },
     sheet: { borderRadius: 24, padding: 20, gap: 12, backgroundColor: colors.background },
-    title: { fontSize: 18, fontWeight: '700', color: colors.text },
+    header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    title: { flex: 1, fontSize: 18, fontWeight: '700', color: colors.text },
+    closeButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
     subtitle: { fontSize: 13, color: colors.textSecondary },
     preview: { height: 200, borderRadius: 16, overflow: 'hidden', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(28,25,23,0.05)' },
     image: { width: '100%', height: '100%' },

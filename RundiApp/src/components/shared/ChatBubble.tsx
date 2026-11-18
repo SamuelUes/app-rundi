@@ -115,7 +115,7 @@ const createStyles = (colors: any, isDark: boolean) =>
     },
     otherBubble: {
       backgroundColor: colors.card,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: colors.border,
     },
     otherBubbleTail: {

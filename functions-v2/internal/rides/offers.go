@@ -66,15 +66,27 @@ func (s *Service) ConfirmDriver(ctx context.Context, rideID, clientUID, driverUI
 	// 4. Idempotencia: ya asignado al mismo driver con estado estable.
 	var curDriver *string
 	var curStatus string
-	_ = s.pool.QueryRow(ctx,
-		`SELECT driver_id, status::text FROM public.rides WHERE id = $1::uuid`, rideID,
-	).Scan(&curDriver, &curStatus)
+	var rideType *string
+	err = s.pool.QueryRow(ctx,
+		`SELECT driver_id, status::text, ride_type::text FROM public.rides WHERE id = $1::uuid`, rideID,
+	).Scan(&curDriver, &curStatus, &rideType)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("confirm ride lookup: %w", err)
+	}
 	if curDriver != nil && *curDriver == driverUID {
 		switch RideStatus(curStatus) {
 		case StatusAccepted, StatusDriverOnRoute, StatusDriverArrived,
 			StatusInProgress, StatusPendingPayment, StatusCompleted:
 			r, err := s.getRide(ctx, rideID)
 			return r, err
+		}
+	}
+
+	var arrivalPhoto string
+	if rideType != nil && *rideType == "designated_driver" {
+		arrivalPhoto, err = fs.ReadFreshArrivalPhoto(ctx, s.fs, driverUID)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -102,6 +114,7 @@ func (s *Service) ConfirmDriver(ctx context.Context, rideID, clientUID, driverUI
 		    status = 'accepted',
 		    driver_offered_price = COALESCE($4, driver_offered_price),
 		    final_fare = COALESCE($4, driver_offered_price, client_suggested_price, estimated_price),
+		    arrival_vehicle_photo = CASE WHEN ride_type = 'designated_driver' THEN NULLIF($5, '') ELSE arrival_vehicle_photo END,
 		    accepted_at = NOW(),
 		    version = version + 1
 		WHERE id = $1
@@ -117,7 +130,7 @@ func (s *Service) ConfirmDriver(ctx context.Context, rideID, clientUID, driverUI
 		           AND public.vehicle_premium_eligible(v.registration_ocr_year, v.type, NOW())
 		       ))
 		RETURNING `+rideCols,
-		rideID, clientUID, driverUID, offerPrice,
+		rideID, clientUID, driverUID, offerPrice, arrivalPhoto,
 	))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.New(409, "ride not confirmable (not yours, assigned, or wrong status)")

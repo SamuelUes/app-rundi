@@ -7,7 +7,6 @@ import {
   TextInput,
   TouchableOpacity,
   KeyboardAvoidingView,
-  Keyboard,
   Platform,
   Linking,
   Alert,
@@ -94,7 +93,8 @@ export default function ChatScreen({ route }: any) {
   const isFocused = useIsFocused();
   const {
     connected,
-    otherUserOnline,
+    connectionError,
+    retryConnection,
     messages,
     hasMore,
     loadingOlder,
@@ -104,7 +104,7 @@ export default function ChatScreen({ route }: any) {
     sendMessage,
     sendTypingIndicator,
     stopTypingIndicator,
-  } = useChat(rideId, user!.id, user!.name, isFocused);
+  } = useChat(rideId, user!.id, user!.name, isFocused, otherUserId);
   const { activeCall: rideCall, resolvedUid: callResolvedUid } = useRideCalls(rideId, otherUserId);
   const { t, i18n } = useTranslation();
 
@@ -256,18 +256,25 @@ export default function ChatScreen({ route }: any) {
     [sendScale]
   );
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const text = inputText.trim();
     if (!text) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    sendMessage(text, otherUserId);
     setInputText('');
+    try {
+      await sendMessage(text, otherUserId);
+    } catch {
+      setInputText((current) => current ? `${text} ${current}` : text);
+      Alert.alert(t('shared.chat.alerts.errorTitle', 'Error'), t('shared.chat.alerts.sendError', 'No se pudo enviar el mensaje. Inténtalo de nuevo.'));
+    }
     isNearBottomRef.current = true;
   };
 
   const handleQuickMessage = (message: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    sendMessage(message, otherUserId);
+    sendMessage(message, otherUserId).catch(() => {
+      Alert.alert(t('shared.chat.alerts.errorTitle', 'Error'), t('shared.chat.alerts.sendError', 'No se pudo enviar el mensaje. Inténtalo de nuevo.'));
+    });
     isNearBottomRef.current = true;
   };
 
@@ -345,11 +352,13 @@ export default function ChatScreen({ route }: any) {
       .join('');
   }, [otherUserName]);
 
-  const isOnline = connected && otherUserOnline;
-  const statusText = !connected
+  const isOnline = connected;
+  const statusText = connectionError
+    ? t('shared.chat.status.connectionError')
+    : !connected
     ? statusLabels.connecting || statusLabels.offline
     : isOnline
-      ? statusLabels.online
+      ? statusLabels.connected
       : statusLabels.offline;
   const statusColor = !connected
     ? colors.warning
@@ -419,6 +428,12 @@ export default function ChatScreen({ route }: any) {
           <MaterialIcons name="call" size={20} color={colors.primary} />
         </TouchableOpacity>
       </View>
+
+      {connectionError && (
+        <TouchableOpacity onPress={retryConnection} style={styles.loadOlderButton} accessibilityRole="button">
+          <Text style={styles.loadOlderText}>{t('shared.chat.status.retry')}</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Banner de llamada del viaje: entrante o en curso */}
       {(incomingRideCall || ongoingRideCall) && (
@@ -507,7 +522,6 @@ export default function ChatScreen({ route }: any) {
               scrollToEnd(true);
             }
           }}
-          onScrollBeginDrag={() => Keyboard.dismiss()}
           keyboardShouldPersistTaps="handled"
         />
 
@@ -813,7 +827,7 @@ const createStyles = (
       paddingHorizontal: 14,
       paddingVertical: 8,
       borderRadius: 999,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: colors.border,
     },
     quickMessageText: {
@@ -838,7 +852,7 @@ const createStyles = (
       flexDirection: 'row',
       alignItems: 'flex-end',
       backgroundColor: colors.surface,
-      borderWidth: 1,
+      borderWidth: 0.1,
       borderColor: colors.border,
       borderRadius: 24,
       paddingLeft: 16,
@@ -848,11 +862,6 @@ const createStyles = (
     },
     inputPillFocused: {
       borderColor: colors.primary,
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.22,
-      shadowRadius: 8,
-      elevation: 3,
     },
     input: {
       flex: 1,

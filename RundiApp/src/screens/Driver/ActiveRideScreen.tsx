@@ -9,6 +9,8 @@ import {
   ScrollView,
   Animated,
   AppState,
+  Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -45,6 +47,7 @@ import { ActiveRideAddressesCard } from '../../components/driver/ActiveRide/Acti
 import { ActiveRideCTAButtons } from '../../components/driver/ActiveRide/ActiveRideCTAButtons';
 import { DesignatedDriverEvidenceModal } from '../../components/driver/ActiveRide/DesignatedDriverEvidenceModal';
 import { RideVerificationCodeModal } from '../../components/driver/ActiveRide/RideVerificationCodeModal';
+import inspectionsService from '../../services/driver/inspectionsService';
 
 interface RouteParams {
   rideId: string;
@@ -56,6 +59,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const { colors } = useTheme();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const styles = useMemo(() => createStyles(colors, insets), [colors, insets]);
   const { user } = useAuth();
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
@@ -82,12 +86,15 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     isCompleted,
     isCanceled,
     isPendingPayment,
+    refreshStatus,
   } = useRideData(rideId, t('driver.activeRide.alerts.rideNotFound'));
   const [updating, setUpdating] = useState(false);
   const [showDesignatedEvidenceModal, setShowDesignatedEvidenceModal] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [verificationError, setVerificationError] = useState<string | null>(null);
   const [inspectionCompletedLocally, setInspectionCompletedLocally] = useState(false);
+  const pendingVerificationRef = useRef(false);
+  const verificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDesignatedRide = String(ride?.rideType ?? ride?.ride_type ?? '').toLowerCase() === 'designated_driver';
   const hasDesignatedEvidence = inspectionCompletedLocally || (
     ride?.vehicleInspection?.completed === true && ride?.vehicleInspection?.documentsConfirmed === true
@@ -99,7 +106,6 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
   const [voicePaused, setVoicePaused] = useState(false);
   const [progressNow, setProgressNow] = useState(() => Date.now());
-  const lastStatusSpokenRef = useRef<string | null>(null);
   const lastRideAnnouncedRef = useRef<string | null>(null);
   const handledCancellationRef = useRef(false);
   const lastMessageIdSpokenRef = useRef<string | null>(null);
@@ -117,8 +123,14 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   }, []);
 
   useEffect(() => {
+    pendingVerificationRef.current = false;
+    if (verificationTimerRef.current) clearTimeout(verificationTimerRef.current);
     setInspectionCompletedLocally(false);
     setShowDesignatedEvidenceModal(false);
+    return () => {
+      pendingVerificationRef.current = false;
+      if (verificationTimerRef.current) clearTimeout(verificationTimerRef.current);
+    };
   }, [rideId]);
 
   const formatCurrency = useCallback(
@@ -154,10 +166,11 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   }, [resolvedClientName, t]);
 
   // Bottom sheet state
-  const { isPanelExpanded: panelExpanded, togglePanel, panelHeight } = useCollapsiblePanel({
+  const minPanelHeight = 320 + Math.max(0, insets.bottom - 12);
+  const { isPanelExpanded: panelExpanded, togglePanel, panelHeight, panHandlers } = useCollapsiblePanel({
     initialExpanded: true,
-    minHeight: 280,
-    maxHeight: 540,
+    minHeight: minPanelHeight,
+    maxHeight: Math.max(minPanelHeight, Math.min(540, windowHeight - insets.top - 12)),
     useAnimatedHeight: true,
   });
 
@@ -169,22 +182,6 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       }),
     [t],
   );
-
-  // Marcar 'driver_on_route' (Ir en camino)
-  const handleGoOnRoute = async () => {
-    try {
-      setUpdating(true);
-      await ridesService.markDriverOnRoute(rideId);
-    } catch (error: any) {
-      // Sin fallback de escritura directa: el estado del viaje es propiedad del
-      // backend (callable). Si falla, mostramos el error.
-      alertService.showErrorAlert(
-        error?.message || t('driver.activeRide.alerts.goOnRouteError'),
-      );
-    } finally {
-      setUpdating(false);
-    }
-  };
 
   useEffect(() => {
     if (!isInProgress) {
@@ -452,7 +449,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
         typeof totalKm === 'number' && Number.isFinite(totalKm)
           ? t('driver.activeRide.voice.totalDistance', { distance: totalKm.toFixed(1) })
           : null;
-      const signature = `${rideId}|${netPrice}|${distanceSpeech ?? 'na'}`;
+      const signature = rideId;
 
       if (!force && lastRideAnnouncedRef.current === signature) {
         return;
@@ -483,7 +480,6 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     if (!voiceSettings.enabled || !ride) {
       if (!voiceSettings.enabled) {
         lastRideAnnouncedRef.current = null;
-        lastStatusSpokenRef.current = null;
       }
       return;
     }
@@ -498,7 +494,6 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const handleVoiceToggle = useCallback(() => {
     if (voicePaused) {
       setVoicePaused(false);
-      lastStatusSpokenRef.current = null;
       announceRideSummary(true);
       return;
     }
@@ -507,50 +502,6 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     stopVoiceCategory('navigation');
     stopVoiceCategory('status');
   }, [voicePaused, stopVoiceCategory, announceRideSummary]);
-
-  useEffect(() => {
-    if (!voiceSettings.enabled || !ride) {
-      if (!voiceSettings.enabled) {
-        lastStatusSpokenRef.current = null;
-      }
-      return;
-    }
-
-    if (voicePaused) return;
-
-    const currentStatus = normalizedStatus;
-    if (!currentStatus || lastStatusSpokenRef.current === currentStatus) return;
-
-    lastStatusSpokenRef.current = currentStatus;
-
-    const originSpeech =
-      getAddressForSpeech(ride.origin) || t('driver.activeRide.voice.originFallback');
-    const destinationSpeech =
-      getAddressForSpeech(ride.destination) ||
-      t('driver.activeRide.voice.destinationFallback');
-    const netPrice = Math.round(Number(ride?.finalFare || ride?.estimatedPrice || 0));
-    const totalKm = computeTotalDistanceKm(ride);
-    const distanceSpeech =
-      typeof totalKm === 'number' && Number.isFinite(totalKm)
-        ? t('driver.activeRide.voice.totalDistance', { distance: totalKm.toFixed(1) })
-        : null;
-
-    const parts: string[] = [];
-    parts.push(t('driver.activeRide.voice.origin', { origin: originSpeech }));
-    parts.push(t('driver.activeRide.voice.destination', { destination: destinationSpeech }));
-    parts.push(t('driver.activeRide.voice.netFare', { amount: netPrice }));
-    if (distanceSpeech) parts.push(distanceSpeech);
-    speakVoice(`${parts.join('. ')}.`, 'status');
-  }, [
-    voiceSettings.enabled,
-    ride,
-    normalizedStatus,
-    voicePaused,
-    speakVoice,
-    getAddressForSpeech,
-    computeTotalDistanceKm,
-    t,
-  ]);
 
   useEffect(() => {
     if (!messages || messages.length === 0) {
@@ -771,9 +722,28 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const handleMarkDriverArrived = async () => {
     try {
       setUpdating(true);
+      if (isAccepted) {
+        try {
+          await ridesService.markDriverOnRoute(rideId);
+        } catch (error: any) {
+          if (error?.response?.status !== 409) throw error;
+          const status = await refreshStatus();
+          if (['driver_arrived', 'in_progress', 'pending_payment', 'completed'].includes(status)) return;
+          if (status !== 'driver_on_route') throw error;
+        }
+      }
       await ridesService.markDriverArrived(rideId);
+      await refreshStatus().catch(() => {});
     } catch (error: any) {
-      alertService.showErrorAlert(error?.message || t('driver.activeRide.alerts.arriveError'));
+      if (error?.response?.status === 409) {
+        try {
+          const status = await refreshStatus();
+          if (['driver_arrived', 'in_progress', 'pending_payment', 'completed'].includes(status)) return;
+        } catch {
+          // Keep the original error if the authoritative status is unavailable.
+        }
+      }
+      alertService.showErrorAlert(t('driver.activeRide.alerts.arriveError'));
     } finally {
       setUpdating(false);
     }
@@ -781,8 +751,26 @@ export default function ActiveRideScreen({ route, navigation }: any) {
 
   const handleStartRide = async () => {
     if (isDesignatedRide && !hasDesignatedEvidence) {
-      setShowDesignatedEvidenceModal(true);
-      return;
+      try {
+        setUpdating(true);
+        const inspection = await inspectionsService.getInspectionByRideId(rideId);
+        const complete = inspection?.driver_id === user?.id &&
+          inspection?.documents_confirmed === true &&
+          !!inspection?.insurance_document_photo && !!inspection?.registration_document_photo &&
+          !!inspection?.vehicle_front_photo && !!inspection?.vehicle_rear_photo &&
+          !!inspection?.interior_front_photo && !!inspection?.interior_rear_photo;
+        if (!complete) {
+          setShowDesignatedEvidenceModal(true);
+          return;
+        }
+        setInspectionCompletedLocally(true);
+      } catch (error: any) {
+        console.warn('[designated evidence] inspection lookup failed', { status: error?.response?.status, message: error?.message });
+        alertService.showErrorAlert(t('driver.activeRide.evidence.lookupError'));
+        return;
+      } finally {
+        setUpdating(false);
+      }
     }
 
     setVerificationError(null);
@@ -904,22 +892,14 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       !isCompleted &&
       !isCanceled;
 
-    let key = 'goOnRoute';
+    let key = 'markArrived';
     let icon: 'near-me' | 'flag' | 'check-circle' = 'near-me';
-    let onPress: () => void | Promise<void> = handleGoOnRoute;
+    let onPress: () => void | Promise<void> = handleMarkDriverArrived;
     if (isInProgress) {
       key = 'completeRide';
       icon = 'check-circle';
       onPress = handleCompleteRide;
-    } else if (isDriverOnRoute) {
-      key = 'markArrived';
-      icon = 'flag';
-      onPress = handleMarkDriverArrived;
-    } else if (isDesignatedRide && isDriverArrived && !hasDesignatedEvidence) {
-      key = 'completeEvidence';
-      icon = 'flag';
-      onPress = () => setShowDesignatedEvidenceModal(true);
-    } else if (isDriverOnRoute || isDriverArrived) {
+    } else if (isDriverArrived) {
       key = 'startRide';
       icon = 'flag';
       onPress = handleStartRide;
@@ -1009,6 +989,13 @@ export default function ActiveRideScreen({ route, navigation }: any) {
           <DynamicMap
             latitude={coords.latitude}
             longitude={coords.longitude}
+            allowRouteZoomOut
+            fitEdgePadding={{
+              top: 100,
+              left: 60,
+              right: 60,
+              bottom: Math.min(windowHeight - 180, (panelExpanded ? Math.max(minPanelHeight, Math.min(540, windowHeight - insets.top - 12)) : minPanelHeight) + 16),
+            }}
             showMarker={true}
             markerPosition={{ latitude: coords.latitude, longitude: coords.longitude }}
             markerType="car"
@@ -1060,15 +1047,18 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       {/* Bottom Sheet Colapsable */}
       <Animated.View style={[styles.bottomSheet, { height: panelHeight }]}>
         {/* Grabber */}
-        <TouchableOpacity
-          style={styles.grabber}
-          onPress={togglePanel}
-          activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel={t('driver.activeRide.accessibility.togglePanel')}
-        >
-          <View style={styles.grabberBar} />
-        </TouchableOpacity>
+        <View {...panHandlers}>
+          <TouchableOpacity
+            style={styles.grabber}
+            onPress={togglePanel}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: panelExpanded }}
+            accessibilityLabel={t('driver.activeRide.accessibility.togglePanel')}
+          >
+            <View style={styles.grabberBar} />
+          </TouchableOpacity>
+        </View>
 
         {/* Header Compacto */}
         <ActiveRideSheetHeader
@@ -1109,14 +1099,14 @@ export default function ActiveRideScreen({ route, navigation }: any) {
             />
 
             {/* Progreso */}
-            <View style={styles.progressIndicator}>
+            {/* <View style={styles.progressIndicator}>
               <RideProgressIndicator
                 progress={dynamicProgress}
                 role="driver"
                 rideStatus={ride.status}
                 paymentMethod={paymentMethod as 'cash' | 'card'}
               />
-            </View>
+            </View> */}
 
             {/* CTA Dinámico */}
             <ActiveRideCTAButtons
@@ -1168,8 +1158,29 @@ export default function ActiveRideScreen({ route, navigation }: any) {
         visible={showDesignatedEvidenceModal}
         rideId={rideId}
         driverId={user?.id || ''}
-        onClose={() => setShowDesignatedEvidenceModal(false)}
-        onCompleted={() => setInspectionCompletedLocally(true)}
+        onClose={() => {
+          setShowDesignatedEvidenceModal(false);
+          if (Platform.OS !== 'ios' && pendingVerificationRef.current) {
+            verificationTimerRef.current = setTimeout(() => {
+              if (pendingVerificationRef.current) {
+                pendingVerificationRef.current = false;
+                setVerificationError(null);
+                setShowVerificationModal(true);
+              }
+            }, 350);
+          }
+        }}
+        onDismiss={() => {
+          if (pendingVerificationRef.current) {
+            pendingVerificationRef.current = false;
+            setVerificationError(null);
+            setShowVerificationModal(true);
+          }
+        }}
+        onCompleted={() => {
+          setInspectionCompletedLocally(true);
+          pendingVerificationRef.current = true;
+        }}
         onCancelRide={handleCancelRide}
       />
 
@@ -1217,7 +1228,7 @@ const createStyles = (colors: any, insets: { top: number; bottom: number }) => S
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingBottom: Math.max(12, insets.bottom),
     elevation: 12,
     shadowColor: '#000',
     shadowOpacity: 0.18,
@@ -1226,6 +1237,8 @@ const createStyles = (colors: any, insets: { top: number; bottom: number }) => S
   },
   grabber: {
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
     paddingVertical: 10,
   },
   grabberBar: {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { getFirebaseFirestore } from '../../../config/firebase';
 import { FS_COL } from '../../../constants/firestore';
@@ -21,9 +21,11 @@ export interface RideDataState {
   isCanceled: boolean;
   isPendingPayment: boolean;
   isTerminal: boolean;
+  refreshStatus: () => Promise<string>;
 }
 
 const TERMINAL_STATUSES = new Set(['completed', 'canceled', 'cancelled', 'rating_completed']);
+const STATUS_ORDER = ['accepted', 'driver_on_route', 'driver_arrived', 'in_progress', 'pending_payment', 'completed', 'rating_completed', 'rating_skipped'];
 
 const VOLATILE_KEYS = new Set([
   'driverLocation',
@@ -83,6 +85,16 @@ export function useRideData(rideId: string, notFoundMessage: string): RideDataSt
   const lastStatusRef = useRef<string>('');
   const lastSignatureRef = useRef<string>('');
   const staticFieldsRef = useRef<Record<string, any>>({});
+  const authoritativeStatusRef = useRef<string | null>(null);
+
+  const refreshStatus = useCallback(async () => {
+    const detail = await getRideDetail(rideId);
+    const status = detail.status.toLowerCase();
+    authoritativeStatusRef.current = status;
+    lastStatusRef.current = status;
+    setRide((previous: any) => previous ? { ...previous, status } : previous);
+    return status;
+  }, [rideId]);
 
   useEffect(() => {
     setLoading(true);
@@ -90,6 +102,7 @@ export function useRideData(rideId: string, notFoundMessage: string): RideDataSt
     lastStatusRef.current = '';
     lastSignatureRef.current = '';
     staticFieldsRef.current = {};
+    authoritativeStatusRef.current = null;
 
     let isMounted = true;
     let unsubscribe: (() => void) | null = null;
@@ -108,10 +121,20 @@ export function useRideData(rideId: string, notFoundMessage: string): RideDataSt
             const live = snap.exists() ? snap.data() : null;
 
             if (live) {
+              let liveStatus = (live.status ?? '').toString().trim().toLowerCase();
+              const authoritative = authoritativeStatusRef.current;
+              if (authoritative && liveStatus !== authoritative && !TERMINAL_STATUSES.has(liveStatus)) {
+                const currentIndex = STATUS_ORDER.indexOf(liveStatus);
+                const authoritativeIndex = STATUS_ORDER.indexOf(authoritative);
+                if (authoritativeIndex >= 0 && currentIndex < authoritativeIndex) liveStatus = authoritative;
+                else authoritativeStatusRef.current = null;
+              } else if (authoritative) {
+                authoritativeStatusRef.current = null;
+              }
               const data = {
                 ...staticFieldsRef.current,
                 ...live,
-                status: live.status,
+                status: liveStatus,
                 // Origen vivo (GeoPoint o mapa) tiene prioridad sobre REST
                 ...(live.origin && {
                   origin: {
@@ -121,7 +144,7 @@ export function useRideData(rideId: string, notFoundMessage: string): RideDataSt
                   },
                 }),
               };
-              lastStatusRef.current = (live.status ?? '').toString().trim().toLowerCase();
+              lastStatusRef.current = liveStatus;
               const signature = rideSignature(data);
               if (signature !== lastSignatureRef.current) {
                 lastSignatureRef.current = signature;
@@ -215,5 +238,6 @@ export function useRideData(rideId: string, notFoundMessage: string): RideDataSt
     isCanceled: normalizedStatus === 'canceled' || normalizedStatus === 'cancelled',
     isPendingPayment: normalizedStatus === 'pending_payment',
     isTerminal: TERMINAL_STATUSES.has(normalizedStatus),
+    refreshStatus,
   };
 }
