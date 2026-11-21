@@ -188,7 +188,6 @@ export default {
       {
         ios: {
           useFrameworks: 'static',
-          enableSceneSupport: true,
           // Xcode 27 trae Swift 6.4 y los XCFrameworks precompilados de Expo/RN
           // se generaron con Swift 6.3.1 -> compilar todo desde fuente.
           buildReactNativeFromSource: true,

@@ -5,6 +5,8 @@ import { getMyRides } from '../../api/rides';
 import { getMyProgrammedRides } from '../../api/programmed';
 import { getPendingPayments } from '../../api/payments';
 import { getMyDriverProfile, getMyVehicles } from '../../api/drivers';
+import { getPendingRating } from '../../api/ratings';
+import { getProjectedPendingRating } from '../../live/pendingRating';
 import { requireFirebaseAuthUser, waitForFirebaseAuthUser } from '../../utils/firebase/firebaseAuthReady';
 
 jest.mock('../../api/platform', () => ({ getPreflightData: jest.fn(), getRegionAvailability: jest.fn(), acceptPreflightTerms: jest.fn() }));
@@ -12,6 +14,8 @@ jest.mock('../../api/rides', () => ({ getMyRides: jest.fn() }));
 jest.mock('../../api/programmed', () => ({ getMyProgrammedRides: jest.fn() }));
 jest.mock('../../api/payments', () => ({ getPendingPayments: jest.fn() }));
 jest.mock('../../api/drivers', () => ({ getMyDriverProfile: jest.fn(), getMyVehicles: jest.fn() }));
+jest.mock('../../api/ratings', () => ({ getPendingRating: jest.fn() }));
+jest.mock('../../live/pendingRating', () => ({ getProjectedPendingRating: jest.fn() }));
 jest.mock('../../utils/firebase/firebaseAuthReady', () => ({
   waitForFirebaseAuthUser: jest.fn(),
   requireFirebaseAuthUser: jest.fn(),
@@ -28,6 +32,8 @@ const profile = jest.mocked(getMyDriverProfile);
 const vehicles = jest.mocked(getMyVehicles);
 const waitUser = jest.mocked(waitForFirebaseAuthUser);
 const currentUser = jest.mocked(requireFirebaseAuthUser);
+const pendingRating = jest.mocked(getPendingRating);
+const projectedRating = jest.mocked(getProjectedPendingRating);
 const user = { uid: 'u1' } as any;
 const payload = { role: 'client' as const, userId: 'u1' };
 
@@ -43,6 +49,8 @@ beforeEach(() => {
   profile.mockResolvedValue({ accountStatus: 'active', documentsStatus: 'verified', rechargeBalance: 10 } as any);
   vehicles.mockResolvedValue([]);
   region.mockResolvedValue({ available: true, areaId: 'real-area' });
+  pendingRating.mockResolvedValue(null);
+  projectedRating.mockResolvedValue(null);
 });
 
 describe('preflight data', () => {

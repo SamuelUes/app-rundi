@@ -6,11 +6,11 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,
   default: { getItem: jest.fn(), setItem: jest.fn() },
 }));
-jest.mock('../../../services/map/mapsService', () => ({
+jest.mock('../../services/map/mapsService', () => ({
   __esModule: true,
   default: { reverseGeocode: jest.fn() },
 }));
-jest.mock('../../../services/notification/alertService', () => ({
+jest.mock('../../services/notification/alertService', () => ({
   __esModule: true,
   default: { showErrorAlert: jest.fn() },
 }));

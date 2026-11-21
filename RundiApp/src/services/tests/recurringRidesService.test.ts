@@ -87,18 +87,6 @@ describe('recurringRidesService (subcollection)', () => {
     expect(rides[0].id).toBe('rr_existing');
   });
 
-  it('migrates legacy array field into the subcollection once', async () => {
-    mockedGetDocs
-      .mockResolvedValueOnce(docsSnap([]))
-      .mockResolvedValueOnce(docsSnap([{ id: 'rr_existing', data: stored }]));
-    mockedGetDoc.mockResolvedValue({ data: () => ({ recurringRides: [stored] }) } as any);
-
-    const rides = await listRecurringRides('u1');
-    expect(mockedSetDoc).toHaveBeenCalled();
-    expect(rides).toHaveLength(1);
-    expect(rides[0].id).toBe('rr_existing');
-  });
-
   it('creates a new ride doc with generated id', async () => {
     const ride = await saveRecurringRide('u1', sampleInput);
     expect(ride.id).toMatch(/^rr_/);

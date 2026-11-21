@@ -71,6 +71,7 @@
     "expo-local-authentication": "~58.0.3",
     "expo-localization": "~58.0.5",
     "expo-location": "~58.0.22",
+    "expo-modules-core": "~58.1.0",
     "expo-navigation-bar": "~58.0.4",
     "expo-notifications": "~58.1.9",
     "expo-secure-store": "~58.0.3",
@@ -115,9 +116,17 @@
     "jest-expo": "~58.0.15",
     "react-native-dotenv": "^3.4.11",
     "react-native-svg-transformer": "^1.5.3",
+    "react-test-renderer": "^19.3.0",
     "typescript": "~6.0.3"
   },
   "jest": {
-    "preset": "jest-expo"
+    "preset": "jest-expo",
+    "moduleNameMapper": {
+      "^@react-native-async-storage/async-storage$": "<rootDir>/node_modules/@react-native-async-storage/async-storage/jest/async-storage-mock.js"
+    },
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "\\.test\\.(cjs|mjs)$"
+    ]
   }
 }
