@@ -11,9 +11,7 @@ import {
   StyleSheet,
   Animated,
   Easing,
-  Platform,
-  ViewStyle,
-  TextStyle
+  Platform
 } from 'react-native';
 import { LoadingIcon } from '../ui/LoadingIcon';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
@@ -100,17 +98,7 @@ const LoadingOverlay = ({
   );
 };
 
-interface Styles {
-  overlay: ViewStyle;
-  container: ViewStyle;
-  spinner: ViewStyle;
-  message: TextStyle;
-  progressContainer: ViewStyle;
-  progressBar: ViewStyle;
-  progressText: TextStyle;
-}
-
-const styles = StyleSheet.create<Styles>({
+const styles = StyleSheet.create({
   overlay: {
     position: 'absolute',
     top: 0,

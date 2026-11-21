@@ -186,7 +186,7 @@ export default function RecurringRidesScreen({ navigation }: any) {
         renderItem={renderItem}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
-          loading ? null : (
+          loading ? undefined : (
             <View style={styles.emptyWrap}>
               <View style={styles.emptyIconDisc}>
                 <RRIcon id="repeat" size={30} color={accent} />

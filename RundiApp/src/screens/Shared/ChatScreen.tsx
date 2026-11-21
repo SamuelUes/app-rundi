@@ -491,7 +491,7 @@ export default function ChatScreen({ route }: any) {
                 )}
                 <Text style={styles.loadOlderText}>{t('shared.chat.loadOlder')}</Text>
               </TouchableOpacity>
-            ) : null
+            ) : undefined
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
@@ -513,7 +513,7 @@ export default function ChatScreen({ route }: any) {
                   <TypingDots dotColor={colors.textSecondary} />
                 </View>
               </View>
-            ) : null
+            ) : undefined
           }
           onScroll={handleScroll}
           scrollEventThrottle={80}

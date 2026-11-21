@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   TextInput,
+  TextInputInstance,
 } from 'react-native';
 
 import { useTheme } from '../../hooks/shared/theme/useTheme';
@@ -27,7 +28,7 @@ const OtpCodeInput: React.FC<OtpCodeInputProps> = ({
 }) => {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const hiddenInputRef = useRef<TextInput>(null);
+  const hiddenInputRef = useRef<TextInputInstance>(null);
   const [isFocused, setIsFocused] = useState(false);
 
   const safeValue = value.replace(/[^0-9]/g, '').slice(0, length);

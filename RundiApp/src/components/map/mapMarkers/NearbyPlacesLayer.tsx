@@ -10,6 +10,15 @@ const STATE_DURATION_MS = 320;
 const STATE_EASING = Easing.out(Easing.cubic);
 const MARKER_ANCHOR_Y = 40 / 48;
 
+// react-native-maps tipa Marker.Animated como AnimatedComponent<typeof MapMarker>
+// — con la Strict TS API de RN 0.88 esa firma espera las props (no el componente)
+// y pierde `children`/`opacity` animable.
+const AnimatedMarker = Marker.Animated as unknown as React.ComponentType<
+  Omit<React.ComponentProps<typeof Marker>, 'opacity'> & {
+    opacity?: number | Animated.Value;
+  }
+>;
+
 type PlaceEntry = { place: NearbyPlace; visible: boolean };
 type PlaceMode = 'default' | 'candidate' | 'selected';
 
@@ -99,7 +108,7 @@ function PlaceMarker({
   const modeChanged = previousMode.current !== mode;
 
   return (
-    <Marker.Animated
+    <AnimatedMarker
       coordinate={entry.place}
       anchor={{ x: 0.5, y: MARKER_ANCHOR_Y }}
       tappable={false}
@@ -140,7 +149,7 @@ function PlaceMarker({
           onLoad={notifyContentRendered}
         />
       </View>
-    </Marker.Animated>
+    </AnimatedMarker>
   );
 }
 

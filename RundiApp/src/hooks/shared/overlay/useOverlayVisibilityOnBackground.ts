@@ -20,7 +20,7 @@ import proximityService, {
  * - Arrastrar la burbuja por la pantalla para posicionarla
  */
 export function useOverlayVisibilityOnBackground(enabled: boolean) {
-  const appState = useRef<AppStateStatus>(AppState.currentState);
+  const appState = useRef<AppStateStatus>((AppState.currentState as AppStateStatus | undefined) ?? 'active');
   const isProcessingRef = useRef(false);
   const uploadsGateRef = useRef(false);
   const activeStabilizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);

@@ -20,7 +20,7 @@ export default function useDriverProximityTracking() {
     }
 
     let cancelled = false;
-    let currentAppState: AppStateStatus = AppState.currentState;
+    let currentAppState: AppStateStatus = (AppState.currentState as AppStateStatus | undefined) ?? 'active';
 
     const start = async () => {
       try {

@@ -18,7 +18,7 @@ import { writePresence } from '../../../live/driverLive';
  */
 export function usePresence() {
   const { user, userMode, logout } = useAuth();
-  const appState = useRef(AppState.currentState);
+  const appState = useRef<AppStateStatus>((AppState.currentState as AppStateStatus | undefined) ?? 'active');
   const sessionHeartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sessionConflictUidRef = useRef<string | null>(null);
   const initializedPresenceUidRef = useRef<string | null>(null);

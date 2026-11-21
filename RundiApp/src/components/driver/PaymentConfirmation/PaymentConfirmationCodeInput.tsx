@@ -1,8 +1,8 @@
 import React, { useRef } from 'react';
 import { View, Text, TextInput } from 'react-native';
 import {
-  NativeSyntheticEvent,
-  TextInputKeyPressEventData,
+  TextInputInstance,
+  TextInputKeyPressEvent,
 } from 'react-native';
 import { AnimatedButton } from '../../ui/AnimatedButton';
 import { useIsDark } from '../../../stores/themeStore';
@@ -32,7 +32,7 @@ export function PaymentConfirmationCodeInput({
   onRequestCode,
   styles,
 }: PaymentConfirmationCodeInputProps) {
-  const codeInputsRef = useRef<Array<TextInput | null>>([]);
+  const codeInputsRef = useRef<Array<TextInputInstance | null>>([]);
   const isDark = useIsDark();
   const accent = isDark ? colors.SecondBorder : colors.primary;
 
@@ -78,7 +78,7 @@ export function PaymentConfirmationCodeInput({
                 }
               }}
               onKeyPress={(
-                e: NativeSyntheticEvent<TextInputKeyPressEventData>
+                e: TextInputKeyPressEvent
               ) => {
                 if (
                   e.nativeEvent.key === 'Backspace' &&

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { TextInput } from 'react-native';
+import { TextInputInstance } from 'react-native';
 import priceNegotiationService from '../../../services/ride/priceNegotiationService';
 import driverOfferCacheService, { DriverOfferCacheEntry } from '../../../services/driver/driverOfferCacheService';
 import alertService from '../../../services/notification/alertService';
@@ -30,7 +30,7 @@ export function useRideNegotiation(
   const [sendingOffer, setSendingOffer] = useState(false);
   const [customOfferVisible, setCustomOfferVisible] = useState(false);
   const [manualOfferLock, setManualOfferLock] = useState(false);
-  const customOfferInputRef = useRef<TextInput | null>(null);
+  const customOfferInputRef = useRef<TextInputInstance | null>(null);
 
   const hasPendingOffer = useMemo(() => {
     const status = (currentRide.negotiationStatus || '').toLowerCase();

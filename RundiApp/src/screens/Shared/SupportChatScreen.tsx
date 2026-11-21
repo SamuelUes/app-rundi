@@ -5,6 +5,7 @@ import {
   StyleSheet,
   TextInput,
   ScrollView,
+  type ScrollViewInstance,
   TouchableOpacity,
   KeyboardAvoidingView,
   Keyboard,
@@ -112,7 +113,7 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
   const { activeCall } = useCalls(complaintId, { handleNativeActions: false });
 
   const [inputText, setInputText] = useState('');
-  const flatListRef = useRef<ScrollView>(null);
+  const flatListRef = useRef<ScrollViewInstance>(null);
 
   // Edge-to-edge (Android 15+): adjustResize ya no empuja el layout de RN y el
   // IME solo llega como inset, así que hay que compensar manualmente. Si la

@@ -73,7 +73,7 @@ export function useLocation(options: UseLocationOptions = {}) {
     checkActive,
   } = useBackgroundTracking();
 
-  const appState = useRef(AppState.currentState);
+  const appState = useRef<AppStateStatus>((AppState.currentState as AppStateStatus | undefined) ?? 'active');
 
   const handleAppStateChange = (nextAppState: AppStateStatus) => {
     if (

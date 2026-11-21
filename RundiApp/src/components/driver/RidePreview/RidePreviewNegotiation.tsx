@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, TextInputInstance } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { LoadingIcon } from '../../ui/LoadingIcon';
 import type { TFunction } from 'i18next';
@@ -22,7 +22,7 @@ interface RidePreviewNegotiationProps {
   colors: any;
   isDark: boolean;
   formatCurrency: (value?: number | null) => string;
-  customOfferInputRef: React.RefObject<TextInput | null>;
+  customOfferInputRef: React.RefObject<TextInputInstance | null>;
   onCustomOfferPress: () => void;
   onCustomOfferChange: (text: string) => void;
   onSendCustomOffer: () => void;

@@ -59,7 +59,10 @@ export function AvailableRidesEmpty({
     return () => loop.stop();
   }, [pulse, reduceMotion]);
 
-  const ringProgress = [pulse, Animated.modulo(Animated.add(pulse, 0.5), 1)];
+  const ringProgress: Animated.Value[] = [
+    pulse,
+    Animated.modulo(Animated.add(pulse, 0.5), 1) as unknown as Animated.Value,
+  ];
 
   const ringColor = isDark ? 'rgba(212,175,55,0.55)' : 'rgba(179,135,55,0.4)';
 

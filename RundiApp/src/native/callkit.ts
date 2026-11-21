@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import { CallKitModule } from '../../modules/rundi-native/src';
-import type { EventSubscription } from 'expo-modules-core';
+import type { EventSubscription } from 'expo';
 
 const isIOS = Platform.OS === 'ios';
 

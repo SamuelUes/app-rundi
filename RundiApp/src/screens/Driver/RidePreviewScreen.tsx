@@ -11,6 +11,7 @@ import {
   type LayoutChangeEvent,
   Platform,
   ScrollView,
+  type ScrollViewInstance,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -254,7 +255,7 @@ export default function RidePreviewScreen() {
   const [actionsHeight, setActionsHeight] = useState(0);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const negotiationScrollRef = useRef<ScrollView>(null);
+  const negotiationScrollRef = useRef<ScrollViewInstance>(null);
   const sheetBottomPadding = keyboardHeight > 0 ? 12 : Math.max(insets.bottom, 12) + 8;
   const availableContentHeight = screenHeight && headerHeight && actionsHeight
     ? Math.max(0, screenHeight - keyboardHeight - insets.top - 12 - headerHeight - actionsHeight - sheetBottomPadding)

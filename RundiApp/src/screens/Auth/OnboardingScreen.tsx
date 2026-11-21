@@ -7,7 +7,7 @@ import {
   Dimensions,
   FlatList,
   TouchableOpacity,
-  ViewToken,
+  ListViewToken,
 } from 'react-native';
 import type { ImageSourcePropType } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -77,7 +77,7 @@ const OnboardingScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const onViewableItemsChanged = useRef(
-    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    ({ viewableItems }: { viewableItems: ListViewToken[] }) => {
       if (viewableItems.length > 0 && typeof viewableItems[0].index === 'number') {
         setCurrentIndex(viewableItems[0].index || 0);
       }

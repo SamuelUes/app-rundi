@@ -181,7 +181,10 @@ export function HomeScreenOffersBottomSheet({
     return () => loop.stop();
   }, [pulse, reduceMotion, searching]);
 
-  const ringProgress = [pulse, Animated.modulo(Animated.add(pulse, 0.5), 1)];
+  const ringProgress: Animated.Value[] = [
+    pulse,
+    Animated.modulo(Animated.add(pulse, 0.5), 1) as unknown as Animated.Value,
+  ];
   const ringColor = isDark ? 'rgba(212,175,55,0.5)' : 'rgba(179,135,55,0.35)';
 
   const canConfirm = !!selectedOffer && !isConfirming && !loading && !error;

@@ -1,5 +1,5 @@
 import React from 'react';
-import { TextInput, TextInputProps } from 'react-native';
+import { TextInput, TextInputInstance, TextInputProps } from 'react-native';
 
 interface FormattedInputProps extends TextInputProps {
   format?: 'date' | 'date-dmy' | 'phone' | 'plate' | 'vin' | 'number' | 'decimal' | 'none';
@@ -10,7 +10,7 @@ interface FormattedInputProps extends TextInputProps {
  * Componente de input con formateo automático
  * Soporta: fechas (YYYY-MM-DD, DD-MM-YYYY), teléfono, placa, VIN, números, decimales
  */
-export const FormattedInput = React.forwardRef<TextInput, FormattedInputProps>(
+export const FormattedInput = React.forwardRef<TextInputInstance, FormattedInputProps>(
   ({ format = 'none', value, onChangeText, maxLength, ...props }, ref) => {
     const formatValue = (text: string): string => {
       // Remover caracteres no permitidos según el formato
