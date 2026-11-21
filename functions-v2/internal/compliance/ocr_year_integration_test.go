@@ -49,7 +49,7 @@ func TestSubmitVehicleDocumentOcrYear(t *testing.T) {
 		pool.Exec(ctx, `DELETE FROM public.users WHERE id=$1`, uid)
 	})
 
-	svc := NewService(pool, nil, nil)
+	svc := NewService(pool, nil, nil, nil)
 	readOcrYear := func() *int {
 		var y *int
 		if err := pool.QueryRow(ctx, `SELECT registration_ocr_year FROM public.vehicles WHERE id=$1::uuid`, vehicleID).Scan(&y); err != nil {

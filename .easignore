@@ -1,0 +1,37 @@
+# .easignore — reemplaza TODOS los .gitignore solo para el upload de EAS Build.
+# A diferencia de .gitignore, aquí SÍ se suben: .env, google-services.json,
+# GoogleService-Info.plist y RundiApp/modules/ (módulo nativo local) — son
+# requeridos por app.config.js y por el build nativo en la nube.
+
+supabase/
+functions/
+functions-v2/
+Frontend/
+database/
+database-v2/
+dev/
+docs/
+tools/
+Video/
+local-dev/
+
+# CNG: los nativos se regeneran con prebuild en EAS
+RundiApp/android/
+RundiApp/ios/
+frontend/ios/
+frontend/android/
+
+node_modules/
+.expo/
+dist/
+
+agents.md
+.firebase
+.devin
+.test.ts*
+.test.js*
+
+# Artefactos de build del módulo nativo (los sources SÍ se suben)
+RundiApp/modules/*/android/build/
+RundiApp/modules/*/android/.gradle/
+RundiApp/modules/*/ios/build/

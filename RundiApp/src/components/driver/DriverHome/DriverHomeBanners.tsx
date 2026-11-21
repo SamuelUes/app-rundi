@@ -21,7 +21,7 @@ interface ActiveRide {
   destinationAddress?: string;
 }
 
-interface RechargeFundsSummary {
+export interface RechargeFundsSummary {
   availableBalance: number;
   blocked: boolean;
   pendingRecharges?: number;
@@ -91,16 +91,46 @@ export function BannerRow({ variant, icon, title, subtitle, onPress, styles }: B
   );
 }
 
+interface InsufficientFundsBannerProps {
+  summary: RechargeFundsSummary | null;
+  onPress: () => void;
+  styles: any;
+  t: TFunction;
+}
+
+export function InsufficientFundsBanner({ summary, onPress, styles, t }: InsufficientFundsBannerProps) {
+  if (!summary) return null;
+  const pendingCount = Number(summary.pendingRecharges ?? 0);
+  const hasPending = pendingCount > 0;
+  return (
+    <BannerRow
+      variant="danger"
+      icon="account-balance-wallet"
+      title={t(hasPending
+        ? 'driver.home.banners.rechargePendingTitle'
+        : 'driver.home.banners.rechargeTitle')}
+      subtitle={hasPending
+        ? t('driver.home.banners.rechargePendingSubtitle', {
+            amount: Number(summary.pendingAmount ?? 0).toFixed(2),
+            count: pendingCount,
+          })
+        : t('driver.home.banners.rechargeSubtitle', {
+            amount: Number(summary.availableBalance).toFixed(2),
+          })}
+      onPress={onPress}
+      styles={styles}
+    />
+  );
+}
+
 interface DriverHomeBannersProps {
   activeRide: ActiveRide | null;
   hasPendingAction: boolean;
-  hasInsufficientFunds: boolean;
-  rechargeFundsSummary: RechargeFundsSummary | null;
   pendingPayments: PendingPayment[];
   premiumNotice?: { title: string; subtitle: string; onPress: () => void } | null;
+  documentNotice?: { title: string; subtitle: string; onPress: () => void } | null;
   colors: any;
   onActiveRidePress: () => void;
-  onRechargePress: () => void;
   onPendingPaymentPress: () => void;
   styles: any;
   t: TFunction;
@@ -109,55 +139,32 @@ interface DriverHomeBannersProps {
 export function DriverHomeBanners({
   activeRide,
   hasPendingAction,
-  hasInsufficientFunds,
-  rechargeFundsSummary,
   pendingPayments,
   premiumNotice,
+  documentNotice,
   onActiveRidePress,
-  onRechargePress,
   onPendingPaymentPress,
   styles,
   t,
 }: DriverHomeBannersProps) {
   const showActiveRide = Boolean(activeRide) && !hasPendingAction;
-  const showInsufficientFunds = Boolean(rechargeFundsSummary) && hasInsufficientFunds;
   const showPendingPayments =
-    pendingPayments.length > 0 && !hasPendingAction && !hasInsufficientFunds;
+    pendingPayments.length > 0 && !hasPendingAction;
 
-  if (!showActiveRide && !showInsufficientFunds && !showPendingPayments && !premiumNotice) {
+  if (!showActiveRide && !showPendingPayments && !premiumNotice && !documentNotice) {
     return null;
   }
 
   return (
     <View style={styles.bannerStack} pointerEvents="box-none">
+      {documentNotice && (
+        <BannerRow variant="gold" icon="description" title={documentNotice.title}
+          subtitle={documentNotice.subtitle} onPress={documentNotice.onPress} styles={styles} />
+      )}
       {premiumNotice && (
         <BannerRow variant="gold" icon="star" title={premiumNotice.title}
           subtitle={premiumNotice.subtitle} onPress={premiumNotice.onPress} styles={styles} />
       )}
-      {showInsufficientFunds && rechargeFundsSummary && (() => {
-        const pendingCount = Number(rechargeFundsSummary.pendingRecharges ?? 0);
-        const hasPending = pendingCount > 0;
-        return (
-          <BannerRow
-            variant="danger"
-            icon="account-balance-wallet"
-            title={t(hasPending
-              ? 'driver.home.banners.rechargePendingTitle'
-              : 'driver.home.banners.rechargeTitle')}
-            subtitle={hasPending
-              ? t('driver.home.banners.rechargePendingSubtitle', {
-                  amount: Number(rechargeFundsSummary.pendingAmount ?? 0).toFixed(2),
-                  count: pendingCount,
-                })
-              : t('driver.home.banners.rechargeSubtitle', {
-                  amount: Number(rechargeFundsSummary.availableBalance).toFixed(2),
-                })}
-            onPress={onRechargePress}
-            styles={styles}
-          />
-        );
-      })()}
-
       {showPendingPayments && (
         <BannerRow
           variant="gold"

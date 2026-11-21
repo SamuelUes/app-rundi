@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TextInput,
-  TouchableWithoutFeedback,
 } from 'react-native';
 
 import { useTheme } from '../../hooks/shared/theme/useTheme';
@@ -37,14 +36,46 @@ const OtpCodeInput: React.FC<OtpCodeInputProps> = ({
     if (!autoFocus || disabled) {
       return;
     }
-    const timeout = setTimeout(() => {
-      hiddenInputRef.current?.focus();
-    }, 300);
-    return () => clearTimeout(timeout);
+    // Dentro de un Modal en Android el primer focus puede caer antes de que la
+    // ventana del diálogo sea focusable — se reintenta una segunda vez.
+    const first = setTimeout(() => hiddenInputRef.current?.focus(), 250);
+    const retry = setTimeout(() => hiddenInputRef.current?.focus(), 750);
+    return () => {
+      clearTimeout(first);
+      clearTimeout(retry);
+    };
   }, [autoFocus, disabled]);
 
   return (
     <View style={styles.wrap}>
+      <View style={styles.boxes}>
+        {Array.from({ length }).map((_, index) => (
+          <View
+            key={index}
+            style={[
+              styles.box,
+              isFocused && safeValue.length === index && styles.boxActive,
+              safeValue.length > index && styles.boxFilled,
+            ]}
+          >
+            <Text style={styles.boxText}>{safeValue[index] || ''}</Text>
+          </View>
+        ))}
+      </View>
+
+      {/*
+        El input real cubre las cajas (casi invisible): el toque lo recibe el
+        propio TextInput → foco nativo → teclado garantizado también en
+        Android/Modal. opacity 0.01 porque un input totalmente invisible no
+        abre el teclado en algunos Android.
+
+        SIN prop autoFocus: dentro de un Modal en Android, un focus al montar
+        llega antes de que la ventana del diálogo sea focusable y el IME queda
+        ligado a la ventana de atrás (el teclado no aparece — solo la barra de
+        Gboard). Además focus() sobre un input ya enfocado es no-op, así que
+        ese focus prematuro anulaba los retries. El foco solo se pide con
+        delay, ya dirigido a la ventana del Modal.
+      */}
       <TextInput
         ref={hiddenInputRef}
         style={styles.hiddenInput}
@@ -53,35 +84,18 @@ const OtpCodeInput: React.FC<OtpCodeInputProps> = ({
           onChange(text.replace(/[^0-9]/g, '').slice(0, length));
         }}
         keyboardType="number-pad"
+        inputMode="numeric"
         maxLength={length}
         textContentType="oneTimeCode"
         autoComplete="sms-otp"
         importantForAutofill="yes"
         accessibilityLabel={accessibilityLabel}
         editable={!disabled}
-        autoFocus={autoFocus}
+        showSoftInputOnFocus
+        caretHidden
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}
       />
-
-      <TouchableWithoutFeedback
-        onPress={() => !disabled && hiddenInputRef.current?.focus()}
-      >
-        <View style={styles.boxes}>
-          {Array.from({ length }).map((_, index) => (
-            <View
-              key={index}
-              style={[
-                styles.box,
-                isFocused && safeValue.length === index && styles.boxActive,
-                safeValue.length > index && styles.boxFilled,
-              ]}
-            >
-              <Text style={styles.boxText}>{safeValue[index] || ''}</Text>
-            </View>
-          ))}
-        </View>
-      </TouchableWithoutFeedback>
     </View>
   );
 };
@@ -98,9 +112,9 @@ const createStyles = (colors: any) =>
       position: 'absolute',
       top: 0,
       left: 0,
-      width: '100%',
+      right: 0,
       height: 56,
-      opacity: 0,
+      opacity: 0.01,
     },
     boxes: {
       width: '100%',

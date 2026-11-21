@@ -237,6 +237,13 @@ eas submit --platform ios
 eas submit --platform android
 ```
 
+Subir el último build iOS a TestFlight (App Store Connect):
+
+```bash
+npx eas build --platform ios --profile production
+npx eas submit --platform ios --latest
+```
+
 ### EAS Update (actualizaciones OTA)
 
 ```bash

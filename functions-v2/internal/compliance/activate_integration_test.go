@@ -80,9 +80,13 @@ func TestActivateAvailabilityIntegration(t *testing.T) {
 			VALUES ($1,$2,'verified',$3,'2026-01-01','2100-01-01',true)`, []any{uuid.NewString(), vehicleID, taxYear}},
 		{`INSERT INTO public.vehicle_road_taxes (id,vehicle_id,status,tax_year,paid_at,exempt,is_current)
 			VALUES ($1,$2,'verified',$3,'2026-01-01',false,true)`, []any{uuid.NewString(), vehicleID, taxYear}},
-		{`INSERT INTO public.services (id,code,is_active) VALUES ($1,'rides',true)`, []any{serviceID}},
+		{`INSERT INTO public.services (id,code,name,commission_rate,is_active)
+			VALUES ($1,'rides','Rides',0,true)
+			ON CONFLICT (code) DO NOTHING`, []any{serviceID}},
 		{`INSERT INTO public.driver_services (id,driver_id,service_id,is_active,is_approved)
-			VALUES ($1,$2,$3,true,true)`, []any{uuid.NewString(), driverID, serviceID}},
+			VALUES ($1,$2::uuid,(SELECT id FROM public.services WHERE code='rides' LIMIT 1),true,true)`,
+			[]any{uuid.NewString(), driverID}},
+		{`DELETE FROM public.license_category_rules WHERE vehicle_type='auto'`, nil},
 		{`INSERT INTO public.license_category_rules (vehicle_type,service_code,required_categories,severity,confirmed_by_source,is_active)
 			VALUES ('auto','*','{b}','BLOCKING',true,true)`, nil},
 	}
@@ -92,7 +96,7 @@ func TestActivateAvailabilityIntegration(t *testing.T) {
 		}
 	}
 
-	svc := NewService(pool, nil, nil)
+	svc := NewService(pool, nil, nil, nil)
 	res, err := svc.ActivateAvailability(ctx, uid, nil)
 	if err != nil || !res.Allowed || res.SessionSeq != 1 || res.SessionID == "" {
 		t.Fatalf("activation=%+v err=%v", res, err)

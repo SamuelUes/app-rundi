@@ -522,6 +522,11 @@ const shared = {
             cash: 'Efectivo',
             card: 'Tarjeta',
           },
+          offer: {
+            suggesting: 'Sugiriendo',
+            estimated: 'Precio estimado',
+            belowEstimate: 'Tu oferta no puede ser menor al estimado',
+          },
           availability: {
             checking: 'Buscando conductores cercanos…',
             low: 'Pocos o ningún conductor cercano en este momento',
@@ -1280,6 +1285,7 @@ const shared = {
             profileUpdatedTitle: 'Perfil actualizado',
             profileUpdatedMessage: 'Tu información se guardó correctamente.',
             profileUpdateError: 'No pudimos actualizar tu perfil. Intenta nuevamente.',
+            invalidBirthDate: 'Revisa tu fecha de nacimiento: debe ser día, mes y año completos.',
           },
           cards: {
             addPassword: {
@@ -1507,8 +1513,9 @@ const shared = {
             noLien: 'NINGUNO',
           },
         },
-         deleteAccount: {
+        deleteAccount: {
           header: {
+            eyebrow: 'SEGURIDAD DE LA CUENTA',
             title: 'Eliminar cuenta',
             roles: {
               driver: 'Conductor',
@@ -1517,48 +1524,59 @@ const shared = {
             },
           },
           warning: {
-            title: '⚠️ Acción irreversible',
-            intro: 'Al eliminar tu cuenta, se borrará permanentemente:',
+            title: 'Eliminación de cuenta',
+            intro: 'Se eliminará tu acceso. El perfil y el historial del UID anterior se conservarán.',
             bullets: {
-              profile: '• Tu perfil e información personal',
-              rideHistory: '• Historial de viajes',
-              vehicles: '• Vehículos registrados (si eres conductor)',
-              ratings: '• Calificaciones y reseñas',
-              paymentMethods: '• Métodos de pago guardados',
-              notifications: '• Notificaciones y mensajes',
-              locations: '• Ubicaciones y rastreo',
-              dataStores: '• Todos los datos almacenados en Firebase y Supabase',
+              accountAccess: 'No podrás volver a iniciar sesión con esta identidad.',
+              dataRetained: 'El perfil anterior quedará marcado como eliminado y no se mezclará con una cuenta nueva.',
+              reactivation: 'Podrás registrarte otra vez con el mismo correo o teléfono; se creará una cuenta distinta.',
             },
           },
           form: {
-            title: 'Confirma tus credenciales',
+            step: 'PASO 1 · VERIFICACIÓN',
+            title: 'Confirma que eres tú',
+            phoneMethod: 'Mensaje de texto',
+            emailMethod: 'Correo y contraseña',
+            phoneLabel: 'Número asociado a tu cuenta',
+            phoneDescription: 'Te enviaremos un código de un solo uso para verificar tu identidad.',
+            emailLabel: 'Correo electrónico',
+            passwordLabel: 'Contraseña',
             emailPlaceholder: 'Correo electrónico',
             passwordPlaceholder: 'Contraseña',
+            codePlaceholder: 'Código de 6 dígitos',
+            codeSent: 'Código enviado. Revisa tus mensajes de texto.',
           },
           confirmation: {
             checkbox:
-              'Entiendo que esta acción es irreversible y todos mis datos se eliminarán permanentemente',
+              'Entiendo que se eliminará mi acceso y que el perfil histórico permanecerá guardado.',
           },
           buttons: {
-            delete: 'Eliminar cuenta de forma permanente',
+            delete: 'Eliminar mi cuenta',
             deleting: 'Eliminando cuenta...',
+            sendCode: 'Enviar código SMS',
+            resendCode: 'Enviar otro código',
             cancel: 'Cancelar',
+          },
+          errors: {
+            phoneMismatch: 'El número verificado no coincide con el teléfono asociado a esta cuenta.',
           },
           alerts: {
             confirmRequiredTitle: 'Confirmación requerida',
             confirmRequiredMessage:
-              'Marca la casilla de verificación para confirmar que entiendes las consecuencias.',
+              'Marca la casilla para confirmar que entiendes las consecuencias de eliminar la cuenta.',
             missingFieldsTitle: 'Campos incompletos',
-            missingFieldsMessage: 'Ingresa tu correo y contraseña para confirmar la eliminación.',
-            confirmDeleteTitle: 'Eliminar cuenta permanentemente',
+            missingFieldsMessage: 'Ingresa tu correo y contraseña para confirmar tu identidad.',
+            codeRequired: 'Solicita e ingresa el código SMS de 6 dígitos.',
+            confirmDeleteTitle: 'Eliminar cuenta definitivamente',
             confirmDeleteMessage:
-              'Esta acción no se puede deshacer. Todos tus datos se eliminarán permanentemente.\n\n¿Seguro que deseas continuar?',
+              'Se eliminará la identidad de acceso. El perfil histórico permanecerá asociado al UID anterior y no se puede recuperar el acceso a esa cuenta. ¿Deseas continuar?',
             confirmDeleteCancel: 'Cancelar',
             confirmDeleteConfirm: 'Eliminar cuenta',
             successTitle: 'Cuenta eliminada',
+            successMessage: 'Tu cuenta fue eliminada. Puedes registrarte nuevamente con el mismo correo o teléfono.',
             successOk: 'OK',
             genericErrorTitle: 'Error',
-            deleteErrorMessage: 'Ocurrió un error al eliminar la cuenta.',
+            deleteErrorMessage: 'No se pudo completar la eliminación de la cuenta.',
           },
         },
        supportcomplaint: {

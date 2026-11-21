@@ -27,6 +27,7 @@ import { checkRideDriverCompatibility, isDesignatedRideRequest } from '../../uti
 import { useDriverActiveRides } from '../../hooks/driver/DriverHomeScreen/useDriverActiveRides';
 import { usePendingPayments } from '../../hooks/driver/DriverHomeScreen/usePendingPayments';
 import { useDriverAvailability } from '../../hooks/driver/DriverHomeScreen/useDriverAvailability';
+import { useDriverDocumentDates } from '../../hooks/driver/DriverHomeScreen/useDriverDocumentDates';
 import { useDriverWalletListener } from '../../hooks/driver/DriverHomeScreen/useDriverWalletListener';
 import { useDriverInfoListener } from '../../hooks/driver/DriverHomeScreen/useDriverInfoListener';
 import { useDriverRideFeatureCapabilities } from '../../hooks/driver/useDriverRideFeatureCapabilities';
@@ -64,6 +65,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
   useKeepAwake(undefined, { suppressDeactivateWarnings: true });
   const { t } = useTranslation();
   const { user, logout, logoutInProgress } = useAuth();
+  const documentIssues = useDriverDocumentDates(user?.id);
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
   const { colors, isDark } = useTheme();
 
@@ -360,6 +362,7 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
           isAvailable={isAvailable}
           activeRideId={activeRide?.id}
           onNavigateProfile={() => navigation.navigate('DriverProfile')}
+          onLogout={handleLogout}
           styles={styles}
           t={t}
         />
@@ -371,42 +374,6 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         />
       </View>
 
-      <DriverHomeBanners
-        premiumNotice={premium.vehicle && (premium.expired || premium.grace || premium.eligible) ? {
-          title: t(premium.expired ? 'driver.premium.expired' : premium.grace ? 'driver.premium.grace' : 'driver.premium.badge'),
-          subtitle: premium.grace
-            ? t('driver.premium.graceUntil', { date: new Date(premium.vehicle.premiumUntil! - 1).toLocaleDateString(undefined, { timeZone: 'America/Managua' }) })
-            : t(premium.expired ? 'driver.premium.expiredDescription' : 'driver.premium.eligibleDescription', { plate: premium.vehicle.plate }),
-          onPress: () => navigation.navigate('DriverProfile'),
-        } : null}
-        activeRide={activeRide}
-        hasPendingAction={hasPendingAction}
-        hasInsufficientFunds={hasInsufficientFunds}
-        rechargeFundsSummary={rechargeFundsSummary}
-        pendingPayments={pendingPayments}
-        colors={colors}
-        onActiveRidePress={() =>
-          navigation.replace('ActiveRide', {
-            rideId: activeRide.id,
-            clientId: activeRide.clientId,
-            origin: activeRide.origin,
-            destination: activeRide.destination,
-            estimatedFare: activeRide.finalFare || activeRide.estimatedPrice,
-          })
-        }
-        onRechargePress={() => navigation.navigate('RechargeFunds')}
-        onPendingPaymentPress={() => {
-          const firstPayment = pendingPayments[0];
-          navigation.navigate('PaymentConfirmation', {
-            rideId: firstPayment.rideId,
-            amount: firstPayment.finalAmount,
-            method: firstPayment.method,
-          });
-        }}
-        styles={styles}
-        t={t}
-      />
-
       <DriverHomeBottomBar
         userRole={user?.role}
         isAvailable={isAvailable}
@@ -414,6 +381,50 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         updatingStatus={updatingStatus}
         hasPendingAction={hasPendingAction}
         hasInsufficientFunds={hasInsufficientFunds}
+        rechargeFundsSummary={rechargeFundsSummary}
+        onRechargePress={() => navigation.navigate('RechargeFunds')}
+        banners={
+          <DriverHomeBanners
+            documentNotice={documentIssues.length ? {
+              title: t('driver.home.documentDates.title'),
+              subtitle: t(`driver.home.documentDates.${documentIssues[0].state}`, {
+                document: t(`driver.home.documentDates.${documentIssues[0].kind}`),
+                date: documentIssues[0].date,
+              }),
+              onPress: () => navigation.navigate('DriverProfile'),
+            } : null}
+            premiumNotice={premium.vehicle && (premium.expired || premium.grace || premium.eligible) ? {
+              title: t(premium.expired ? 'driver.premium.expired' : premium.grace ? 'driver.premium.grace' : 'driver.premium.badge'),
+              subtitle: premium.grace
+                ? t('driver.premium.graceUntil', { date: new Date(premium.vehicle.premiumUntil! - 1).toLocaleDateString(undefined, { timeZone: 'America/Managua' }) })
+                : t(premium.expired ? 'driver.premium.expiredDescription' : 'driver.premium.eligibleDescription', { plate: premium.vehicle.plate }),
+              onPress: () => navigation.navigate('DriverProfile'),
+            } : null}
+            activeRide={activeRide}
+            hasPendingAction={hasPendingAction}
+            pendingPayments={pendingPayments}
+            colors={colors}
+            onActiveRidePress={() =>
+              navigation.replace('ActiveRide', {
+                rideId: activeRide.id,
+                clientId: activeRide.clientId,
+                origin: activeRide.origin,
+                destination: activeRide.destination,
+                estimatedFare: activeRide.finalFare || activeRide.estimatedPrice,
+              })
+            }
+            onPendingPaymentPress={() => {
+              const firstPayment = pendingPayments[0];
+              navigation.navigate('PaymentConfirmation', {
+                rideId: firstPayment.rideId,
+                amount: firstPayment.finalAmount,
+                method: firstPayment.method,
+              });
+            }}
+            styles={styles}
+            t={t}
+          />
+        }
         todayEarnings={todayStats.earnings}
         formatCurrency={formatCurrency}
         availableRequestsCount={visibleRideRequests.length}
@@ -426,7 +437,6 @@ export default function DriverHomeScreenNewDesign({ navigation }: any) {
         }
         onNavigateEarnings={() => navigation.navigate('Earnings')}
         onNavigate={handleNavigate}
-        onLogout={handleLogout}
         pendingAction={pendingAction}
         crewChip={
           <DesignatedCrewChip
@@ -538,7 +548,6 @@ const createStyles = (
       height: '100%',
     },
     profileAvatarText: {
-      fontFamily: '',
       fontSize: 15,
       fontWeight: '800',
       color: '#241A09',
@@ -554,7 +563,6 @@ const createStyles = (
       borderColor: isDark ? '#181411' : '#FFFFFF',
     },
     profileName: {
-      fontFamily: '',
       fontSize: 15,
       fontWeight: '700',
       color: isDark ? '#F5F1EA' : '#1C1917',
@@ -579,7 +587,6 @@ const createStyles = (
       marginBottom: 18,
     },
     fallbackTitle: {
-      fontFamily: '',
       fontSize: 17,
       fontWeight: '700',
       color: colors.text,
@@ -608,14 +615,10 @@ const createStyles = (
       fontSize: 15,
       fontWeight: '700',
     },
-    // Floating banners (stacked above the dock)
+    // Stack de banners dentro del flujo del bottomBar (ya no flota con offset
+    // fijo: se apilan sobre el botón de disponibilidad sin solapar los chips).
     bannerStack: {
-      position: 'absolute',
-      left: 16,
-      right: 16,
-      bottom: insets.bottom + 148,
       gap: 10,
-      zIndex: 25,
     },
     banner: {
       flexDirection: 'row',
@@ -667,7 +670,6 @@ const createStyles = (
       gap: 2,
     },
     bannerTitle: {
-      fontFamily: '',
       fontSize: 15,
       fontWeight: '700',
     },
@@ -678,7 +680,6 @@ const createStyles = (
       color: '#241A09',
     },
     bannerSubtitle: {
-      fontFamily: '',
       fontSize: 12.5,
       fontWeight: '500',
       lineHeight: 17,
@@ -736,7 +737,6 @@ const createStyles = (
       opacity: 0.5,
     },
     designatedChipLabel: {
-      fontFamily: '',
       fontSize: 13,
       fontWeight: '700',
       color: isDark ? 'rgba(28,25,23,0.7)' : 'rgba(255,255,255,0.75)',
@@ -781,9 +781,6 @@ const createStyles = (
       shadowRadius: 22,
       elevation: 20,
     },
-    dockCompact: {
-      alignSelf: 'flex-start',
-    },
     navChipsRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -814,7 +811,6 @@ const createStyles = (
       borderColor: isDark ? 'rgba(239,138,128,0.3)' : 'rgba(198,40,40,0.25)',
     },
     navChipLabel: {
-      fontFamily: '',
       fontSize: 13,
       fontWeight: '700',
     },
@@ -859,7 +855,6 @@ const createStyles = (
       backgroundColor: isDark ? 'rgba(28,25,23,0.05)' : 'rgba(255,255,255,0.06)',
     },
     earningsLabel: {
-      fontFamily: '',
       fontSize: 10.5,
       fontWeight: '700',
       letterSpacing: 1.1,
@@ -867,7 +862,6 @@ const createStyles = (
       color: isDark ? 'rgba(28,25,23,0.5)' : 'rgba(255,255,255,0.5)',
     },
     earningsValue: {
-      fontFamily: '',
       fontSize: 19,
       fontWeight: '800',
       color: isDark ? '#1C1917' : '#FFFFFF',
@@ -887,7 +881,6 @@ const createStyles = (
       opacity: 0.94,
     },
     requestsLabel: {
-      fontFamily: '',
       fontSize: 14,
       fontWeight: '800',
       color: '#241A09',
@@ -902,7 +895,6 @@ const createStyles = (
       backgroundColor: '#241A09',
     },
     requestsBadgeText: {
-      fontFamily: '',
       fontSize: 11,
       fontWeight: '800',
       color: '#E8C88A',

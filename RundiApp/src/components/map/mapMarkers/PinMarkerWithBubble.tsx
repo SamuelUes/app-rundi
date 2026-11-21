@@ -40,6 +40,7 @@ interface PinMarkerWithBubbleProps {
   bubbleCompact?: boolean;
   bubbleDark?: boolean;
   showBubble?: boolean;
+  pinVisible?: boolean;
   zIndex?: number;
   onPress?: () => void;
   onCalloutPress?: () => void;
@@ -84,6 +85,7 @@ export default React.memo(function PinMarkerWithBubble({
   bubbleCompact = false,
   bubbleDark = false,
   showBubble = true,
+  pinVisible = true,
   zIndex = 5,
   onPress,
   onCalloutPress,
@@ -105,13 +107,13 @@ export default React.memo(function PinMarkerWithBubble({
   const scaledPin = pinScale !== 1;
   const scaledPinWidth = pinWidth * pinScale;
   const scaledPinHeight = pinHeight * pinScale;
-  const pinTracking = useTracksViewChanges([pinImage, scaledPinWidth, scaledPinHeight]);
+  const pinTracking = useTracksViewChanges([pinImage, scaledPinWidth, scaledPinHeight, pinVisible]);
   // iOS bridgeless (RN >= 0.82 / New Arch): the native `image` prop silently
   // never renders because AIRGoogleMapMarker loads it through
   // [RCTBridge currentBridge], which is nil (react-native-maps #5912).
   // Rendering the pin as a child <Image> goes through the Fabric image
   // pipeline + view snapshot instead, which does work.
-  const useChildImage = scaledPin || Platform.OS === 'ios';
+  const useChildImage = !pinVisible || scaledPin || Platform.OS === 'ios';
 
   const lift = (pinAnchor === 'center' ? scaledPinHeight / 2 : scaledPinHeight) + BUBBLE_GAP;
 
@@ -131,13 +133,16 @@ export default React.memo(function PinMarkerWithBubble({
         onDrag={onDrag}
         onDragEnd={onDragEnd}
       >
-        {useChildImage && (
+        {useChildImage && pinVisible && (
           <Image
             source={pinImage}
             style={{ width: scaledPinWidth, height: scaledPinHeight }}
             resizeMode="contain"
             onLoad={pinTracking.notifyContentRendered}
           />
+        )}
+        {useChildImage && !pinVisible && (
+          <View collapsable={false} style={{ width: scaledPinWidth, height: scaledPinHeight, opacity: 0 }} />
         )}
         {children}
       </Marker>

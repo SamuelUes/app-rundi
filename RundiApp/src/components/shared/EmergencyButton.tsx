@@ -28,13 +28,14 @@ interface EmergencyButtonProps {
   onOpen?: () => void;
   onClose?: () => void;
   onReady?: (openHandler: (() => void) | null) => void;
+  hideTrigger?: boolean;
 }
 
 const SHEET_TRAVEL = 420;
 const DISMISS_DISTANCE = 110;
 const DISMISS_VELOCITY = 0.6;
 
-export default function EmergencyButton({ rideId, style, onOpen, onClose, onReady }: EmergencyButtonProps) {
+export default function EmergencyButton({ rideId, style, onOpen, onClose, onReady, hideTrigger = false }: EmergencyButtonProps) {
   const { coords } = useLocation();
   const { colors } = useTheme();
   const { user } = useAuth();
@@ -360,10 +361,12 @@ export default function EmergencyButton({ rideId, style, onOpen, onClose, onRead
 
   return (
     <>
-      <TouchableOpacity
+      {!hideTrigger && <TouchableOpacity
         style={styles.button}
         onPress={handleEmergencyPress}
         disabled={calling}
+        accessibilityRole="button"
+        accessibilityLabel={t('common.components.emergencyButton.modalTitle')}
       >
         {calling ? (
           <LoadingIcon size={24} color={colors.primary} />
@@ -372,7 +375,7 @@ export default function EmergencyButton({ rideId, style, onOpen, onClose, onRead
             <MaterialIcons name="phone-in-talk" size={18} color="#FFFFFF" />
           </View>
         )}
-      </TouchableOpacity>
+      </TouchableOpacity>}
 
       <Modal
         visible={modalVisible}

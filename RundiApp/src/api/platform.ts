@@ -37,13 +37,6 @@ export async function logBiometric(input: LogBiometricInput): Promise<void> {
   await client.post('/platform/biometric/log', input);
 }
 
-export async function logSmsCode(
-  code: string,
-  opts: { phone?: string; email?: string; context?: string; rideId?: string },
-): Promise<void> {
-  await client.post('/platform/sms-codes', { code, ...opts });
-}
-
 export async function verifySmsCode(code: string): Promise<boolean> {
   const { data } = await client.post<{ verified: boolean }>('/platform/sms-codes/verify', { code });
   return data.verified;
@@ -101,18 +94,6 @@ export async function createRideShareToken(
     { ttlHours },
   );
   return data;
-}
-
-/** GET /v1/platform/sms-codes/verified-phone — hasVerifiedRegisterPhoneLog v1. */
-export async function hasVerifiedRegisterPhone(
-  phone?: string,
-  userId?: string,
-): Promise<boolean> {
-  const { data } = await client.get<{ hasVerified: boolean }>(
-    '/platform/sms-codes/verified-phone',
-    { params: { phone, userId } },
-  );
-  return data.hasVerified;
 }
 
 /** Historiales propios (getUserBiometricAuthsSeq/SmsCodesSeq/AnalyticsEventsSeq v1). */

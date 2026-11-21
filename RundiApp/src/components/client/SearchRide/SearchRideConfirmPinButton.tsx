@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-import { RideIcon, type RideIconSet } from './SearchRideVehicleOptions';
+import { RideIcon } from './SearchRideVehicleOptions';
 
 type TrFunction = (path: string, options?: Record<string, any>) => string;
 
@@ -11,7 +11,6 @@ interface SearchRideConfirmPinButtonProps {
   loading?: boolean;
   onPress: () => void;
   tr: TrFunction;
-  iconSet?: RideIconSet;
 }
 
 // Botón flotante de respaldo para confirmar el punto bajo el pin central:
@@ -23,7 +22,6 @@ export function SearchRideConfirmPinButton({
   loading = false,
   onPress,
   tr,
-  iconSet,
 }: SearchRideConfirmPinButtonProps) {
   const accent = colors?.primary || '#f7b32b';
   return (
@@ -42,7 +40,7 @@ export function SearchRideConfirmPinButton({
         {loading ? (
           <ActivityIndicator size="small" color="#fff" />
         ) : (
-          <RideIcon name="check" iconSet={iconSet} size={16} color="#fff" />
+          <RideIcon name="checkmark" size={16} color="#fff" />
         )}
         <Text style={componentStyles.label} numberOfLines={1}>
           {tr(loading ? 'mapSelection.confirmingLocation' : 'mapSelection.confirmLocation')}

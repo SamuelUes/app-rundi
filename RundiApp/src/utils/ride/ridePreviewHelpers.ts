@@ -108,10 +108,10 @@ export const buildOfferCacheEntry = (
 
 export const computeQuickSuggestions = (basePrice: number): number[] => {
   if (!basePrice) return [];
-  const low = Math.max(50, Math.round(basePrice * 0.9));
-  const mid = Math.round(basePrice);
-  const high = Math.round(basePrice * 1.1);
-  return Array.from(new Set([low, mid, high]));
+  const low = Math.ceil(basePrice * 1.05);
+  const mid = Math.round(basePrice * 1.1);
+  const high = Math.round(basePrice * 1.15);
+  return Array.from(new Set([low, mid, high].filter((v) => v > basePrice)));
 };
 
 export const computeFinalPricePreview = (

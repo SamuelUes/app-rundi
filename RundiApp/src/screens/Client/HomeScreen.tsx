@@ -293,7 +293,7 @@ export default function HomeScreen({ navigation }: any) {
   const { rides: recurringRides } = useRecurringRides(user?.id);
   const [gpsCameraTarget, setGpsCameraTarget] = useState<{ latitude: number; longitude: number } | null>(null);
   const [placesCenter, setPlacesCenter] = useState(committedCoords);
-  const { visiblePlaces, updateViewport, resolveSnap } = useNearbyPlaces(placesCenter, isFocused && !isOutsideSupportedArea);
+  const { visiblePlaces, candidatePlaceId, updateViewport, resolveSnap } = useNearbyPlaces(placesCenter, isFocused && !isOutsideSupportedArea);
 
   // Recordatorio in-app: viaje programado a >30min pero el mismo día.
   const scheduledRideNotice = useMemo(() => {
@@ -318,6 +318,8 @@ export default function HomeScreen({ navigation }: any) {
 
   const {
     mapCenter,
+    selectedPlace,
+    selectedPlaceId,
     selectedPlaceName,
     hasPendingManualSelection,
     isResolvingAddress,
@@ -509,6 +511,13 @@ export default function HomeScreen({ navigation }: any) {
     return effectiveCoords;
   }, [mapCenter, effectiveCoords]);
 
+  const mapNearbyPlaces = useMemo(() => {
+    if (!selectedPlace || visiblePlaces.some((place) => place.id === selectedPlace.id)) {
+      return visiblePlaces;
+    }
+    return [...visiblePlaces, selectedPlace];
+  }, [selectedPlace, visiblePlaces]);
+
   useEffect(() => {
     if (!locationLoading || !!coords || !!storedCoords) {
       markTaskCompleted('location');
@@ -587,8 +596,11 @@ export default function HomeScreen({ navigation }: any) {
         showMarker={isPinLocked}
         markerPosition={displayCoords}
         markerType="manual_origin"
+        hideOriginPinImage={isPinLocked && !isOutsideSupportedArea && !!selectedPlaceId}
         nearbyDrivers={availableDrivers}
-        nearbyPlaces={isOutsideSupportedArea ? [] : visiblePlaces}
+        nearbyPlaces={isOutsideSupportedArea ? [] : mapNearbyPlaces}
+        nearbyPlaceCandidateId={!isPinLocked && !isOutsideSupportedArea ? candidatePlaceId : null}
+        nearbyPlaceSelectedId={isPinLocked && !isOutsideSupportedArea ? selectedPlaceId : null}
         disableMarkerPress={isSavingLocation}
         scrollEnabled={!isSavingLocation}
         zoomEnabled={!isSavingLocation}

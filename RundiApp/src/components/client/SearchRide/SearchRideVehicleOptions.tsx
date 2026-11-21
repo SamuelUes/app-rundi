@@ -1,67 +1,22 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, Image, type ImageSourcePropType } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, TouchableOpacity, ScrollView, Image, TextInput, Platform, type ImageSourcePropType } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { ServiceFeatureOption } from '../../../services/catalog/servicesService';
 import { getFeatureAvailability, orderFeaturesBySelection } from '../../../utils/ride/rideFeatures';
 type TrFunction = (path: string, options?: Record<string, any>) => string;
 
 type VehicleType = 'moto' | 'auto' | 'designated_driver';
 type DesignatedDriverMode = 'auto' | 'moto';
-type IconName = React.ComponentProps<typeof MaterialIcons>['name'];
-
-export type RideIconSet = 'material' | 'ionicons';
-// Icon family used across the ride-search panel. Switch to 'material' to revert.
-export const RIDE_ICON_SET: RideIconSet = 'ionicons';
-
-const ION_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
-  'two-wheeler': 'bicycle',
-  'car-sport-sharp': 'car',
-  'directions-car': 'car',
-  'person-pin': 'person-circle',
-  elderly: 'accessibility',
-  pets: 'paw',
-  'workspace-premium': 'diamond',
-  person: 'person',
-  check: 'checkmark',
-  remove: 'remove',
-  add: 'add',
-  'auto-awesome': 'sparkles',
-  'trending-up': 'trending-up',
-  'nightlight-round': 'moon',
-  'local-offer': 'pricetag',
-  'info-outline': 'information-circle',
-  'photo-camera': 'camera',
-  'check-circle': 'checkmark-circle',
-  'chevron-right': 'chevron-forward',
-  'expand-more': 'chevron-down',
-  'expand-less': 'chevron-up',
-  close: 'close',
-  search: 'search',
-  'my-location': 'locate',
-  map: 'map-outline',
-  place: 'location-outline',
-  star: 'star',
-  history: 'time-outline',
-  schedule: 'time-outline',
-  route: 'navigate',
-  payments: 'cash',
-  sell: 'pricetag',
-  'chat-bubble-outline': 'chatbubble-outline',
-};
+type IconName = React.ComponentProps<typeof Ionicons>['name'];
 
 interface RideIconProps {
   name: IconName;
   size: number;
   color: string;
-  iconSet?: RideIconSet;
 }
 
-export function RideIcon({ name, size, color, iconSet = RIDE_ICON_SET }: RideIconProps) {
-  if (iconSet === 'ionicons') {
-    return <Ionicons name={ION_ICONS[name] ?? 'ellipse'} size={size} color={color} />;
-  }
-  return <MaterialIcons name={name} size={size} color={color} />;
+export function RideIcon({ name, size, color }: RideIconProps) {
+  return <Ionicons name={name} size={size} color={color} />;
 }
 
 interface VehicleOption {
@@ -116,20 +71,25 @@ interface SearchRideVehicleOptionsProps {
   onSelectVehicle: (type: VehicleType) => void;
   onSetDesignatedDriverMode: (mode: DesignatedDriverMode) => void;
   onUpdatePassengers: (type: VehicleType, delta: number) => void;
+  priceSuggestion: string;
+  onSetPriceSuggestion: (value: string) => void;
   onTakeVehiclePhoto: () => void;
   colors: any;
   styles: any;
   tr: TrFunction;
-  iconSet?: RideIconSet;
 }
 
 const FEATURE_ICONS: Record<string, IconName> = {
-  night: 'nightlight-round',
-  designated_driver_moto_discount: 'local-offer',
-  senior: 'elderly',
-  premium: 'workspace-premium',
-  pet_friendly: 'pets',
+  night: 'moon',
+  designated_driver_moto_discount: 'pricetag',
+  senior: 'accessibility',
+  premium: 'diamond',
+  pet_friendly: 'paw',
 };
+
+const NIGHT_FEATURE_COLOR = '#6e44ff';
+const NIGHT_FEATURE_SOFT = 'rgba(110, 68, 255, 0.14)';
+const OFFER_STEP = 5;
 
 export const VEHICLE_OPTION_IMAGES: Record<VehicleType, ImageSourcePropType> = {
   moto: require('../../../assets/images/searchImage/moto-services.png'),
@@ -166,15 +126,23 @@ export function SearchRideVehicleOptions({
   onSelectVehicle,
   onSetDesignatedDriverMode,
   onUpdatePassengers,
+  priceSuggestion,
+  onSetPriceSuggestion,
   onTakeVehiclePhoto,
   colors,
   styles,
   tr,
-  iconSet,
 }: SearchRideVehicleOptionsProps) {
   const iconColor = colors?.primary || '#b38737';
   const metaColor = colors?.textSecondary || '#666666';
   const textColor = colors?.text || '#111111';
+  const [offerEditing, setOfferEditing] = useState(false);
+  const [offerDraft, setOfferDraft] = useState('');
+  const [offerBelowNotice, setOfferBelowNotice] = useState(false);
+  useEffect(() => {
+    setOfferEditing(false);
+    setOfferBelowNotice(false);
+  }, [vehicleType, designatedDriverMode]);
   const etaLabel = calculatingRoute
     ? tr('labels.calculating')
     : estimatedDuration > 0
@@ -213,47 +181,106 @@ export function SearchRideVehicleOptions({
             (designatedDriverEstimates.moto.price ?? 0) > 0;
           const showFeatureRail = isSelected && featuresCatalogAvailable && serviceFeatures.length > 0;
           const orderedFeatures = orderFeaturesBySelection(serviceFeatures, selectedFeatureCodes, calculationAt);
+          const estimatedFare = Math.max(0, Math.round(estimate?.price ?? 0));
+          const parsedSuggestion = Number(priceSuggestion);
+          const clientOffer =
+            priceSuggestion.trim().length > 0 && Number.isFinite(parsedSuggestion)
+              ? Math.max(estimatedFare, Math.round(parsedSuggestion))
+              : estimatedFare;
+          const canLowerOffer = clientOffer > estimatedFare;
+          const adjustClientOffer = (delta: number) => {
+            const next = Math.max(estimatedFare, clientOffer + delta);
+            setOfferBelowNotice(false);
+            onSetPriceSuggestion(next <= estimatedFare ? '' : String(next));
+          };
+          const openOfferEdit = () => {
+            setOfferDraft(String(clientOffer));
+            setOfferBelowNotice(false);
+            setOfferEditing(true);
+          };
+          const commitOfferDraft = () => {
+            setOfferEditing(false);
+            const parsed = Number(offerDraft.replace(',', '.'));
+            if (!Number.isFinite(parsed) || parsed <= 0) return;
+            const rounded = Math.round(parsed);
+            if (rounded < estimatedFare) {
+              setOfferBelowNotice(true);
+              onSetPriceSuggestion('');
+              return;
+            }
+            setOfferBelowNotice(false);
+            onSetPriceSuggestion(rounded === estimatedFare ? '' : String(rounded));
+          };
 
           return (
             <View key={option.type} style={[styles.vehicleOptionCard, isSelected && styles.vehicleOptionCardSelected]}>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                style={styles.vehicleOptionTopRow}
-                onPress={() => onSelectVehicle(option.type)}
-                accessibilityLabel={tr('vehicle.selectOption', { label: option.label })}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: isSelected }}
-              >
-                <View style={[styles.vehicleOptionIconBubble, isSelected && styles.vehicleOptionIconBubbleSelected]}>
-                  <Image
-                    source={VEHICLE_OPTION_IMAGES[option.type]}
-                    style={styles.vehicleOptionIconImage}
-                    resizeMode="contain"
-                    accessibilityIgnoresInvertColors
-                  />
-                </View>
-
-                <View style={styles.vehicleOptionTitleBlock}>
-                  <View style={styles.vehicleOptionTitleRow}>
-                    <Text style={styles.vehicleOptionTitle} numberOfLines={1}>
-                      {option.label}
-                    </Text>
-                    {/* <View style={styles.vehicleOptionPassengerDisplay}>
-                      <RideIcon name="person" iconSet={iconSet} size={13} color={iconColor} />
-                      <Text style={styles.vehicleOptionPassengerValue}>{passengers}</Text>
-                    </View> */}
+              <View style={styles.vehicleOptionTopRow}>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  style={styles.vehicleOptionSelectArea}
+                  onPress={() => onSelectVehicle(option.type)}
+                  accessibilityLabel={tr('vehicle.selectOption', { label: option.label })}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: isSelected }}
+                >
+                  <View style={[styles.vehicleOptionIconBubble, isSelected && styles.vehicleOptionIconBubbleSelected]}>
+                    <Image
+                      source={VEHICLE_OPTION_IMAGES[option.type]}
+                      style={styles.vehicleOptionIconImage}
+                      resizeMode="contain"
+                      accessibilityIgnoresInvertColors
+                    />
                   </View>
-                  <Text style={styles.vehicleOptionMeta} numberOfLines={1}>
-                    {etaLabel}
-                    {isRecommended ? ` · ${tr('vehicle.recommendedBadge')}` : ''}
-                  </Text>
-                  <Text style={styles.vehicleOptionSubtitle} numberOfLines={1}>
-                    {option.subtitle}
-                  </Text>
-                </View>
 
-                <Text style={[styles.vehicleOptionPrice, isSelected && styles.vehicleOptionPriceSelected]}>{priceLabel}</Text>
-              </TouchableOpacity>
+                  <View style={styles.vehicleOptionTitleBlock}>
+                    <View style={styles.vehicleOptionTitleRow}>
+                      <Text style={styles.vehicleOptionTitle} numberOfLines={1}>
+                        {option.label}
+                      </Text>
+                      {/* <View style={styles.vehicleOptionPassengerDisplay}>
+                        <RideIcon name="person" size={13} color={iconColor} />
+                        <Text style={styles.vehicleOptionPassengerValue}>{passengers}</Text>
+                      </View> */}
+                    </View>
+                    <Text style={styles.vehicleOptionMeta} numberOfLines={1}>
+                      {etaLabel}
+                      {isRecommended ? ` · ${tr('vehicle.recommendedBadge')}` : ''}
+                    </Text>
+                    <Text style={styles.vehicleOptionSubtitle} numberOfLines={1}>
+                      {option.subtitle}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                {isSelected ? (
+                  <View style={styles.vehicleOptionPassengerControlsCompact}>
+                    <TouchableOpacity
+                      style={[styles.vehicleOptionCounterBtnCompact, !canDecreasePassengers(option.type) && styles.vehicleOptionCounterBtnDisabled]}
+                      disabled={!canDecreasePassengers(option.type)}
+                      onPress={() => onUpdatePassengers(option.type, -1)}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                    >
+                      <RideIcon name="remove" size={18} color={textColor} />
+                    </TouchableOpacity>
+                    <View style={styles.vehicleOptionPassengerCountCompact}>
+                      <RideIcon name="person" size={14} color={textColor} />
+                      <Text style={styles.vehicleOptionPassengerCountTextCompact}>{getPassengersForVehicle(option.type)}</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={[styles.vehicleOptionCounterBtnCompact, !canIncreasePassengers(option.type) && styles.vehicleOptionCounterBtnDisabled]}
+                      disabled={!canIncreasePassengers(option.type)}
+                      onPress={() => onUpdatePassengers(option.type, 1)}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                    >
+                      <RideIcon name="add" size={18} color={textColor} />
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <Text style={styles.vehicleOptionPrice}>{priceLabel}</Text>
+                )}
+              </View>
 
               {isSelected ? (
                 <View style={styles.vehicleOptionExpanded}>
@@ -270,8 +297,7 @@ export function SearchRideVehicleOptions({
                             accessibilityState={{ selected }}
                           >
                             <RideIcon
-                              name={mode === 'auto' ? 'directions-car' : 'two-wheeler'}
-                              iconSet={iconSet}
+                              name={mode === 'auto' ? 'car-sport-sharp' : 'bicycle-sharp'}
                               size={16}
                               color={selected ? textColor : metaColor}
                             />
@@ -289,35 +315,73 @@ export function SearchRideVehicleOptions({
 
                   {showMotoShortNotice ? (
                     <View style={styles.designatedDriverModeInfoRow}>
-                      <RideIcon name="info-outline" iconSet={iconSet} size={14} color={colors?.warning || '#ffa726'} />
+                      <RideIcon name="information-circle" size={14} color={colors?.warning || '#ffa726'} />
                       <Text style={styles.designatedDriverModeInfoText}>{tr('vehicle.designatedMotoShortNotice')}</Text>
                     </View>
                   ) : null}
 
-                  <View style={styles.vehicleOptionPassengerControls}>
-                    <TouchableOpacity
-                      style={[styles.vehicleOptionCounterBtn, !canDecreasePassengers(option.type) && styles.vehicleOptionCounterBtnDisabled]}
-                      disabled={!canDecreasePassengers(option.type)}
-                      onPress={() => onUpdatePassengers(option.type, -1)}
-                      hitSlop={8}
-                      accessibilityRole="button"
-                    >
-                      <RideIcon name="remove" iconSet={iconSet} size={20} color={textColor} />
-                    </TouchableOpacity>
-                    <View style={styles.vehicleOptionPassengerCount}>
-                      <RideIcon name="person" iconSet={iconSet} size={16} color={textColor} />
-                      <Text style={styles.vehicleOptionPassengerCountText}>{getPassengersForVehicle(option.type)}</Text>
+                  {estimatedFare > 0 && !calculatingPrice && !priceCalculationError ? (
+                    <View style={styles.vehicleOptionOfferControls}>
+                      <TouchableOpacity
+                        style={[styles.vehicleOptionOfferCounterBtn, !canLowerOffer && styles.vehicleOptionCounterBtnDisabled]}
+                        disabled={!canLowerOffer}
+                        onPress={() => adjustClientOffer(-OFFER_STEP)}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                      >
+                        <RideIcon name="remove" size={20} color={textColor} />
+                      </TouchableOpacity>
+                      <View style={styles.vehicleOptionOfferCenter}>
+                        {clientOffer > estimatedFare ? (
+                          <View style={styles.vehicleOptionSuggestRow}>
+                            <Text style={styles.vehicleOptionSuggestLabel}>{tr('offer.suggesting')}</Text>
+                            <Text style={styles.vehicleOptionEstimateLine}>{formatPriceValue(estimatedFare)}</Text>
+                          </View>
+                        ) : (
+                          <Text style={styles.vehicleOptionEstimateTag}>{tr('offer.estimated')}</Text>
+                        )}
+                        {offerEditing ? (
+                          <TextInput
+                            style={styles.vehicleOptionOfferInput}
+                            value={offerDraft}
+                            onChangeText={setOfferDraft}
+                            keyboardType={Platform.select({
+                              ios: 'numbers-and-punctuation',
+                              android: 'numeric',
+                              default: 'numeric',
+                            })}
+                            autoFocus
+                            selectTextOnFocus
+                            onBlur={commitOfferDraft}
+                            onSubmitEditing={commitOfferDraft}
+                            returnKeyType="done"
+                            accessibilityLabel={tr('offer.suggesting')}
+                          />
+                        ) : (
+                          <TouchableOpacity onPress={openOfferEdit} accessibilityRole="button" accessibilityLabel={tr('offer.suggesting')}>
+                            <Text style={styles.vehicleOptionOfferValue}>{formatPriceValue(clientOffer)}</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                      <TouchableOpacity
+                        style={styles.vehicleOptionOfferCounterBtn}
+                        onPress={() => adjustClientOffer(OFFER_STEP)}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                      >
+                        <RideIcon name="add" size={20} color={textColor} />
+                      </TouchableOpacity>
                     </View>
-                    <TouchableOpacity
-                      style={[styles.vehicleOptionCounterBtn, !canIncreasePassengers(option.type) && styles.vehicleOptionCounterBtnDisabled]}
-                      disabled={!canIncreasePassengers(option.type)}
-                      onPress={() => onUpdatePassengers(option.type, 1)}
-                      hitSlop={8}
-                      accessibilityRole="button"
-                    >
-                      <RideIcon name="add" iconSet={iconSet} size={20} color={textColor} />
-                    </TouchableOpacity>
-                  </View>
+                  ) : (
+                    <Text style={styles.vehicleOptionOfferFallback}>{priceLabel}</Text>
+                  )}
+
+                  {offerBelowNotice ? (
+                    <View style={styles.designatedDriverModeInfoRow}>
+                      <RideIcon name="warning" size={14} color={colors?.warning || '#ffa726'} />
+                      <Text style={styles.designatedDriverModeInfoText}>{tr('offer.belowEstimate')}</Text>
+                    </View>
+                  ) : null}
 
                   {showFeatureRail ? (
                     <View style={styles.vehicleFeaturesSection}>
@@ -336,6 +400,8 @@ export function SearchRideVehicleOptions({
                           const availability = getFeatureAvailability(feature, calculationAt);
                           const conditionDisabled = availability !== 'eligible';
                           const selected = selectedFeatureCodes.includes(feature.code);
+                          const isNight = feature.code === 'night';
+                          const featureAccent = isNight ? NIGHT_FEATURE_COLOR : iconColor;
                           const clockHint =
                             feature.startTime && feature.endTime
                               ? tr('features.scheduleHint', { start: feature.startTime.slice(0, 5), end: feature.endTime.slice(0, 5) })
@@ -343,7 +409,7 @@ export function SearchRideVehicleOptions({
                           const statusHint = conditionDisabled
                             ? clockHint ?? tr('features.unavailable')
                             : clockHint;
-                          const icon = FEATURE_ICONS[feature.code] ?? 'auto-awesome';
+                          const icon = FEATURE_ICONS[feature.code] ?? 'sparkles';
 
                           return (
                             <TouchableOpacity
@@ -351,6 +417,7 @@ export function SearchRideVehicleOptions({
                               style={[
                                 styles.vehicleFeatureCard,
                                 selected && styles.vehicleFeatureCardSelected,
+                                selected && isNight && { backgroundColor: NIGHT_FEATURE_SOFT },
                                 conditionDisabled && styles.vehicleFeatureCardDisabled,
                               ]}
                               activeOpacity={conditionDisabled ? 1 : 0.7}
@@ -369,9 +436,8 @@ export function SearchRideVehicleOptions({
                             >
                               <RideIcon
                                 name={icon}
-                                iconSet={iconSet}
                                 size={18}
-                                color={conditionDisabled ? metaColor : iconColor}
+                                color={conditionDisabled ? metaColor : featureAccent}
                               />
                               <View style={styles.vehicleFeatureCardBody}>
                                 <Text style={styles.vehicleFeatureCardTitle} numberOfLines={1}>
@@ -385,9 +451,13 @@ export function SearchRideVehicleOptions({
                               </View>
                               {conditionDisabled ? null : (
                                 <View
-                                  style={[styles.vehicleFeatureToggle, selected && styles.vehicleFeatureToggleSelected]}
+                                  style={[
+                                    styles.vehicleFeatureToggle,
+                                    selected && styles.vehicleFeatureToggleSelected,
+                                    selected && isNight && { borderColor: NIGHT_FEATURE_COLOR, backgroundColor: NIGHT_FEATURE_COLOR },
+                                  ]}
                                 >
-                                  {selected ? <RideIcon name="check" iconSet={iconSet} size={12} color="#FFFFFF" /> : null}
+                                  {selected ? <RideIcon name="checkmark" size={12} color="#FFFFFF" /> : null}
                                 </View>
                               )}
                             </TouchableOpacity>
@@ -399,7 +469,7 @@ export function SearchRideVehicleOptions({
 
                   {isSelected && surgeMultiplier > 1 ? (
                     <View style={styles.vehicleDemandNotice}>
-                      <RideIcon name="trending-up" iconSet={iconSet} size={14} color={colors?.warning || '#ffa726'} />
+                      <RideIcon name="trending-up" size={14} color={colors?.warning || '#ffa726'} />
                       <Text style={styles.vehicleDemandNoticeText}>{tr('summary.highDemand')}</Text>
                     </View>
                   ) : null}
@@ -412,8 +482,7 @@ export function SearchRideVehicleOptions({
                       accessibilityRole="button"
                     >
                       <RideIcon
-                        name={hasVehiclePhotoSelection ? 'check-circle' : 'photo-camera'}
-                        iconSet={iconSet}
+                        name={hasVehiclePhotoSelection ? 'checkmark-circle' : 'camera'}
                         size={18}
                         color={hasVehiclePhotoSelection ? colors?.success || '#4caf50' : iconColor}
                       />
@@ -427,7 +496,7 @@ export function SearchRideVehicleOptions({
                         </Text>
                         <Text style={styles.photoHint} numberOfLines={2}>{tr('photo.hint')}</Text>
                       </View>
-                      <RideIcon name="chevron-right" iconSet={iconSet} size={20} color={metaColor} />
+                      <RideIcon name="chevron-forward" size={20} color={metaColor} />
                     </TouchableOpacity>
                   ) : null}
                 </View>

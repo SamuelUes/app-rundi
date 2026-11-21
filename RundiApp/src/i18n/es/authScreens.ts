@@ -18,6 +18,17 @@ const authScreens = {
           login: {
             title: 'Bienvenido',
             subtitle: 'Inicia sesión para continuar',
+            useEmail: 'Usar correo y contraseña',
+            usePhone: 'Usar teléfono y SMS',
+            showPassword: 'Mostrar contraseña',
+            hidePassword: 'Ocultar contraseña',
+            accountNotFound: {
+              title: 'Cuenta no encontrada',
+              message: 'No encontramos una cuenta con {{email}}. ¿Quieres registrarte?',
+              phoneMessage: 'No encontramos una cuenta asociada a este teléfono. ¿Quieres registrarte?',
+              confirm: 'Ir a registro',
+              cancel: 'Ahora no',
+            },
             tabs: {
               email: 'Correo',
               phone: 'Teléfono',

@@ -35,6 +35,27 @@ export function DriverProfileStats({
 
       <View style={styles.earningsCardsContainer}>
         <View style={styles.earningsCardsRowTop}>
+                    <View style={[styles.profileEarningCard, styles.profileEarningCardTop]}>
+            <View style={styles.profileEarningIcon}>
+               <Ionicons name="cash-sharp" size={24} color="#8ac156" />
+            </View>
+            <Text
+              style={styles.earningCardValue}
+              adjustsFontSizeToFit
+              numberOfLines={1}
+              minimumFontScale={0.6}
+            >
+              {formatCurrency(todayEarnings)}
+            </Text>
+            <Text
+              style={styles.earningCardLabel}
+              numberOfLines={2}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
+            >
+              {t('driver.profile.stats.todaysEarnings')}
+            </Text>
+          </View>
           <View style={[styles.profileEarningCard, styles.profileEarningCardTop]}>
             <View style={styles.profileEarningIcon}>
              <Ionicons name="wallet" size={24} color="#c58541" />
@@ -56,27 +77,7 @@ export function DriverProfileStats({
               {t('driver.profile.stats.totalEarnings')}
             </Text>
           </View>
-          <View style={[styles.profileEarningCard, styles.profileEarningCardTop]}>
-            <View style={styles.profileEarningIcon}>
-               <Ionicons name="cash-sharp" size={24} color="#8ac156" />
-            </View>
-            <Text
-              style={styles.earningCardValue}
-              adjustsFontSizeToFit
-              numberOfLines={1}
-              minimumFontScale={0.6}
-            >
-              {formatCurrency(todayEarnings)}
-            </Text>
-            <Text
-              style={styles.earningCardLabel}
-              numberOfLines={2}
-              adjustsFontSizeToFit
-              minimumFontScale={0.8}
-            >
-              {t('driver.profile.stats.todaysEarnings')}
-            </Text>
-          </View>
+
         </View>
 
         <View style={styles.profileSecondaryStats}>

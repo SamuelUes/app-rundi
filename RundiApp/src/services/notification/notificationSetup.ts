@@ -37,6 +37,15 @@ export const setupAndroidChannels = async (): Promise<void> => {
       lightColor: '#D4AF37',
     });
 
+    await Notifications.setNotificationChannelAsync('rundi-client-ride-silent-v1', {
+      name: tr('channels.activeRide'),
+      importance: Notifications.AndroidImportance.LOW,
+      sound: null,
+      enableVibrate: false,
+      enableLights: false,
+      showBadge: false,
+    });
+
     channelsConfigured = true;
     console.log('✅ [notificationSetup] Android channels configured');
   } catch (error) {

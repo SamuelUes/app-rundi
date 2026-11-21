@@ -5,11 +5,12 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
+  Alert,
   Platform,
   ScrollView,
-  Image,
 } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import Animated, { FadeIn, FadeInDown, LinearTransition, ReduceMotion } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
@@ -17,6 +18,7 @@ import { useGoogleAuth } from '../../hooks/shared/auth/useGoogleAuth';
 import GoogleSignInButton from '../../components/shared/GoogleSignInButton';
 import GoogleRegisterPrompt from '../../components/auth/GoogleRegisterPrompt';
 import PhoneField from '../../components/ui/PhoneField';
+import { PressableScale } from '../../components/ui/PressableScale';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import googleAuthService from '../../services/auth/googleAuthService';
 import registrationService from '../../services/auth/registrationService';
@@ -52,7 +54,7 @@ export default function LoginScreen({ navigation }: any) {
   const [normalizedPhone, setNormalizedPhone] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [loginMode, setLoginMode] = useState<'email' | 'phone'>('email'); // 'email' o 'phone'
+  const [loginMode, setLoginMode] = useState<'email' | 'phone'>('phone');
   const [googleNewUser, setGoogleNewUser] = useState<{
     displayName: string;
     email?: string;
@@ -108,10 +110,25 @@ export default function LoginScreen({ navigation }: any) {
 
       switch (code) {
         case 'auth/user-not-found':
+        case 'EMAIL_NOT_FOUND':
+          Alert.alert(
+            t('authScreens.login.accountNotFound.title'),
+            t('authScreens.login.accountNotFound.message', { email: normalizedEmail }),
+            [
+              {
+                text: t('authScreens.login.accountNotFound.cancel'),
+                style: 'cancel',
+              },
+              {
+                text: t('authScreens.login.accountNotFound.confirm'),
+                onPress: () => navigation.navigate('RegisterNew', { email: normalizedEmail }),
+              },
+            ],
+          );
+          break;
         case 'auth/wrong-password':
         case 'auth/invalid-credential':
         case 'auth/invalid-email':
-        case 'EMAIL_NOT_FOUND':
         case 'INVALID_PASSWORD':
           message = t('authScreens.login.alerts.invalidCredentials');
           break;
@@ -270,7 +287,7 @@ export default function LoginScreen({ navigation }: any) {
   const isPhoneValid = normalizedPhone ? /^\+\d{6,15}$/.test(normalizedPhone) : false;
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -278,38 +295,34 @@ export default function LoginScreen({ navigation }: any) {
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
       >
-          <View style={styles.bannerContainer}>
-            <Image
-              source={require('../../assets/images/campaña2/promo_1-2.png')}
-              style={styles.bannerImage}
-            />
-          </View>
-
-          <View style={styles.card}>
+          <Animated.View
+            entering={FadeInDown.duration(740).reduceMotion(ReduceMotion.System)}
+            style={styles.card}
+          >
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              accessibilityRole="button"
+              accessibilityLabel={t('common.actions.back')}
+              style={styles.backButton}
+            >
+              <MaterialIcons name="arrow-back" size={24} color={colors.text} />
+            </TouchableOpacity>
             <View style={styles.cardHeader}>
               <Text style={styles.title}>{t('authScreens.login.title')}</Text>
               <Text style={styles.subtitle}>
                 {t('authScreens.login.subtitle')}
               </Text>
-            </View>
-
-            {/* Tabs para cambiar entre Email y Teléfono */}
-            <View style={styles.tabsContainer}>
-              <TouchableOpacity style={styles.tab} onPress={() => setLoginMode('email')}>
-                <Text style={[styles.tabText, loginMode === 'email' && styles.tabTextActive]}>
-                  {t('authScreens.login.tabs.email')}
-                </Text>
-                {loginMode === 'email' && <View style={styles.tabUnderline} />}
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.tab} onPress={() => setLoginMode('phone')}>
-                <Text style={[styles.tabText, loginMode === 'phone' && styles.tabTextActive]}>
-                  {t('authScreens.login.tabs.phone')}
-                </Text>
-                {loginMode === 'phone' && <View style={styles.tabUnderline} />}
-              </TouchableOpacity>
+              <Animated.View
+                entering={FadeIn.delay(160).duration(680).reduceMotion(ReduceMotion.System)}
+                style={styles.headerAccent}
+              />
             </View>
 
             <View style={styles.form}>
+              <Animated.View
+                key={loginMode}
+                entering={FadeInDown.duration(240).reduceMotion(ReduceMotion.System)}
+              >
               {loginMode === 'email' ? (
                 <>
                   <Text style={styles.label}>
@@ -350,6 +363,8 @@ export default function LoginScreen({ navigation }: any) {
                       style={styles.eyeButton}
                       onPress={() => setShowPassword((prev) => !prev)}
                       activeOpacity={0.7}
+                      accessibilityRole="button"
+                      accessibilityLabel={t(showPassword ? 'authScreens.login.hidePassword' : 'authScreens.login.showPassword')}
                     >
                       <MaterialIcons
                         name={showPassword ? 'visibility-off' : 'visibility'}
@@ -359,8 +374,8 @@ export default function LoginScreen({ navigation }: any) {
                     </TouchableOpacity>
                   </View>
 
-                  <TouchableOpacity
-                    style={styles.loginButton}
+                  <PressableScale
+                    style={[styles.loginButton, (loading || googleLoading) && styles.buttonDisabled]}
                     onPress={handleLogin}
                     disabled={loading || googleLoading}
                   >
@@ -369,7 +384,7 @@ export default function LoginScreen({ navigation }: any) {
                         ? t('authScreens.login.buttons.loginEmail.loading')
                         : t('authScreens.login.buttons.loginEmail.idle')}
                     </Text>
-                  </TouchableOpacity>
+                  </PressableScale>
                 </>
               ) : (
                 <>
@@ -391,8 +406,8 @@ export default function LoginScreen({ navigation }: any) {
                     {t('authScreens.login.fields.phoneHelper')}
                   </Text>
 
-                  <TouchableOpacity
-                    style={styles.loginButton}
+                  <PressableScale
+                    style={[styles.loginButton, (loading || googleLoading || !isPhoneValid) && styles.buttonDisabled]}
                     onPress={handlePhoneLogin}
                     disabled={
                       loading ||
@@ -405,11 +420,23 @@ export default function LoginScreen({ navigation }: any) {
                         ? t('authScreens.login.buttons.loginPhone.loading')
                         : t('authScreens.login.buttons.loginPhone.idle')}
                     </Text>
-                  </TouchableOpacity>
+                  </PressableScale>
                 </>
               )}
+              </Animated.View>
 
-              {/* Separador */}
+              <Animated.View layout={LinearTransition.duration(220).reduceMotion(ReduceMotion.System)}>
+              <PressableScale
+                style={styles.alternativeButton}
+                onPress={() => setLoginMode(loginMode === 'phone' ? 'email' : 'phone')}
+                disabled={loading || googleLoading}
+                accessibilityRole="button"
+              >
+                <Text style={styles.alternativeButtonText}>
+                  {t(loginMode === 'phone' ? 'authScreens.login.useEmail' : 'authScreens.login.usePhone')}
+                </Text>
+              </PressableScale>
+
               <View style={styles.dividerContainer}>
                 <View style={styles.divider} />
                 <Text style={styles.dividerText}>
@@ -426,7 +453,7 @@ export default function LoginScreen({ navigation }: any) {
                 variant="login"
               />
 
-              <TouchableOpacity
+              <PressableScale
                 style={styles.registerButton}
                 onPress={() => navigation.navigate('RegistrationCheckpoint')}
                 disabled={loading || googleLoading}
@@ -434,9 +461,10 @@ export default function LoginScreen({ navigation }: any) {
                 <Text style={styles.registerButtonText}>
                   {t('authScreens.login.buttons.register')}
                 </Text>
-              </TouchableOpacity>
+              </PressableScale>
+              </Animated.View>
             </View>
-          </View>
+          </Animated.View>
       </ScrollView>
 
       <GoogleRegisterPrompt
@@ -461,37 +489,67 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     flexGrow: 1,
     backgroundColor: colors.background,
     paddingHorizontal: 14,
-    paddingBottom: 24,
+    paddingTop: 16,
+    paddingBottom: 32,
+    justifyContent: 'center',
   },
-  bannerContainer: {
-    width: '100%',
-    height: 250,
-    marginTop: 0,
+  backButton: {
+    alignSelf: 'flex-start',
+    width: 44,
+    height: 44,
+    marginLeft: -8,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  bannerImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
+  alternativeButton: {
+    minHeight: 50,
+    backgroundColor: colors.background,
+    borderWidth: 0.2,
+    borderColor: colors.border,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  alternativeButtonText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '600',
   },
   card: {
-    marginTop: 5,
-    marginBottom: 0,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    borderBottomEndRadius: 24,
-    borderBottomStartRadius: 24,
+    width: '100%',
+    maxWidth: 480,
+    alignSelf: 'center',
+    borderRadius: 28,
     backgroundColor: colors.card,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingTop: 24,
     paddingBottom: 32,
+    borderWidth: isDark ? 1 : 0,
+    borderColor: colors.border,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.25,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: isDark ? 0.24 : 0.14,
     shadowRadius: 12,
-    elevation: 8,
+    elevation: 6,
   },
   cardHeader: {
-    marginBottom: 16,
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 28,
+  },
+  headerAccent: {
+    width: 32,
+    height: 3,
+    borderRadius: 3,
+    backgroundColor: colors.primary,
+    marginTop: 18,
+    opacity: 0.7,
   },
   content: {
     flex: 1,
@@ -502,17 +560,17 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     marginBottom: 10,
   },
   title: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: '800',
     color: colors.primary,
-    marginBottom: 6,
-    letterSpacing: 0.3,
+    textAlign: 'center',
+    marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
     color: colors.textSecondary,
-    marginBottom: 24,
     fontWeight: '500',
+    textAlign: 'center',
   },
   form: {
     width: '100%',
@@ -559,17 +617,19 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   loginButton: {
     backgroundColor: colors.primary,
     padding: 14,
-    borderRadius: 12,
+    borderRadius: 999,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
     marginTop: 6,
     shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.5,
     shadowRadius: 6,
     elevation: 4,
   },
   loginButtonText: {
-    color: colors.background,
+    color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '800',
     letterSpacing: 0.3,
@@ -578,6 +638,9 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     padding: 12,
     alignItems: 'center',
     marginTop: 12,
+  },
+  buttonDisabled: {
+    opacity: 0.5,
   },
   registerButtonText: {
     color: colors.primary,
@@ -599,32 +662,6 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 12,
     fontWeight: '600',
-  },
-  tabsContainer: {
-    flexDirection: 'row',
-    marginBottom: 24,
-    columnGap: 24,
-  },
-  tab: {
-    paddingVertical: 4,
-    alignItems: 'flex-start',
-    justifyContent: 'flex-start',
-  },
-  tabText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.textSecondary,
-    letterSpacing: 0.2,
-  },
-  tabTextActive: {
-    color: colors.primary,
-  },
-  tabUnderline: {
-    marginTop: 2,
-    height: 2,
-    borderRadius: 999,
-    backgroundColor: colors.primary,
-    alignSelf: 'stretch',
   },
   helperText: {
     fontSize: 13,

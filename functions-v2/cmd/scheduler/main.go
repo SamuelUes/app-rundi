@@ -49,7 +49,7 @@ func main() {
 	defer pool.Close()
 
 	crewSvc := crew.NewService(pool, fsClient)
-	compSvc := compliance.NewService(pool, nil, nil)
+	compSvc := compliance.NewService(pool, nil, nil, fsClient)
 	progSvc := programmed.NewService(pool, fsClient)
 
 	// SCHEDULER_ONLY selecciona el grupo de barridos (job dedicado por
@@ -94,6 +94,13 @@ func main() {
 			slog.Error("driver sessions sweep", "err", err)
 		} else if n > 0 {
 			slog.Info("driver sessions sweep", "revoked", n)
+		}
+		// Sesiones Firestore vencidas (autoridad _fs): revoca por la cola de
+		// expiración con fence de secuencia; es no-op si no hay sesiones _fs.
+		if n, err := compliance.SweepFirestoreSessionExpiry(ctx, fsClient); err != nil {
+			slog.Error("Firestore availability expiry sweep", "err", err)
+		} else if n > 0 {
+			slog.Info("Firestore availability expiry sweep", "revoked", n)
 		}
 		if err := expireOffers(ctx, fsClient, pool); err != nil {
 			slog.Error("offers sweep", "err", err)

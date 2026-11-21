@@ -18,6 +18,17 @@ const authScreens = {
             login: {
               title: 'Welcome',
               subtitle: 'Log in to continue',
+              useEmail: 'Use email and password',
+              usePhone: 'Use phone and SMS',
+              showPassword: 'Show password',
+              hidePassword: 'Hide password',
+              accountNotFound: {
+                title: 'Account not found',
+                message: 'We could not find an account for {{email}}. Would you like to sign up?',
+                phoneMessage: 'We could not find an account linked to this phone. Would you like to sign up?',
+                confirm: 'Go to sign up',
+                cancel: 'Not now',
+              },
               tabs: {
                 email: 'Email',
                 phone: 'Phone',

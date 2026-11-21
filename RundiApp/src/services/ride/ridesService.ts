@@ -69,6 +69,10 @@ export interface RequestRideData {
   serviceAreaId?: string | null;
   selectedFeatureCodes?: string[];
   designatedDriverVehicle?: 'auto' | 'moto';
+  biometricAcceptanceRequired?: boolean;
+  biometricAcceptanceType?: string;
+  biometricAcceptanceVerified?: boolean;
+  biometricAcceptanceAt?: string;
 }
 
 export interface AcceptRideData {
@@ -588,6 +592,10 @@ class RidesService {
         extraDestinations: data.extraDestinations,
         selectedFeatureCodes: data.selectedFeatureCodes,
         designatedDriverVehicle: data.designatedDriverVehicle,
+        biometricAcceptanceRequired: data.biometricAcceptanceRequired,
+        biometricAcceptanceType: data.biometricAcceptanceType,
+        biometricAcceptanceVerified: data.biometricAcceptanceVerified,
+        biometricAcceptanceAt: data.biometricAcceptanceAt,
       } as unknown as RequestRideRequest;
 
       const { ride } = await v2RequestRide(body);
@@ -638,6 +646,10 @@ class RidesService {
       clientVehiclePhoto: data.clientVehiclePhoto,
       designatedDriverVehicle: data.designatedDriverVehicle,
       selectedFeatureCodes: data.selectedFeatureCodes,
+      biometricAcceptanceRequired: data.biometricAcceptanceRequired,
+      biometricAcceptanceType: data.biometricAcceptanceType,
+      biometricAcceptanceVerified: data.biometricAcceptanceVerified,
+      biometricAcceptanceAt: data.biometricAcceptanceAt,
     });
 
     await analyticsService.logRideEvent(AnalyticsEvents.RIDE_REQUESTED, id, {

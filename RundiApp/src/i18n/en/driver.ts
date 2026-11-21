@@ -16,7 +16,19 @@ const driver = {
           categories: 'Categories', plate: 'Plate', insurer: 'Insurer', coverage: 'Coverage',
           brand: 'Brand', model: 'Model', year: 'Year',
         },
-        home: {
+          home: {
+            documentDates: {
+              title: 'Check your documents',
+              license: 'Driver license',
+              circulation: 'Vehicle registration',
+              insurance: 'Insurance policy',
+              inspection: 'Vehicle inspection',
+              emissions: 'Emissions certificate',
+              revisado: 'Vehicle sticker',
+              expired: '{{document}}: expired on {{date}}.',
+              upcoming: '{{document}}: expires on {{date}}.',
+              notYetValid: '{{document}}: starts on {{date}}.',
+            },
           loading: {
             initializing: 'Preparing your driver dashboard...',
             locating: 'Getting your location...',

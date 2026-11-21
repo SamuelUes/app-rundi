@@ -301,7 +301,7 @@ const client = {
           commentLabel: 'Comment',
           commentPlaceholder: 'Trip details...',
           vehicleSection: 'Vehicle',
-          paymentSection: 'Payment method',
+          paymentSection: 'Payment',
           incompleteRoute: 'Set the origin and destination to save the trip.',
           mapPickHint: 'Tap the map to set the point.',
           expandForm: 'Show form',
@@ -310,6 +310,13 @@ const client = {
           card: 'Card',
         },
         homeOffers: {
+          editProposal: 'Edit my offer',
+          proposal: {
+            decrease: 'Decrease offer',
+            increase: 'Increase offer',
+            edit: 'Edit price',
+            send: 'Send',
+          },
           title: 'Nearby offers',
           loading: 'Loading offers...',
           errorStatus: 'Error',
@@ -329,6 +336,15 @@ const client = {
           cancelConfirmBodyEmpty: 'Your request will be removed and nearby drivers will stop seeing it.',
           cancelConfirmYes: 'Yes, cancel',
           cancelConfirmNo: 'Keep searching',
+          cancelConfirmSkip: 'Skip and cancel',
+          cancelReasons: {
+            prompt: 'Why are you canceling?',
+            wait_too_long: 'The wait is too long',
+            price_too_high: 'The price is too high',
+            plans_changed: 'My plans changed',
+            wrong_details: 'I entered the wrong trip details',
+            other: 'Another reason',
+          },
           list: {
             designatedOffer: 'Designated driver',
             crewTitle: 'Arrival team',
@@ -359,6 +375,7 @@ const client = {
           a11y: {
             messageDriver: 'Message driver',
             seeReviews: 'See driver reviews',
+            close: 'Close and keep searching',
           },
           negotiation: {
             pill: 'Negotiate',

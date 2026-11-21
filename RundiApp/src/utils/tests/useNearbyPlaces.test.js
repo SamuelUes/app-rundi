@@ -2,7 +2,7 @@ import { act, renderHook } from '@testing-library/react-native';
 import { useNearbyPlaces } from '../../hooks/client/HomeScreen/useNearbyPlaces';
 import googleMapsService from '../../services/map/googleMapsService';
 
-jest.mock('../../../services/map/googleMapsService', () => ({
+jest.mock('../../services/map/googleMapsService', () => ({
   __esModule: true,
   default: { getNearbyPlaces: jest.fn() },
 }));

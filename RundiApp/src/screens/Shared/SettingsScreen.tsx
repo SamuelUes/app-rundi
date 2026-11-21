@@ -17,7 +17,6 @@ import { SettingsLanguageSection } from '../../components/shared/Settings/Settin
 import { SettingsPrivacySection } from '../../components/shared/Settings/SettingsPrivacySection';
 import { SettingsAboutSection } from '../../components/shared/Settings/SettingsAboutSection';
 
-const SETTINGS_FONT = '';
 
 export default function SettingsScreen({ navigation }: any) {
   const { theme, setTheme, colors, isDark, mapTrafficEnabled, setMapTrafficEnabled } = useTheme();
@@ -220,14 +219,12 @@ export default function SettingsScreen({ navigation }: any) {
       flex: 1,
     },
     headerTitle: {
-      fontFamily: SETTINGS_FONT,
       fontSize: 24,
       fontWeight: '700',
       color: '#FFFFFF',
       letterSpacing: 0.2,
     },
     headerSubtitle: {
-      fontFamily: SETTINGS_FONT,
       fontSize: 13,
       color: 'rgba(255, 255, 255, 0.85)',
       marginTop: 3,
@@ -251,7 +248,6 @@ export default function SettingsScreen({ navigation }: any) {
       elevation: 6,
     },
     sectionTitle: {
-      fontFamily: SETTINGS_FONT,
       fontSize: 16,
       fontWeight: '700',
       color: colors.text,
@@ -295,7 +291,6 @@ export default function SettingsScreen({ navigation }: any) {
       marginRight: 8,
     },
     rowTitle: {
-      fontFamily: SETTINGS_FONT,
       fontSize: 15,
       fontWeight: '600',
       color: colors.text,
@@ -304,7 +299,6 @@ export default function SettingsScreen({ navigation }: any) {
       color: colors.error,
     },
     rowDescription: {
-      fontFamily: SETTINGS_FONT,
       fontSize: 12.5,
       color: colors.textSecondary,
       marginTop: 2,
@@ -342,7 +336,6 @@ export default function SettingsScreen({ navigation }: any) {
       backgroundColor: colors.primary,
     },
     segmentText: {
-      fontFamily: SETTINGS_FONT,
       fontSize: 13,
       fontWeight: '600',
       color: colors.textSecondary,
@@ -371,7 +364,6 @@ export default function SettingsScreen({ navigation }: any) {
       borderColor: colors.primary,
     },
     languageButtonText: {
-      fontFamily: SETTINGS_FONT,
       fontSize: 13,
       color: colors.textSecondary,
       fontWeight: '600',
@@ -392,7 +384,6 @@ export default function SettingsScreen({ navigation }: any) {
       borderRadius: 16,
     },
     logoutButtonText: {
-      fontFamily: SETTINGS_FONT,
       fontSize: 15.5,
       fontWeight: '700',
       color: '#FFFFFF',

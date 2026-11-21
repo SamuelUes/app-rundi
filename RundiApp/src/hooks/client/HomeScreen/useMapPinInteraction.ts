@@ -52,10 +52,12 @@ export function useMapPinInteraction(
   const [isSavingLocation, setIsSavingLocation] = useState(false);
   const [isHoldingPin, setIsHoldingPin] = useState(false);
   const [isPinLocked, setIsPinLocked] = useState(true);
-  const [selectedPlaceName, setSelectedPlaceName] = useState<string | null>(null);
+  const [selectedPlace, setSelectedPlace] = useState<NearbyPlace | null>(null);
 
   const mapGestureActiveRef = useRef(false);
   const lastCommittedCoordsRef = useRef<CommittedCoords | null>(null);
+  const committedCoordsPropRef = useRef<CommittedCoords | null>(null);
+  const committedPlaceRef = useRef<NearbyPlace | null>(null);
   const regionIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectionGenerationRef = useRef(0);
   const savingRef = useRef(false);
@@ -82,7 +84,18 @@ export function useMapPinInteraction(
   // Sync mapCenter when committedCoords changes
   useEffect(() => {
     if (committedCoords) {
+      const previousCommittedProp = committedCoordsPropRef.current;
+      committedCoordsPropRef.current = committedCoords;
       lastCommittedCoordsRef.current = committedCoords;
+      if (!areCoordsEqual(previousCommittedProp, committedCoords)) {
+        const committedPlace = committedPlaceRef.current;
+        if (committedPlace && areCoordsEqual(committedPlace, committedCoords)) {
+          setSelectedPlace(committedPlace);
+        } else {
+          committedPlaceRef.current = null;
+          setSelectedPlace(null);
+        }
+      }
     }
 
     if (isSavingLocation || hasPendingManualSelection) return;
@@ -111,7 +124,7 @@ export function useMapPinInteraction(
   ]);
 
   const restoreCommitted = useCallback(() => {
-    setSelectedPlaceName(null);
+    setSelectedPlace(committedPlaceRef.current);
     setMapCenter(lastCommittedCoordsRef.current);
     if (lastCommittedCoordsRef.current) onRestoreLocation(lastCommittedCoordsRef.current);
     setHasPendingManualSelection(false);
@@ -130,8 +143,10 @@ export function useMapPinInteraction(
       if (place) {
         location = { latitude: place.latitude, longitude: place.longitude };
         setMapCenter(location);
-        setSelectedPlaceName(place.name);
+        setSelectedPlace(place);
         onRestoreLocation(location);
+      } else {
+        setSelectedPlace(null);
       }
       const [region, address] = await Promise.all([
         checkRegionForCoords(location.latitude, location.longitude),
@@ -157,6 +172,8 @@ export function useMapPinInteraction(
       });
       if (!isCurrent()) return;
       lastCommittedCoordsRef.current = location;
+      committedPlaceRef.current = place;
+      setSelectedPlace(place);
       setRegionStatus(region);
       setPendingAddress(finalAddress);
       setHasPendingManualSelection(false);
@@ -192,7 +209,7 @@ export function useMapPinInteraction(
     if (selectionDisabled || savingRef.current) return;
     if (mapGestureActiveRef.current) return;
     selectionGenerationRef.current += 1;
-    setSelectedPlaceName(null);
+    setSelectedPlace(null);
     clearRegionIdleTimeout();
     mapGestureActiveRef.current = true;
     setIsPinLocked(false);
@@ -241,6 +258,7 @@ export function useMapPinInteraction(
     const movedFromCommitted = !lastCommitted || !areCoordsEqual(lastCommitted, normalizedCenter, COORDS_EPSILON);
 
     if (!movedFromCommitted) {
+      setSelectedPlace(committedPlaceRef.current);
       setHasPendingManualSelection(false);
       setPendingAddress((prev) =>
         prev && prev !== t('client.home.map.loadingAddress')
@@ -291,7 +309,9 @@ export function useMapPinInteraction(
 
   return {
     mapCenter,
-    selectedPlaceName,
+    selectedPlace,
+    selectedPlaceId: selectedPlace?.id ?? null,
+    selectedPlaceName: selectedPlace?.name ?? null,
     pendingAddress,
     hasPendingManualSelection,
     isResolvingAddress,

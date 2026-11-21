@@ -94,8 +94,15 @@ export function useAuthActions() {
         await updateUserMode(resolveUserModeFromRole(normalizedUser.role));
         await ensureTrackingIfNeeded(normalizedUser.role);
       } catch (error: any) {
-        if (error?.code === 'ACCOUNT_DISABLED' || error?.message === 'ACCOUNT_DISABLED') {
-          throw new Error('Tu cuenta está desactivada. Contacta soporte para reactivarla.');
+        const accountStatusError =
+          error?.code === 'ACCOUNT_DISABLED' ||
+          error?.code === 'ACCOUNT_DEACTIVATED' ||
+          error?.code === 'ACCOUNT_DELETED' ||
+          ['ACCOUNT_DISABLED', 'ACCOUNT_DEACTIVATED', 'ACCOUNT_DELETED'].includes(error?.message);
+        if (accountStatusError) {
+          const auth = await getFirebaseAuth();
+          await auth.signOut().catch(() => undefined);
+          throw new Error('Esta cuenta ya no puede iniciar sesión.');
         }
         throw error;
       }
@@ -256,7 +263,16 @@ export function useAuthActions() {
         let profileData: any = null;
         try {
           profileData = await firebaseAuthService.getUserProfile(effectiveId);
-        } catch (profileErr) {
+        } catch (profileErr: any) {
+          const accountStatusError =
+            ['ACCOUNT_DISABLED', 'ACCOUNT_DEACTIVATED', 'ACCOUNT_DELETED'].includes(profileErr?.code) ||
+            ['ACCOUNT_DISABLED', 'ACCOUNT_DEACTIVATED', 'ACCOUNT_DELETED'].includes(profileErr?.message);
+          if (accountStatusError) {
+            await authService.logout().catch(() => undefined);
+            await AsyncStorage.removeItem('user');
+            setUser(null);
+            throw new Error('Esta cuenta ya no puede iniciar sesión.');
+          }
           console.warn('⚠️ No se pudo obtener perfil:', profileErr);
         }
 

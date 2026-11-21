@@ -4,7 +4,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { LoadingIcon } from '../../ui/LoadingIcon';
 import { DriverHomeNavChips } from './DriverHomeNavChips';
-import { BannerRow } from './DriverHomeBanners';
+import { BannerRow, InsufficientFundsBanner } from './DriverHomeBanners';
+import type { RechargeFundsSummary } from './DriverHomeBanners';
 import { useTheme } from '../../../hooks/shared/theme/useTheme';
 import type { TFunction } from 'i18next';
 
@@ -15,6 +16,9 @@ interface DriverHomeBottomBarProps {
   updatingStatus: boolean;
   hasPendingAction: boolean;
   hasInsufficientFunds: boolean;
+  rechargeFundsSummary: RechargeFundsSummary | null;
+  onRechargePress: () => void;
+  banners?: React.ReactNode;
   todayEarnings: number;
   formatCurrency: (value?: number) => string;
   availableRequestsCount: number;
@@ -23,7 +27,6 @@ interface DriverHomeBottomBarProps {
   onNavigateAvailableRides: () => void;
   onNavigateEarnings: () => void;
   onNavigate: (route: any) => void;
-  onLogout: () => void;
   crewChip?: React.ReactNode;
   pendingAction?: { title: string; subtitle: string; onPress: () => void } | null;
   styles: any;
@@ -37,6 +40,9 @@ export function DriverHomeBottomBar({
   updatingStatus,
   hasPendingAction,
   hasInsufficientFunds,
+  rechargeFundsSummary,
+  onRechargePress,
+  banners,
   todayEarnings,
   formatCurrency,
   availableRequestsCount,
@@ -45,14 +51,12 @@ export function DriverHomeBottomBar({
   onNavigateAvailableRides,
   onNavigateEarnings,
   onNavigate,
-  onLogout,
   crewChip,
   pendingAction,
   styles,
   t,
 }: DriverHomeBottomBarProps) {
   const { isDark } = useTheme();
-  const compact = hasPendingAction || hasInsufficientFunds;
   const iconMuted = isDark ? 'rgba(28,25,23,0.55)' : 'rgba(255,255,255,0.72)';
 
   return (
@@ -106,10 +110,11 @@ export function DriverHomeBottomBar({
       <DriverHomeNavChips
         userRole={userRole}
         onNavigate={onNavigate}
-        onLogout={onLogout}
         styles={styles}
         t={t}
       />
+
+      {banners}
 
       {pendingAction && (
         <BannerRow
@@ -122,8 +127,20 @@ export function DriverHomeBottomBar({
         />
       )}
 
-      {!hasPendingAction && (
-      <View style={[styles.dock, compact && styles.dockCompact]}>
+      {/* Banner de fondos pegado al botón de disponibilidad (contexto del gate) */}
+      {hasInsufficientFunds && (
+        <InsufficientFundsBanner
+          summary={rechargeFundsSummary}
+          onPress={onRechargePress}
+          styles={styles}
+          t={t}
+        />
+      )}
+
+      {/* Sin fondos el conductor no puede ir online: se oculta el dock y el
+          banner de recarga queda abajo como la acción principal. */}
+      {!hasPendingAction && !hasInsufficientFunds && (
+      <View style={styles.dock}>
         <Pressable
           style={({ pressed }) => [
             styles.availabilityButton,
@@ -149,44 +166,40 @@ export function DriverHomeBottomBar({
           )}
         </Pressable>
 
-        {!compact && (
-          <>
-            <Pressable
-              style={({ pressed }) => [
-                styles.earningsArea,
-                pressed && styles.earningsAreaPressed,
-              ]}
-              onPress={onNavigateEarnings}
-              accessibilityRole="button"
-            >
-              <Text style={styles.earningsLabel}>
-                {t('driver.home.stats.totalToday')}
-              </Text>
-              <Text style={styles.earningsValue}>{formatCurrency(todayEarnings)}</Text>
-            </Pressable>
+        <Pressable
+          style={({ pressed }) => [
+            styles.earningsArea,
+            pressed && styles.earningsAreaPressed,
+          ]}
+          onPress={onNavigateEarnings}
+          accessibilityRole="button"
+        >
+          <Text style={styles.earningsLabel}>
+            {t('driver.home.stats.totalToday')}
+          </Text>
+          <Text style={styles.earningsValue}>{formatCurrency(todayEarnings)}</Text>
+        </Pressable>
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.requestsButton,
-                pressed && styles.requestsButtonPressed,
-              ]}
-              onPress={onNavigateAvailableRides}
-              accessibilityRole="button"
-            >
-              <Text style={styles.requestsLabel}>
-                {t('driver.home.cta.viewRequests')}
+        <Pressable
+          style={({ pressed }) => [
+            styles.requestsButton,
+            pressed && styles.requestsButtonPressed,
+          ]}
+          onPress={onNavigateAvailableRides}
+          accessibilityRole="button"
+        >
+          <Text style={styles.requestsLabel}>
+            {t('driver.home.cta.viewRequests')}
+          </Text>
+          {availableRequestsCount > 0 && (
+            <View style={styles.requestsBadge}>
+              <Text style={styles.requestsBadgeText}>
+                {availableRequestsCount > 99 ? '99+' : availableRequestsCount}
               </Text>
-              {availableRequestsCount > 0 && (
-                <View style={styles.requestsBadge}>
-                  <Text style={styles.requestsBadgeText}>
-                    {availableRequestsCount > 99 ? '99+' : availableRequestsCount}
-                  </Text>
-                </View>
-              )}
-              <MaterialIcons name="arrow-forward" size={17} color="#241A09" />
-            </Pressable>
-          </>
-        )}
+            </View>
+          )}
+          <MaterialIcons name="arrow-forward" size={17} color="#241A09" />
+        </Pressable>
       </View>
       )}
     </View>

@@ -6,6 +6,7 @@ import {
   FlatList,
   Pressable,
   Text,
+  TextInput,
   TouchableOpacity,
   useWindowDimensions,
   View,
@@ -14,11 +15,20 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadingIcon } from '../../ui/LoadingIcon';
 import StorageImage from '../../shared/StorageImage';
+import { formatCurrency } from '../../../utils/format/safeFormatters';
 import type { OfferItem } from '../../../hooks/client/HomeScreenOffers/useRideOffers';
 import type { TFunction } from 'i18next';
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 const PULSE_DURATION_MS = 2400;
+
+interface ProposalStepperConfig {
+  currentPrice: number;
+  minPrice: number;
+  maxPrice: number;
+  step?: number;
+  onSend: (price: number) => void | Promise<void>;
+}
 
 interface AssignedDriverInfo {
   driverId: string;
@@ -49,6 +59,7 @@ interface HomeScreenOffersBottomSheetProps {
   onShowDriverReviews: () => void;
   onConfirmSelectedDriver: () => void;
   onCancelSearch: () => void;
+  proposal?: ProposalStepperConfig | null;
   onHeightChange?: (height: number) => void;
   styles: any;
   t: TFunction;
@@ -72,6 +83,7 @@ export function HomeScreenOffersBottomSheet({
   onShowDriverReviews,
   onConfirmSelectedDriver,
   onCancelSearch,
+  proposal,
   onHeightChange,
   styles,
   t,
@@ -84,6 +96,56 @@ export function HomeScreenOffersBottomSheet({
   const pulse = useRef(new Animated.Value(0)).current;
   const [reduceMotion, setReduceMotion] = useState(false);
   const [slowSearch, setSlowSearch] = useState(false);
+  const [proposalDraft, setProposalDraft] = useState<number | null>(null);
+  const [proposalSent, setProposalSent] = useState<number | null>(null);
+  const [proposalEditing, setProposalEditing] = useState(false);
+  const [proposalText, setProposalText] = useState('');
+
+  const proposalStep = proposal?.step ?? 5;
+  const proposalValue = proposalDraft ?? proposal?.currentPrice ?? 0;
+  const proposalDirty =
+    proposal != null &&
+    proposalDraft != null &&
+    proposalDraft !== proposal.currentPrice &&
+    proposalDraft !== proposalSent;
+  const canDecreaseProposal =
+    proposal != null && proposalValue - proposalStep >= proposal.minPrice;
+  const canIncreaseProposal =
+    proposal != null && proposalValue + proposalStep <= proposal.maxPrice;
+
+  useEffect(() => {
+    setProposalDraft(null);
+    setProposalSent(null);
+    setProposalEditing(false);
+  }, [proposal?.currentPrice]);
+
+  const clampProposal = (value: number) => {
+    if (!proposal) return value;
+    const rounded = Math.round(value * 100) / 100;
+    return Math.min(proposal.maxPrice, Math.max(proposal.minPrice, rounded));
+  };
+
+  const stepProposal = (direction: 1 | -1) => {
+    if (!proposal) return;
+    const next = clampProposal(proposalValue + direction * proposalStep);
+    setProposalDraft(next === proposal.currentPrice ? null : next);
+  };
+
+  const commitProposalText = () => {
+    setProposalEditing(false);
+    if (!proposal) return;
+    const parsed = parseFloat(proposalText.replace(',', '.'));
+    setProposalText('');
+    if (!Number.isFinite(parsed)) return;
+    const next = clampProposal(parsed);
+    setProposalDraft(next === proposal.currentPrice ? null : next);
+  };
+
+  const sendProposal = () => {
+    if (!proposal || proposalDraft == null) return;
+    setProposalSent(proposalDraft);
+    proposal.onSend(proposalDraft);
+  };
 
   useEffect(() => {
     if (!searching) {
@@ -422,6 +484,103 @@ export function HomeScreenOffersBottomSheet({
           <MaterialIcons name="chevron-right" size={16} color={colors.textTertiary} />
         </Pressable>
       ) : null}
+
+      {proposal && (
+        <View
+          style={[
+            styles.proposalRow,
+            { borderColor: colors.primary, marginVertical: 6 },
+          ]}
+        >
+          <TouchableOpacity
+            onPress={() => stepProposal(-1)}
+            disabled={!canDecreaseProposal}
+            accessibilityRole="button"
+            accessibilityLabel={t('client.homeOffers.proposal.decrease')}
+            style={[
+              styles.proposalStepBtn,
+              { borderColor: colors.border },
+              !canDecreaseProposal && styles.proposalStepBtnDisabled,
+            ]}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons
+              name="remove"
+              size={18}
+              color={canDecreaseProposal ? colors.text : colors.textTertiary}
+            />
+          </TouchableOpacity>
+
+          {proposalEditing ? (
+            <TextInput
+              autoFocus
+              keyboardType="decimal-pad"
+              value={proposalText}
+              onChangeText={setProposalText}
+              onSubmitEditing={commitProposalText}
+              onBlur={commitProposalText}
+              returnKeyType="done"
+              selectTextOnFocus
+              style={[styles.proposalPriceInput, { color: colors.text }]}
+              accessibilityLabel={t('client.homeOffers.proposal.edit')}
+            />
+          ) : (
+            <Pressable
+              onPress={() => {
+                setProposalText(String(proposalValue));
+                setProposalEditing(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={t('client.homeOffers.proposal.edit')}
+              style={styles.proposalPriceWrap}
+            >
+              <Text
+                style={[
+                  styles.proposalPriceText,
+                  { color: proposalDirty ? colors.primary : colors.text },
+                ]}
+              >
+                {formatCurrency(proposalValue)}
+              </Text>
+            </Pressable>
+          )}
+
+           {proposalDirty && (
+            <TouchableOpacity
+              onPress={sendProposal}
+              accessibilityRole="button"
+              style={[styles.proposalSendBtn, { backgroundColor: colors.primary }]}
+              activeOpacity={0.85}
+            >
+              <MaterialIcons name="send" size={20} color="#fff" />
+              {/* <Text style={styles.proposalSendText}>
+                {t('client.homeOffers.proposal.send')}
+              </Text> */}
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            onPress={() => stepProposal(1)}
+            disabled={!canIncreaseProposal}
+            accessibilityRole="button"
+            accessibilityLabel={t('client.homeOffers.proposal.increase')}
+            style={[
+              styles.proposalStepBtn,
+              { borderColor: colors.border },
+              !canIncreaseProposal && styles.proposalStepBtnDisabled,
+            ]}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons
+              name="add"
+              size={18}
+              color={canIncreaseProposal ? colors.text : colors.textTertiary}
+            />
+          </TouchableOpacity>
+
+         
+        </View>
+      )}
 
       <AnimatedTouchableOpacity
         style={[

@@ -189,12 +189,15 @@ export function useAuthInit() {
                 }
               } catch (profileError: any) {
                 if (observedUid !== firebaseUser.uid) return;
-                if (profileError?.code === 'ACCOUNT_DISABLED' || profileError?.message === 'ACCOUNT_DISABLED') {
+                const accountStatusError =
+                  ['ACCOUNT_DISABLED', 'ACCOUNT_DEACTIVATED', 'ACCOUNT_DELETED'].includes(profileError?.code) ||
+                  ['ACCOUNT_DISABLED', 'ACCOUNT_DEACTIVATED', 'ACCOUNT_DELETED'].includes(profileError?.message);
+                if (accountStatusError) {
                   try { await firebaseAuthService.logout(); } catch {}
                   await AsyncStorage.removeItem('user');
                   setUser(null);
                   setUserMode('client');
-                  alertService.showErrorAlert('Tu cuenta está desactivada. Contacta soporte para reactivarla.');
+                  alertService.showErrorAlert('Esta cuenta ya no puede iniciar sesión.');
                   return;
                 }
                 if (profileError?.code === 'PROFILE_NOT_FOUND') {

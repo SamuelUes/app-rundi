@@ -26,6 +26,17 @@ class PhoneAuthService {
     return /^\+\d{6,15}$/.test(normalized);
   }
 
+  getVerificationId(phone: string): string | null {
+    const normalized = this.normalizePhone(phone);
+    const confirmation = this.confirmations.get(normalized);
+    return confirmation?.verificationId ?? null;
+  }
+
+  clearVerification(phone: string): void {
+    const normalized = this.normalizePhone(phone);
+    this.confirmations.delete(normalized);
+  }
+
   async sendVerificationCode(phone: string): Promise<void> {
     const nativeAuthModule = await this.getNativeAuthModule();
     const normalized = this.normalizePhone(phone);
@@ -83,7 +94,6 @@ class PhoneAuthService {
 
     try {
       console.log('📱 [phoneAuthService] Confirmando código para número:', normalized);
-      console.log('📱 [phoneAuthService] Código ingresado:', code);
       const credential = await confirmation.confirm(code);
       if (!credential) {
         throw new Error(this.tr('errors.confirmFailed'));
@@ -137,6 +147,10 @@ class PhoneAuthService {
   clearConfirmation(phone: string) {
     const normalized = this.normalizePhone(phone);
     this.confirmations.delete(normalized);
+  }
+
+  hasActiveVerification(phone: string): boolean {
+    return this.confirmations.has(this.normalizePhone(phone));
   }
 
   /**

@@ -450,6 +450,7 @@ class FCMService {
             data || {},
             notificationKey,
             expiresInMs,
+            data?.type === 'ride_live_update' || data?.type === 'ride_driver_offered',
           );
         } else {
           await notificationService.showLocalNotification(

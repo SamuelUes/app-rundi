@@ -83,7 +83,7 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
              'name', 'phone', 'email', 'birthDate', 'profilePhoto',
              'authProvider', 'notificationsEnabled', 'updatedAt', 'lastSeenAt']);
-      allow delete: if false; // baja de cuenta va por API (deactivateUserAccount)
+      allow delete: if false; // La baja lógica la ejecuta la API; conserva un tombstone sin PII.
 
       match /fcmTokens/{tokenId} {
         function validToken() {
@@ -290,7 +290,7 @@ service cloud.firestore {
         allow write: if false;
       }
       match /private/{privateDoc} {
-        allow get: if privateDoc == 'biometric' && (isOwner(driverId) || isOperator());
+        allow get: if privateDoc in ['biometric', 'documents', 'availability'] && (isOwner(driverId) || isOperator());
         allow list, write: if false;
       }
     }
@@ -482,6 +482,15 @@ service cloud.firestore {
     // Decisión diaria de compliance reutilizable — solo el backend la escribe
     // y la lee (contiene motivos internos de la evaluación).
     match /SYSTEM_driver_daily_compliance/{driverId} {
+      allow read, write: if false;
+    }
+    match /SYSTEM_driver_availability_inputs/{driverId} {
+      allow read, write: if false;
+    }
+    match /SYSTEM_driver_availability_expirations/{driverId} {
+      allow read, write: if false;
+    }
+    match /SYSTEM_compliance_policy/{docId} {
       allow read, write: if false;
     }
 

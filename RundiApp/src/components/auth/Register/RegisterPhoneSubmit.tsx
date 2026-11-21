@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text } from 'react-native';
 import { LoadingIcon } from '../../ui/LoadingIcon';
+import { PressableScale } from '../../ui/PressableScale';
 import type { TFunction } from 'i18next';
 
 interface RegisterPhoneSubmitProps {
@@ -20,7 +21,7 @@ export function RegisterPhoneSubmit({
 }: RegisterPhoneSubmitProps) {
   return (
     <View style={styles.phoneActionsRow}>
-      <TouchableOpacity
+      <PressableScale
         style={[
           styles.phoneNextButton,
           (!isPhoneFormValid || loading) && styles.buttonDisabled,
@@ -35,7 +36,7 @@ export function RegisterPhoneSubmit({
             {t('authScreens.register.buttons.phoneNext')}
           </Text>
         )}
-      </TouchableOpacity>
+      </PressableScale>
     </View>
   );
 }

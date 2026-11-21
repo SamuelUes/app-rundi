@@ -8,10 +8,13 @@ package users
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/firestore"
 	firebase "firebase.google.com/go/v4"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -67,11 +70,29 @@ func (s *Service) Bootstrap(ctx context.Context, uid string, req BootstrapReques
 		return apperr.New(401, "missing uid")
 	}
 
+	var isActive, isDeleted bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT is_active, deleted_at IS NOT NULL FROM public.users WHERE id = $1`, uid,
+	).Scan(&isActive, &isDeleted)
+	if err == nil && (!isActive || isDeleted) {
+		return apperr.New(403, "account is not active")
+	}
+	if err != nil && err != pgx.ErrNoRows {
+		return fmt.Errorf("users history status: %w", err)
+	}
+
 	ref := s.fs.Collection(fs.ColUsers).Doc(uid)
 	snap, err := ref.Get(ctx)
 	exists := err == nil && snap.Exists()
 	if err != nil && status.Code(err) != codes.NotFound {
 		return fmt.Errorf("users get: %w", err)
+	}
+	if exists {
+		accountStatus, _ := snap.Data()["accountStatus"].(string)
+		accountStatus = strings.ToLower(accountStatus)
+		if accountStatus == "deleted" || accountStatus == "deactivated" || accountStatus == "disabled" {
+			return apperr.New(403, "account is not active")
+		}
 	}
 
 	data := map[string]any{
@@ -143,6 +164,27 @@ func (s *Service) PatchMe(ctx context.Context, uid string, fields map[string]any
 	}
 	if len(clean) == 0 {
 		return apperr.New(400, "no editable fields")
+	}
+
+	// Normaliza birthDate ANTES de escribir: public.users.birth_date es DATE
+	// y el upsert corre DESPUÉS del write de Firestore — un string mal
+	// formado (o "") dejaba el doc operativo actualizado pero la API
+	// respondía 500 ("cambió pero da error"). "" se trata como NULL.
+	if raw, ok := clean["birthDate"]; ok {
+		str, _ := raw.(string)
+		str = strings.TrimSpace(str)
+		switch {
+		case str == "":
+			clean["birthDate"] = nil
+		case isISODate(str):
+			clean["birthDate"] = str
+		default:
+			iso, ok := displayDateToISO(str)
+			if !ok {
+				return apperr.New(400, "birthDate must be YYYY-MM-DD")
+			}
+			clean["birthDate"] = iso
+		}
 	}
 
 	// 1) Firestore (autoridad).
@@ -239,6 +281,33 @@ func nilIfEmpty(s string) any {
 		return nil
 	}
 	return s
+}
+
+var (
+	isoDateRe     = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+	displayDateRe = regexp.MustCompile(`^(\d{2})-(\d{2})-(\d{4})$`)
+)
+
+// isISODate — YYYY-MM-DD válido (fecha real, no solo el formato).
+func isISODate(s string) bool {
+	if !isoDateRe.MatchString(s) {
+		return false
+	}
+	_, err := time.Parse("2006-01-02", s)
+	return err == nil
+}
+
+// displayDateToISO — DD-MM-YYYY (formato visible de la app) → YYYY-MM-DD.
+func displayDateToISO(s string) (string, bool) {
+	m := displayDateRe.FindStringSubmatch(s)
+	if m == nil {
+		return "", false
+	}
+	iso := m[3] + "-" + m[2] + "-" + m[1]
+	if _, err := time.Parse("2006-01-02", iso); err != nil {
+		return "", false
+	}
+	return iso, true
 }
 
 func joinList(xs []string) string {

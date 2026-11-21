@@ -109,7 +109,7 @@ func dateOrNil(s string) any {
 	return s // 'YYYY-MM-DD' — Postgres castea a DATE
 }
 
-func (s *Service) signDoc(ctx context.Context, doc map[string]any) {
+func (s *Service) signDoc(doc map[string]any) {
 	if s.sign == nil {
 		return
 	}
@@ -155,9 +155,9 @@ func ownerFieldFor(table string) string {
 	return "vehicle_id"
 }
 
-func (s *Service) signDocs(ctx context.Context, docs []map[string]any) {
+func (s *Service) signDocs(docs []map[string]any) {
 	for _, d := range docs {
-		s.signDoc(ctx, d)
+		s.signDoc(d)
 	}
 }
 
@@ -449,7 +449,7 @@ func (s *Service) GetMyDocuments(ctx context.Context, uid string) (map[string]an
 			if err != nil {
 				return nil, err
 			}
-			s.signDocs(ctx, rows)
+			s.signDocs(rows)
 			docs[t] = rows
 		}
 		vehicleOut = append(vehicleOut, map[string]any{
@@ -457,7 +457,7 @@ func (s *Service) GetMyDocuments(ctx context.Context, uid string) (map[string]an
 			"complianceStatus": veh["compliance_status"], "documents": docs,
 		})
 	}
-	s.signDocs(ctx, licenses)
+	s.signDocs(licenses)
 
 	alerts, err := s.openAlerts(ctx, dID)
 	if err != nil {
@@ -586,7 +586,7 @@ func (s *Service) ListForReview(ctx context.Context, statuses []string, limit, o
 		if err != nil {
 			return nil, err
 		}
-		s.signDocs(ctx, rows)
+		s.signDocs(rows)
 		groups = append(groups, map[string]any{
 			"table": t, "count": len(rows), "documents": rows,
 		})
@@ -759,7 +759,7 @@ func (s *Service) GetDocumentHistory(ctx context.Context, uid, role, table, owne
 	if err != nil {
 		return nil, err
 	}
-	s.signDocs(ctx, docs)
+	s.signDocs(docs)
 	return docs, nil
 }
 

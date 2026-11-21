@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TextInput } from 'react-native';
+import Animated, { FadeInDown, ReduceMotion } from 'react-native-reanimated';
 import type { TFunction } from 'i18next';
 import type { CountryDialOption } from '../../../utils/format/phoneUtils';
 import PhoneField from '../../ui/PhoneField';
@@ -60,7 +61,9 @@ export function RegisterBaseFields({
       </View>
 
       {/* Email */}
-      <View style={styles.fieldGroup}>
+      {isEmailMethod && (
+        <Animated.View entering={FadeInDown.duration(240).reduceMotion(ReduceMotion.System)}>
+        <View style={styles.fieldGroup}>
         <Text style={styles.label}>
           {`${t('authScreens.register.fields.emailLabel')}${isEmailMethod ? ' *' : ''}`}
         </Text>
@@ -83,10 +86,14 @@ export function RegisterBaseFields({
             ? t('authScreens.register.fields.emailHelperRequired')
             : t('authScreens.register.fields.emailHelperOptional')}
         </Text>
-      </View>
+        </View>
+        </Animated.View>
+      )}
 
       {/* Phone */}
-      <View style={styles.fieldGroup}>
+      {isPhoneMethod && (
+        <Animated.View entering={FadeInDown.duration(240).reduceMotion(ReduceMotion.System)}>
+        <View style={styles.fieldGroup}>
         <Text style={styles.label}>
           {`${t('authScreens.register.fields.phoneLabel')}${isPhoneMethod ? ' *' : ''}`}
         </Text>
@@ -106,7 +113,9 @@ export function RegisterBaseFields({
             ? t('authScreens.register.fields.phoneHelperRequired')
             : t('authScreens.register.fields.phoneHelperOptional')}
         </Text>
-      </View>
+        </View>
+        </Animated.View>
+      )}
     </>
   );
 }

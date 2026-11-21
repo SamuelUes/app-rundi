@@ -18,6 +18,8 @@ import { DARK_MAP_STYLE, LIGHT_MAP_STYLE } from '../../constants/mapStyles';
 import { MainMarkerContent, MarkerType } from './mapMarkers/MarkerContent';
 import PinMarkerWithBubble from './mapMarkers/PinMarkerWithBubble';
 import NearbyDriversLayer from './mapMarkers/NearbyDriversLayer';
+import DriverRadarLayer from './mapMarkers/DriverRadarLayer';
+import NearbyPlacesLayer from './mapMarkers/NearbyPlacesLayer';
 import RideRequestsLayer, { RideRequest } from './mapMarkers/RideRequestsLayer';
 import { simplifyPolyline, coordsSignature } from '../../utils/geo/polylineSimplify';
 import type { NearbyPlace } from '../../services/map/googleMapsService';
@@ -60,9 +62,12 @@ interface GoogleMapProps {
   onRegionChangeCenter?: (center: { latitude: number; longitude: number; altitude?: number; isGesture?: boolean }) => void;
   onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number; altitude?: number; zoom?: number; isGesture?: boolean }) => void;
   nearbyPlaces?: NearbyPlace[];
+  nearbyPlaceCandidateId?: string | null;
+  nearbyPlaceSelectedId?: string | null;
   showMarker?: boolean;
   markerPosition?: { latitude: number; longitude: number } | null;
   markerType?: MarkerType;
+  hideOriginPinImage?: boolean;
   originMarker?: { latitude: number; longitude: number } | null;
   destinationMarker?: { latitude: number; longitude: number } | null;
   clientMarker?: { latitude: number; longitude: number } | null;
@@ -75,6 +80,7 @@ interface GoogleMapProps {
   cameraFitCoordinates?: Array<{ latitude: number; longitude: number }>;
   autoFitEnabled?: boolean;
   nearbyDrivers?: DriverMarker[];
+  driverRadar?: boolean;
   onDriverPress?: (driverId: string) => void;
   draggableMarker?: boolean;
   onMarkerDragEnd?: (newLocation: { latitude: number; longitude: number }) => void;
@@ -124,15 +130,6 @@ interface GoogleMapProps {
 const DEFAULT_GOOGLE_RENDERER: 'LATEST' | 'LEGACY' =
   Platform.select({ android: 'LATEST', ios: 'LATEST', default: 'LATEST' }) || 'LATEST';
 
-function NearbyPlaceMarker({ place }: { place: NearbyPlace }) {
-  const { tracksViewChanges } = useTracksViewChanges();
-  return (
-    <Marker coordinate={place} anchor={{ x: 0.5, y: 0.5 }} tappable={false} tracksViewChanges={tracksViewChanges}>
-      <View style={styles.placeDot} />
-    </Marker>
-  );
-}
-
 export default function GoogleMap({
   latitude,
   longitude,
@@ -147,6 +144,7 @@ export default function GoogleMap({
   showMarker = true,
   markerPosition,
   markerType = 'default',
+  hideOriginPinImage = false,
   originMarker,
   destinationMarker,
   clientMarker,
@@ -158,7 +156,10 @@ export default function GoogleMap({
   distanceLineCoordinates = [],
   cameraFitCoordinates,
   nearbyDrivers = [],
+  driverRadar = false,
   nearbyPlaces = [],
+  nearbyPlaceCandidateId,
+  nearbyPlaceSelectedId,
   draggableMarker = false,
   onMarkerDragEnd,
   rideRequests = [],
@@ -253,8 +254,7 @@ export default function GoogleMap({
     if (isDark) {
       return DARK_MAP_STYLE;
     }
-    // Android's native map ignores a null style after one has been applied.
-    return Platform.OS === 'android' ? LIGHT_MAP_STYLE : null;
+    return LIGHT_MAP_STYLE;
   }, [customMapStyle, isDark]);
 
   useEffect(() => {
@@ -565,7 +565,9 @@ export default function GoogleMap({
         {...googleRendererProps}
         showsUserLocation={false}
         showsMyLocationButton={false}
+        showsBuildings
         showsCompass={false}
+        toolbarEnabled={false}
         showsTraffic={trafficEnabled}
         onMapReady={handleMapReady}
         initialCamera={{
@@ -586,9 +588,12 @@ export default function GoogleMap({
         minZoomLevel={minZoomLevel}
         maxZoomLevel={maxZoomLevel}
       >
-        {nearbyPlaces.map((place) => (
-          <NearbyPlaceMarker key={`place-${place.id}`} place={place} />
-        ))}
+        <NearbyPlacesLayer
+          places={nearbyPlaces}
+          candidatePlaceId={nearbyPlaceCandidateId}
+          selectedPlaceId={nearbyPlaceSelectedId}
+          isDark={isDark}
+        />
         {shouldShowUserMarker && effectiveUserLocation && userMarkerIcon && (
           <PinMarkerWithBubble
             coordinate={effectiveUserLocation}
@@ -703,6 +708,7 @@ export default function GoogleMap({
                 pinWidth={heldAsset ? 24 : 22}
                 pinHeight={heldAsset ? MANUAL_ORIGIN_HOLD_PIN_HEIGHT : MANUAL_ORIGIN_PIN_HEIGHT}
                 pinAnchor="tip"
+                pinVisible={!(isManualOriginMarker && hideOriginPinImage && !isMarkerHeld)}
                 pinScale={isManualOriginMarker ? manualOriginScale : userLocationScale}
                 bubbleTitle={originTitle}
                 bubbleText={originLabel}
@@ -768,6 +774,7 @@ export default function GoogleMap({
           );
         })}
 
+        {driverRadar && <DriverRadarLayer drivers={nearbyDrivers} zoom={currentZoom} />}
         <NearbyDriversLayer
           nearbyDrivers={nearbyDrivers}
           onDriverPress={onDriverPress}
@@ -787,7 +794,7 @@ export default function GoogleMap({
             <Polyline
               coordinates={simplifiedRoute}
               strokeColor={routeCasingColor}
-              strokeWidth={8}
+              strokeWidth={6}
               lineCap="round"
               lineJoin="round"
               zIndex={1}
@@ -795,7 +802,7 @@ export default function GoogleMap({
             <Polyline
               coordinates={simplifiedRoute}
               strokeColor={routeColor || "#2196F3"}
-              strokeWidth={4.5}
+              strokeWidth={3.5}
               lineCap="round"
               lineJoin="round"
               zIndex={2}
@@ -819,7 +826,7 @@ export default function GoogleMap({
             <Polyline
               coordinates={simplifiedSecondaryRoute}
               strokeColor={routeCasingColor}
-              strokeWidth={7}
+              strokeWidth={5}
               lineCap="round"
               lineJoin="round"
               zIndex={1}
@@ -827,7 +834,7 @@ export default function GoogleMap({
             <Polyline
               coordinates={simplifiedSecondaryRoute}
               strokeColor={secondaryRouteColor || "#FFC107"}
-              strokeWidth={4}
+              strokeWidth={3}
               lineCap="round"
               lineJoin="round"
               zIndex={2}
@@ -840,7 +847,7 @@ export default function GoogleMap({
             <Polyline
               coordinates={simplifiedTertiaryRoute}
               strokeColor={routeCasingColor}
-              strokeWidth={7}
+              strokeWidth={5}
               lineCap="round"
               lineJoin="round"
               zIndex={1}
@@ -848,7 +855,7 @@ export default function GoogleMap({
             <Polyline
               coordinates={simplifiedTertiaryRoute}
               strokeColor={tertiaryRouteColor || "#FF9800"}
-              strokeWidth={4}
+              strokeWidth={3}
               lineCap="round"
               lineJoin="round"
               zIndex={2}
@@ -861,14 +868,6 @@ export default function GoogleMap({
 }
 
 const styles = StyleSheet.create({
-  placeDot: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 4,
-    borderColor: '#E2E2E2',
-    backgroundColor: '#222222',
-  },
   container: {
     flex: 1,
   },

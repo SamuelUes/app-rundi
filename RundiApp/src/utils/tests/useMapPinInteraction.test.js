@@ -3,11 +3,11 @@ import { useMapPinInteraction } from '../../hooks/client/HomeScreen/useMapPinInt
 import mapsService from '../../services/map/mapsService';
 import alertService from '../../services/notification/alertService';
 
-jest.mock('../../../services/map/mapsService', () => ({
+jest.mock('../../services/map/mapsService', () => ({
   __esModule: true,
   default: { reverseGeocode: jest.fn() },
 }));
-jest.mock('../../../services/notification/alertService', () => ({
+jest.mock('../../services/notification/alertService', () => ({
   __esModule: true,
   default: { showInfoAlert: jest.fn(), showConfirmAlert: jest.fn() },
 }));
@@ -50,6 +50,7 @@ test('saves the snapped coordinates and shows the place name', async () => {
   expect(save).toHaveBeenCalledWith({ latitude: place.latitude, longitude: place.longitude }, 'Address', expect.any(Object));
   expect(restore).toHaveBeenCalledWith({ latitude: place.latitude, longitude: place.longitude });
   expect(result.current.selectedPlaceName).toBe('Parque');
+  expect(result.current.selectedPlaceId).toBe('place');
 });
 
 test('a late snap from an earlier gesture cannot move or save the pin', async () => {

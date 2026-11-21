@@ -7,6 +7,8 @@ import {
   ScrollView,
   TouchableOpacity,
   KeyboardAvoidingView,
+  Keyboard,
+  Dimensions,
   Platform,
   Alert,
 } from 'react-native';
@@ -112,6 +114,25 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<ScrollView>(null);
 
+  // Edge-to-edge (Android 15+): adjustResize ya no empuja el layout de RN y el
+  // IME solo llega como inset, así que hay que compensar manualmente. Si la
+  // ventana sí se redimensionó (screenY queda encima del teclado) el padding es 0.
+  const [androidKeyboardPad, setAndroidKeyboardPad] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'android') return undefined;
+    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
+      const { screenY, height } = event.endCoordinates;
+      const resized = screenY + height <= Dimensions.get('screen').height + 4;
+      setAndroidKeyboardPad(resized ? 0 : height);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 60);
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => setAndroidKeyboardPad(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
   const categoryOptions = useMemo(
     () =>
       CATEGORY_IDS.map((id) => ({
@@ -204,7 +225,7 @@ export default function SupportChatScreen({ route }: SupportChatScreenProps) {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, androidKeyboardPad > 0 && { paddingBottom: androidKeyboardPad }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={0}
     >

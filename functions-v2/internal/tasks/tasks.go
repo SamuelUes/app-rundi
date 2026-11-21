@@ -22,8 +22,9 @@ import (
 
 // Producer encola HTTP tasks hacia los handlers del propio servicio API.
 type Producer struct {
-	client *cloudtasks.Client
-	cfg    *config.Config
+	client    *cloudtasks.Client
+	cfg       *config.Config
+	coalescer wakeCoalescer
 }
 
 func NewProducer(ctx context.Context, cfg *config.Config) (*Producer, error) {
@@ -56,6 +57,48 @@ func (p *Producer) WakeConsumer(ctx context.Context) error {
 		return fmt.Errorf("enqueue consumer wake-up: %w", err)
 	}
 	return nil
+}
+
+// wakeWindow — ventana de coalescing de wakes no críticos. La task lleva
+// nombre determinista por ventana (dedupe global en la cola) y se programa
+// para el FIN de la ventana: todo evento comprometido en ella es reclamado
+// por ese barrido (la query del consumer toma TODO lo pendiente, sin filtrar
+// por ventana) → ningún wake coalescido se pierde; el fallback es el tick.
+const wakeWindow = 15 * time.Second
+
+// WakeConsumerCoalesced — para rutas con trabajo real pero tolerantes a
+// ~15s (payments, users, drivers, compliance, admin…). Una ventana produce
+// a lo sumo una ejecución del job entre TODAS las instancias de la API.
+// Las rutas sensibles a latencia (rides/dispatch, calls, client-events,
+// poke) usan WakeConsumer inmediato.
+func (p *Producer) WakeConsumerCoalesced(ctx context.Context) error {
+	if p.cfg.ProjectID == "" || p.cfg.Region == "" || p.cfg.CloudTasksQueue == "" || p.cfg.CloudTasksSAEmail == "" {
+		return fmt.Errorf("consumer wake-up: incomplete Cloud Tasks configuration")
+	}
+	win := time.Now().Unix() / int64(wakeWindow/time.Second)
+	return p.coalescer.Do(win, func() error {
+		req, err := consumerCoalescedRequest(p.cfg, win)
+		if err != nil {
+			return err
+		}
+		if _, err := p.client.CreateTask(ctx, req); err != nil {
+			if status.Code(err) == codes.AlreadyExists {
+				return nil // otra instancia ya agendó esta ventana
+			}
+			return fmt.Errorf("enqueue consumer wake-up: %w", err)
+		}
+		return nil
+	})
+}
+
+// consumerCoalescedRequest — task nombrado consumer-wake-{window} programado
+// para el fin de la ventana (ejecuta rundi-consumer igual que el wake inmediato).
+func consumerCoalescedRequest(cfg *config.Config, win int64) (*cloudtaskspb.CreateTaskRequest, error) {
+	queuePath := fmt.Sprintf("projects/%s/locations/%s/queues/%s",
+		cfg.ProjectID, cfg.Region, cfg.CloudTasksQueue)
+	name := fmt.Sprintf("%s/tasks/consumer-wake-%d", queuePath, win)
+	schedule := timestamppb.New(time.Unix((win+1)*int64(wakeWindow/time.Second), 0))
+	return jobRunRequest(cfg, queuePath, name, "rundi-consumer", schedule)
 }
 
 func consumerWakeupRequest(cfg *config.Config) (*cloudtaskspb.CreateTaskRequest, error) {

@@ -158,6 +158,10 @@ func (h *Handler) activateAvailability(w http.ResponseWriter, r *http.Request) {
 			apperr.Write(w, apperr.New(404, "Perfil de conductor no encontrado"))
 		case errors.Is(err, ErrNoActiveVehicle):
 			apperr.Write(w, apperr.New(409, "driver has no active vehicle"))
+		case errors.Is(err, ErrReactivationRequired):
+			// Condición de dominio (señales en mutación continua): la app
+			// puede reintentar; no es un fallo interno.
+			apperr.Write(w, apperr.New(409, "driver reactivation required, retry"))
 		default:
 			apperr.Write(w, err)
 		}
@@ -173,6 +177,10 @@ func (h *Handler) deactivateAvailability(w http.ResponseWriter, r *http.Request)
 	if err := h.svc.DeactivateAvailability(r.Context(), ctxUID(r)); err != nil {
 		if errors.Is(err, ErrDriverNotFound) {
 			apperr.Write(w, apperr.New(404, "Perfil de conductor no encontrado"))
+			return
+		}
+		if errors.Is(err, ErrReactivationRequired) {
+			apperr.Write(w, apperr.New(409, "driver reactivation required, retry"))
 			return
 		}
 		apperr.Write(w, err)

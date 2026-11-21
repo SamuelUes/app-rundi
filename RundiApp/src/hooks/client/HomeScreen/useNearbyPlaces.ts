@@ -9,12 +9,25 @@ type Viewport = Point & { zoom?: number };
 const distance = (a: Point, b: Point) =>
   haversineMeters(a.latitude, a.longitude, b.latitude, b.longitude);
 
+export function findSnapCandidate(point: Point, places: NearbyPlace[]): NearbyPlace | null {
+  let closest: NearbyPlace | null = null;
+  let closestDistance = 10;
+  for (const place of places) {
+    const meters = distance(point, place);
+    if (meters <= closestDistance) {
+      closest = place;
+      closestDistance = meters;
+    }
+  }
+  return closest;
+}
+
 export function useNearbyPlaces(center: Point, active = true) {
   const [places, setPlaces] = useState<NearbyPlace[]>([]);
   const [enabled, setEnabled] = useState(false);
   const enabledRef = useRef(false);
   const cacheRef = useRef<{ center: Point; places: NearbyPlace[]; time: number } | null>(null);
-  const requestRef = useRef<{ center: Point; promise: Promise<NearbyPlace[]> } | null>(null);
+  const visiblePlacesRef = useRef<NearbyPlace[]>([]);
   const generationRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -33,9 +46,9 @@ export function useNearbyPlaces(center: Point, active = true) {
   }, [active]);
 
   const updateViewport = useCallback((viewport: Viewport) => {
-    // The existing map's closest zoom corresponds to an approximate 70 m altitude.
+    // This is a zoom-derived scale, not the camera's physical height.
     const closeEnough = active && typeof viewport.zoom === 'number' &&
-      viewport.zoom >= zoomFromAltitudeRaw(85, viewport.latitude);
+      viewport.zoom >= zoomFromAltitudeRaw(250, viewport.latitude);
     enabledRef.current = closeEnough;
     setEnabled(closeEnough);
     const generation = ++generationRef.current;
@@ -53,7 +66,6 @@ export function useNearbyPlaces(center: Point, active = true) {
     timerRef.current = setTimeout(() => {
       const point = { latitude: viewport.latitude, longitude: viewport.longitude };
       const promise = googleMapsService.getNearbyPlaces(point);
-      requestRef.current = { center: point, promise };
       void promise.then((results) => {
         if (generation !== generationRef.current) return;
         cacheRef.current = { center: point, places: results, time: Date.now() };
@@ -64,33 +76,22 @@ export function useNearbyPlaces(center: Point, active = true) {
 
   const resolveSnap = useCallback(async (point: Point): Promise<NearbyPlace | null> => {
     if (!enabledRef.current) return null;
-    const cache = cacheRef.current;
-    const validCache = cache && Date.now() - cache.time < 30000 && distance(cache.center, point) < 30;
-    let candidates = validCache ? cache.places : [];
-    const request = requestRef.current;
-    if (!validCache && request && distance(request.center, point) < 1) {
-      candidates = await Promise.race([
-        request.promise,
-        new Promise<NearbyPlace[]>((resolve) => setTimeout(() => resolve([]), 1200)),
-      ]);
-    }
-    if (!enabledRef.current) return null;
-    let closest: NearbyPlace | null = null;
-    let closestDistance = 10;
-    for (const place of candidates) {
-      const meters = distance(point, place);
-      if (meters <= closestDistance) {
-        closest = place;
-        closestDistance = meters;
-      }
-    }
-    return closest;
+    return findSnapCandidate(point, visiblePlacesRef.current);
   }, []);
 
   const visiblePlaces = useMemo(
-    () => enabled ? places.filter((place) => distance(center, place) <= 100) : [],
+    () => enabled ? places.filter((place) => distance(center, place) <= 100).slice(0, 6) : [],
     [center.latitude, center.longitude, enabled, places],
   );
 
-  return { visiblePlaces, updateViewport, resolveSnap };
+  useEffect(() => {
+    visiblePlacesRef.current = visiblePlaces;
+  }, [visiblePlaces]);
+
+  const candidatePlaceId = useMemo(
+    () => findSnapCandidate(center, visiblePlaces)?.id ?? null,
+    [center.latitude, center.longitude, visiblePlaces],
+  );
+
+  return { visiblePlaces, candidatePlaceId, updateViewport, resolveSnap };
 }

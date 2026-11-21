@@ -110,6 +110,11 @@ export const createStyles = (colors: any, isDark: boolean) => StyleSheet.create(
     borderRadius: 18,
     alignSelf: 'flex-start',
     marginTop: 10,
+    shadowColor: 'rgb(0, 0, 0, 0.4)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
   },
   editProfileText: {
     fontSize: 12,

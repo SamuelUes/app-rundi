@@ -15,8 +15,8 @@ import {
   ScrollView,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import Animated, { FadeIn, FadeInDown, ReduceMotion } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import phoneAuthService from '../../services/auth/phoneAuthService';
@@ -31,12 +31,12 @@ import {
 } from '../../utils/format/phoneUtils';
 import alertService from '../../services/notification/alertService';
 import PhoneField from '../../components/ui/PhoneField';
-import OtpCodeInput from '../../components/ui/OtpCodeInput';
+import PhoneCodeForm from '../../components/auth/PhoneCodeForm';
 import { useTranslation } from 'react-i18next';
 
 export default function PhoneVerificationLoginScreen({ navigation, route }: any) {
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const { loginWithPhoneAndSMS } = useAuth();
   const { t } = useTranslation();
 
@@ -130,16 +130,18 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
 
     setLoading(true);
     try {
-      console.log('🔐 Verificando código para login:', code);
-
       if (!normalizedPhone) {
         throw new Error('NUMBER_INVALID');
       }
 
-      const credential = await phoneAuthService.confirmVerificationCode(normalizedPhone, code, {
-        signOutAfterConfirm: false,
-      });
-      const firebaseUser = credential.user;
+      const verificationId = phoneAuthService.getVerificationId(normalizedPhone);
+      if (!verificationId) throw new Error('NO_ACTIVE_VERIFICATION');
+
+      const firebaseUser = await firebaseAuthService.signInWithPhoneVerification(
+        verificationId,
+        code,
+      );
+      phoneAuthService.clearVerification(normalizedPhone);
 
       if (!firebaseUser) {
         throw new Error('USER_NOT_FOUND');
@@ -148,21 +150,29 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
       const idToken = await firebaseUser.getIdToken();
 
       try {
-        await firebaseAuthService.ensureWebSessionFromIdToken(idToken);
-      } catch (sessionError) {
-        console.warn('⚠️ No se pudo sincronizar sesión web antes de leer perfil:', sessionError);
-      }
+        await firebaseAuthService.getUserProfile(firebaseUser.uid);
+      } catch (profileError: any) {
+        if (profileError?.code !== 'PROFILE_NOT_FOUND') throw profileError;
 
-      try {
-        await firebaseAuthService.logSmsVerification({
-          userId: firebaseUser.uid,
-          phoneNumber: normalizedPhone,
-          code,
-          context: 'login_phone',
-          attemptCount: attempts + 1,
-        });
-      } catch (logError) {
-        console.error('⚠️ No se pudo registrar el log de verificación SMS (login):', logError);
+        Alert.alert(
+          t('authScreens.login.accountNotFound.title'),
+          t('authScreens.login.accountNotFound.phoneMessage'),
+          [
+            {
+              text: t('authScreens.login.accountNotFound.cancel'),
+              style: 'cancel',
+            },
+            {
+              text: t('authScreens.login.accountNotFound.confirm'),
+              onPress: () =>
+                navigation.navigate('RegisterNew', {
+                  phone: normalizedPhone,
+                  phoneVerified: true,
+                }),
+            },
+          ],
+        );
+        return;
       }
 
       await loginWithPhoneAndSMS(
@@ -188,6 +198,18 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
 
       const rawMessage: string = error?.message || '';
       const rawCode: string = (error as any)?.code || '';
+      if (
+        ['ACCOUNT_DISABLED', 'ACCOUNT_DEACTIVATED', 'ACCOUNT_DELETED'].includes(rawCode) ||
+        ['ACCOUNT_DISABLED', 'ACCOUNT_DEACTIVATED', 'ACCOUNT_DELETED'].includes(rawMessage)
+      ) {
+        await firebaseAuthService.logout().catch(() => undefined);
+        Alert.alert(
+          t('authScreens.phoneVerificationLogin.alerts.verificationErrorTitle'),
+          'Esta cuenta ya no puede iniciar sesión.',
+        );
+        setCode('');
+        return;
+      }
 
       if (
         rawCode === 'SESSION_ACTIVE_ELSEWHERE' ||
@@ -268,7 +290,10 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
         automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
         showsVerticalScrollIndicator={false}
       >
-          <View style={styles.content}>
+          <Animated.View
+            entering={FadeInDown.duration(740).reduceMotion(ReduceMotion.System)}
+            style={styles.card}
+          >
             <TouchableOpacity
               style={styles.backButton}
               onPress={() => navigation.goBack()}
@@ -284,6 +309,10 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
               <Text style={styles.subtitle}>
                 {t('authScreens.phoneVerificationLogin.subtitle')}
               </Text>
+              <Animated.View
+                entering={FadeIn.delay(160).duration(680).reduceMotion(ReduceMotion.System)}
+                style={styles.headerAccent}
+              />
               <Text style={styles.phoneNumber}>{displayPhone}</Text>
               <TouchableOpacity
                 style={styles.editToggle}
@@ -321,75 +350,20 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
               </View>
             )}
 
-            <View style={styles.codeSection}>
-              <Text style={styles.label}>
-                {t('authScreens.phoneVerificationLogin.codeSectionLabel')}
-              </Text>
-              <OtpCodeInput
-                value={code}
-                onChange={setCode}
-                disabled={loading}
-                autoFocus
-                accessibilityLabel={t('authScreens.phoneVerificationLogin.codeSectionLabel')}
-              />
-            </View>
-
-            {attempts > 0 && (
-              <View style={styles.attemptsWarning}>
-                <Text style={styles.attemptsText}>
-                  {t('authScreens.phoneVerificationLogin.attemptsLabel', {
-                    remaining: MAX_ATTEMPTS - attempts,
-                    max: MAX_ATTEMPTS,
-                  })}
-                </Text>
-              </View>
-            )}
-
-            <TouchableOpacity
-              style={[
-                styles.primaryButton,
-                (loading || code.length !== 6) && styles.buttonDisabled,
-              ]}
-              onPress={handleVerifyCode}
-              disabled={loading || code.length !== 6}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: loading || code.length !== 6 }}
-            >
-              {loading ? (
-                <LoadingIcon size={24} color="#241B0B" />
-              ) : (
-                <Text style={styles.primaryButtonText}>
-                  {t('authScreens.phoneVerificationLogin.verifyButton')}
-                </Text>
-              )}
-            </TouchableOpacity>
-
-            <View style={styles.resendSection}>
-              <Text style={styles.resendText}>
-                {t('authScreens.phoneVerificationLogin.resend.question')}
-              </Text>
-              {timeLeft > 0 ? (
-                <Text style={styles.resendTimer}>
-                  {t('authScreens.phoneVerificationLogin.resend.timer', { seconds: timeLeft })}
-                </Text>
-              ) : (
-                <TouchableOpacity
-                  style={styles.resendAction}
-                  onPress={handleResendCode}
-                  disabled={resendLoading}
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: resendLoading }}
-                >
-                  {resendLoading ? (
-                    <LoadingIcon size={20} color={colors.primary} />
-                  ) : (
-                    <Text style={styles.resendButton}>
-                      {t('authScreens.phoneVerificationLogin.resend.button')}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              )}
-            </View>
+            <PhoneCodeForm
+              code={code}
+              onChangeCode={setCode}
+              onVerify={handleVerifyCode}
+              onResend={handleResendCode}
+              loading={loading}
+              resendLoading={resendLoading}
+              timeLeft={timeLeft}
+              attempts={attempts}
+              maxAttempts={MAX_ATTEMPTS}
+              primaryColor={colors.primary}
+              styles={styles}
+              translationKey="phoneVerificationLogin"
+            />
 
             <View style={styles.infoBox}>
               <Text style={styles.infoTitle}>
@@ -405,13 +379,13 @@ export default function PhoneVerificationLoginScreen({ navigation, route }: any)
                 {t('authScreens.phoneVerificationLogin.info.checkNumber')}
               </Text>
             </View>
-          </View>
+          </Animated.View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-const createStyles = (colors: any) =>
+const createStyles = (colors: any, isDark: boolean) =>
   StyleSheet.create({
     safeArea: {
       flex: 1,
@@ -426,21 +400,34 @@ const createStyles = (colors: any) =>
     scrollContent: {
       flexGrow: 1,
       justifyContent: 'center',
-      paddingHorizontal: 24,
+      paddingHorizontal: 14,
       paddingVertical: 20,
     },
-    content: {
+    card: {
       width: '100%',
-      maxWidth: 440,
+      maxWidth: 480,
       alignSelf: 'center',
+      borderRadius: 28,
+      backgroundColor: colors.card,
+      paddingHorizontal: 24,
+      paddingTop: 24,
+      paddingBottom: 32,
+      borderWidth: isDark ? 1 : 0,
+      borderColor: colors.border,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.24 : 0.14,
+      shadowRadius: 12,
+      elevation: 6,
     },
     backButton: {
-      minHeight: 54,
+      minHeight: 44,
       flexDirection: 'row',
       alignItems: 'center',
       alignSelf: 'flex-start',
       gap: 8,
-      marginBottom: 20,
+      marginLeft: -8,
+      marginBottom: 8,
     },
     backButtonTextLabel: {
       fontSize: 14,
@@ -452,18 +439,26 @@ const createStyles = (colors: any) =>
       marginBottom: 28,
     },
     title: {
-      fontSize: 28,
+      fontSize: 26,
       fontWeight: '800',
       color: colors.text,
       textAlign: 'center',
       marginBottom: 8,
     },
     subtitle: {
-      fontSize: 15,
-      lineHeight: 22,
+      fontSize: 14,
+      lineHeight: 21,
       color: colors.textSecondary,
       textAlign: 'center',
+    },
+    headerAccent: {
+      width: 32,
+      height: 3,
+      borderRadius: 3,
+      backgroundColor: colors.primary,
+      marginTop: 18,
       marginBottom: 14,
+      opacity: 0.7,
     },
     phoneNumber: {
       minHeight: 40,

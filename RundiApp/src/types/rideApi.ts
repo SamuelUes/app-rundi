@@ -54,6 +54,11 @@ export interface RequestRideRequest {
   originLng?: number;
   serviceAreaId?: string;
   serviceCode?: string;
+  // Aceptación biométrica del cliente al solicitar (conductor designado)
+  biometricAcceptanceRequired?: boolean;
+  biometricAcceptanceType?: string;
+  biometricAcceptanceVerified?: boolean;
+  biometricAcceptanceAt?: string; // ISO-8601
 }
 
 export interface CancelRideRequest {

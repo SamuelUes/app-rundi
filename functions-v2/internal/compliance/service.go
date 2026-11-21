@@ -8,11 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
 
+	"cloud.google.com/go/firestore"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -54,10 +56,11 @@ type Service struct {
 	pool   *pgxpool.Pool
 	notify *notifications.Center // puede ser nil (push best-effort)
 	sign   *rstorage.Signer      // puede ser nil (devuelve paths sin firmar)
+	fs     *firestore.Client     // nil → disponibilidad solo-SQL (tests/legacy)
 }
 
-func NewService(pool *pgxpool.Pool, notify *notifications.Center, sign *rstorage.Signer) *Service {
-	return &Service{pool: pool, notify: notify, sign: sign}
+func NewService(pool *pgxpool.Pool, notify *notifications.Center, sign *rstorage.Signer, fsClient *firestore.Client) *Service {
+	return &Service{pool: pool, notify: notify, sign: sign, fs: fsClient}
 }
 
 // ---------- facts loading (ComplianceRepository.loadFacts) ----------
@@ -79,10 +82,6 @@ func driverRowWithQuerier(ctx context.Context, db factsQuerier, identifier strin
 		return "", "", false, nil
 	}
 	return id, uid, err == nil, err
-}
-
-func (s *Service) loadContext(ctx context.Context, today string) (*RuleContext, error) {
-	return loadRuleContext(ctx, s.pool, today)
 }
 
 type ruleQueryer interface {
@@ -143,10 +142,6 @@ func loadRuleContext(ctx context.Context, db ruleQueryer, today string) (*RuleCo
 		return nil, err
 	}
 	return &RuleContext{Today: today, Rules: rules, CategoryRules: catRules}, nil
-}
-
-func (s *Service) loadFacts(ctx context.Context, driverID, vehicleID, serviceCode, today string) (*Facts, error) {
-	return loadFactsWithQuerier(ctx, s.pool, driverID, vehicleID, serviceCode, today)
 }
 
 func loadFactsWithQuerier(ctx context.Context, db factsQuerier, driverID, vehicleID, serviceCode, today string) (*Facts, error) {
@@ -507,6 +502,13 @@ func (s *Service) ReevaluateAfterChange(ctx context.Context, driverUUID, vehicle
 	if vehicleID != "" {
 		_, _ = s.CanDriverOperateVehicle(ctx, driverUUID, vehicleID, "", actorUID)
 	}
+	// Mantiene autoritativos los inputs de disponibilidad en Firestore tras el
+	// cambio documental (revoca la sesión abierta dentro de la misma tx FS).
+	if s.fs != nil {
+		if _, err := s.SyncFirestoreInputs(ctx, driverUUID); err != nil {
+			slog.Warn("firestore compliance resync failed", "driver", driverUUID, "err", err)
+		}
+	}
 }
 
 // ScheduledSweep — equivalente a complianceDailyEvaluation de v1 (cron 3am):
@@ -637,14 +639,6 @@ func nilIf(s string) *string {
 		return nil
 	}
 	return &s
-}
-
-func keysOf(m map[string]any) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
 }
 
 func joinCols(c []string) string {

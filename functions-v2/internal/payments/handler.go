@@ -99,19 +99,21 @@ func (h *Handler) confirmCash(w http.ResponseWriter, r *http.Request) {
 	apperr.JSON(w, http.StatusOK, map[string]any{"payment": p, "event": "payment.confirmed"})
 }
 
-// POST /v1/payments/register-cash — participante declara efectivo + tip.
+// POST /v1/payments/register-cash — participante declara efectivo + tip +
+// evidencia de autenticación (biométrica/manual) del declarante.
 func (h *Handler) registerCash(w http.ResponseWriter, r *http.Request) {
 	uid, _ := r.Context().Value(middleware.CtxUID).(string)
 	reqID, _ := r.Context().Value(middleware.CtxRequestID).(string)
 	var body struct {
 		RideID string  `json:"rideId"`
 		Tip    float64 `json:"tip"`
+		CashAuth
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.RideID == "" {
 		apperr.Write(w, apperr.New(400, "rideId required"))
 		return
 	}
-	p, err := h.svc.RegisterCash(r.Context(), body.RideID, uid, body.Tip, reqID)
+	p, err := h.svc.RegisterCash(r.Context(), body.RideID, uid, body.Tip, body.CashAuth, reqID)
 	if err != nil {
 		apperr.Write(w, err)
 		return

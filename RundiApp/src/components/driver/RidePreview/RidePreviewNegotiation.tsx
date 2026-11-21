@@ -195,7 +195,7 @@ export function RidePreviewNegotiation({
               style={[
                 styles.iconButton,
                 {
-                  backgroundColor: colors.SecondBorder,
+                  backgroundColor: 'rgba(109, 68, 255, 0.5)',
                   borderColor: colors.SecondBorder,
                   borderWidth: 0.1,
                 },
@@ -205,7 +205,7 @@ export function RidePreviewNegotiation({
               accessibilityRole="button"
               accessibilityLabel={t('driver.ridePreview.accessibility.vehiclePhoto')}
             >
-              <MaterialIcons name="photo-camera" size={18} color={isDark ? colors.text : colors.card} />
+              <MaterialIcons name="photo-camera" size={18} color={isDark ? colors.text : colors.card} style={{ backgroundColor: 'rgba(133, 108, 224, 0.25)', padding: 4, borderRadius: 8 }} />
               <Text style={[styles.vehiclePhotoButtonText, { color: isDark ? colors.text : colors.card }]}>
                 {t('driver.ridePreview.buttons.viewVehiclePhoto')}
               </Text>
@@ -294,7 +294,7 @@ export function RidePreviewNegotiation({
           accessibilityState={{ expanded: customOfferVisible }}
           accessibilityLabel={offerToggleLabel}
         >
-          <MaterialIcons name="edit" size={18} color={colors.primary} />
+          <MaterialIcons name="edit" size={18} color={colors.primary} backgroundColor={isDark ? 'rgba(179,135,55,0.40)' : 'rgba(179,135,55,0.10)'} borderRadius={8} padding={4} />
           <Text style={[styles.offerToggleLabel, { color: colors.primary }]}>
             {offerToggleLabel}
           </Text>

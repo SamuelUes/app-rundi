@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -75,12 +76,13 @@ func (s *Service) AcceptRide(ctx context.Context, rideID, driverUID, requestID s
 	// contraoferta previa > la estimada (el driver acepta la demanda del
 	// cliente; ConfirmDriver invierte la prioridad porque el cliente elige
 	// la oferta del driver).
-	var agreed *float64
+	var agreed, estimated, suggested *float64
 	if err := tx.QueryRow(ctx, `
-		SELECT COALESCE($2::float8, client_suggested_price, driver_offered_price, estimated_price)
+		SELECT COALESCE($2::float8, client_suggested_price, driver_offered_price, estimated_price),
+		       estimated_price, client_suggested_price
 		FROM public.rides WHERE id = $1::uuid FOR UPDATE`,
 		rideID, offeredPrice,
-	).Scan(&agreed); err != nil {
+	).Scan(&agreed, &estimated, &suggested); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apperr.New(404, "ride not found")
 		}
@@ -88,6 +90,10 @@ func (s *Service) AcceptRide(ctx context.Context, rideID, driverUID, requestID s
 	}
 	if agreed == nil || *agreed <= 0 {
 		return nil, apperr.New(409, "ride has no acceptable price")
+	}
+	if offeredPrice != nil && (suggested == nil || *offeredPrice != *suggested) &&
+		!validNegotiatedPrice(*offeredPrice, estimated) {
+		return nil, apperr.New(400, "offeredPrice outside allowed range")
 	}
 	if err := requireDriverSession(ctx, tx, driverUID, "only drivers may accept a ride"); err != nil {
 		return nil, err
@@ -291,6 +297,9 @@ func scanRide(row pgx.Row) (*Ride, error) {
 
 // RequestRide — cliente crea viaje (status='requested') + outbox ride.requested.
 func (s *Service) RequestRide(ctx context.Context, clientUID, requestID string, in RequestRideRequest) (*Ride, error) {
+	if in.ClientSuggestedPrice != nil && !validNegotiatedPrice(*in.ClientSuggestedPrice, in.EstimatedPrice) {
+		return nil, apperr.New(400, "client suggested price outside allowed range")
+	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return nil, err
@@ -314,7 +323,8 @@ func (s *Service) RequestRide(ctx context.Context, clientUID, requestID string, 
 			client_suggested_price, passengers, notes, payment_type,
 			service_id, origin_location_id, destination_location_id,
 			client_vehicle_photo, designated_driver_vehicle, pricing_snapshot,
-			service_area_id, status
+			service_area_id, biometric_acceptance_required, biometric_acceptance_type,
+			biometric_acceptance_verified, biometric_acceptance_at, status
 		) VALUES (
 			$1, $2, COALESCE(NULLIF($3, '')::public.ride_type, 'normal'), COALESCE(NULLIF($4, ''), 'auto'),
 			$5, $6, $7, $8, COALESCE($9, 1), NULLIF($10, ''),
@@ -325,6 +335,7 @@ func (s *Service) RequestRide(ctx context.Context, clientUID, requestID string, 
 			$13, $14, NULLIF($15, ''),
 			NULLIF($16, '')::public.designated_driver_vehicle, $17::jsonb,
 			NULLIF($18, ''),
+			$19, NULLIF($20, '')::public.biometric_type, $21, $22,
 			'requested'
 		) RETURNING `+rideCols,
 		clientUID, in.FirebaseRideID, in.RideType, in.VehicleType,
@@ -332,7 +343,9 @@ func (s *Service) RequestRide(ctx context.Context, clientUID, requestID string, 
 		in.ClientSuggestedPrice, in.Passengers, in.Notes, in.PaymentType,
 		in.ServiceID, in.OriginLocationID, in.DestinationLocationID,
 		in.ClientVehiclePhoto, in.DesignatedDriverVehicle, pricingSnapshot,
-		in.ServiceAreaID,
+		in.ServiceAreaID, in.BiometricAcceptanceRequired,
+		NormalizeBiometricType(in.BiometricAcceptanceType),
+		in.BiometricAcceptanceVerified, ParseBiometricAt(in.BiometricAcceptanceAt),
 	))
 	if err != nil {
 		return nil, fmt.Errorf("insert ride: %w", err)
@@ -479,6 +492,20 @@ func (s *Service) CancelRide(ctx context.Context, rideID, actorUID, actorRole, r
 	if err != nil {
 		return nil, err
 	}
+	if canceledBy == "client" {
+		reasonCodes := cancellationReasonCodes(reason)
+		if len(reasonCodes) == 0 && strings.TrimSpace(reason) == "" {
+			reasonCodes = []string{"skipped"}
+		}
+		if len(reasonCodes) > 0 {
+			if err := outbox.Insert(ctx, tx, outbox.Event{
+				Type: "analytics.ride_canceled", AggregateType: "ride", AggregateID: r.ID,
+				RequestID: requestID, Payload: map[string]any{"reasonCodes": strings.Join(reasonCodes, ",")},
+			}); err != nil {
+				return nil, err
+			}
+		}
+	}
 	// Si había conductor asignado su ocupación termina: la proyección decide
 	// online (sesión aún viva) u offline (vencida/revocada) según drivers_live.
 	if r.DriverID != nil && *r.DriverID != "" {
@@ -508,15 +535,48 @@ func (s *Service) CancelRide(ctx context.Context, rideID, actorUID, actorRole, r
 	return r, nil
 }
 
+// cancellationReasonCodes extrae códigos válidos de `reason` (acepta lista
+// separada por comas — el cliente puede seleccionar varias casillas). Deduped,
+// orden preservado; texto libre no produce códigos.
+func cancellationReasonCodes(reason string) []string {
+	var codes []string
+	for _, part := range strings.Split(reason, ",") {
+		code := strings.TrimSpace(part)
+		switch code {
+		case "wait_too_long", "price_too_high", "plans_changed", "wrong_details", "other", "skipped":
+			for _, seen := range codes {
+				if seen == code {
+					code = ""
+					break
+				}
+			}
+			if code != "" {
+				codes = append(codes, code)
+			}
+		}
+	}
+	return codes
+}
+
 // NegotiatePrice — negociación por rol del caller:
 //   - cliente: actualiza client_suggested_price (contraoferta al driver).
 //   - conductor: inserta su counter_offer + status driver_offered.
 //
 // La app del cliente usa el mismo endpoint /negotiate — sin la rama de
 // cliente el INSERT en ride_offers violaba la FK driver_id → 500.
+func validNegotiatedPrice(price float64, estimated *float64) bool {
+	if math.IsNaN(price) || math.IsInf(price, 0) || price < 1 || price > 100000 {
+		return false
+	}
+	if estimated == nil || *estimated <= 0 {
+		return true
+	}
+	return price >= math.Max(1, *estimated)
+}
+
 func (s *Service) NegotiatePrice(ctx context.Context, rideID, driverUID string, price float64, requestID string) (*Ride, error) {
-	if price <= 0 {
-		return nil, apperr.New(400, "offeredPrice must be > 0")
+	if !validNegotiatedPrice(price, nil) {
+		return nil, apperr.New(400, "offeredPrice outside allowed range")
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
@@ -528,13 +588,17 @@ func (s *Service) NegotiatePrice(ctx context.Context, rideID, driverUID string, 
 	// sugerido sin tocar status ni ride_offers (driver_id referencia
 	// drivers — la fila del cliente violaría la FK).
 	var clientID string
+	var estimatedPrice *float64
 	if err := tx.QueryRow(ctx,
-		`SELECT client_id FROM public.rides WHERE id = $1::uuid FOR UPDATE`, rideID,
-	).Scan(&clientID); err != nil {
+		`SELECT client_id, estimated_price FROM public.rides WHERE id = $1::uuid FOR UPDATE`, rideID,
+	).Scan(&clientID, &estimatedPrice); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apperr.New(404, "ride not found")
 		}
 		return nil, err
+	}
+	if !validNegotiatedPrice(price, estimatedPrice) {
+		return nil, apperr.New(400, "offeredPrice outside allowed range")
 	}
 
 	if clientID == driverUID {

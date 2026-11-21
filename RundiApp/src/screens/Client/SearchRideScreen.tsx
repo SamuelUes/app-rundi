@@ -346,6 +346,7 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
     clientVehiclePhotoLocalUri,
     uploadingPhoto,
     handleTakeVehiclePhoto,
+    captureVehiclePhotoNow,
     uploadPhotoIfNeeded,
   } = useVehiclePhoto(user?.id, t);
 
@@ -374,6 +375,7 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
     setSubmittingRequest,
     validateLocationForContext,
     uploadPhotoIfNeeded,
+    captureVehiclePhotoNow,
     tr,
     navigation: submissionNavigation,
   });
@@ -710,9 +712,11 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
   const hasConfirmedDestination = !!destinationCoords;
   const requiresVehiclePhoto = vehicleType === 'designated_driver';
   const hasVehiclePhotoSelection = !!clientVehiclePhoto || !!clientVehiclePhotoLocalUri;
+  // La foto deja de bloquear el CTA: si falta, al confirmar se abre la cámara
+  // (o galería) y el flujo continúa solo.
   const isRequestReady =
     !!destinationCoords && estimatedPrice > 0 && !calculatingRoute && !calculatingPrice && !priceCalculationError &&
-    (!requiresVehiclePhoto || (hasVehiclePhotoSelection && !uploadingPhoto));
+    !uploadingPhoto;
 
   const maxPassengersByType: Record<VehicleType, number> = useMemo(
     () => ({ moto: 1, auto: 4, designated_driver: designatedDriverMode === 'moto' ? 1 : 4 }),
@@ -731,6 +735,10 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
   };
 
   const selectedVehicleOption = useMemo(() => vehicleOptions.find((option) => option.type === vehicleType) || vehicleOptions[0], [vehicleOptions, vehicleType]);
+  const parsedSuggestion = priceSuggestion.trim().length > 0 ? Number(priceSuggestion) : NaN;
+  const peekPrice = Number.isFinite(parsedSuggestion)
+    ? Math.max(Math.round(vehicleEstimates[vehicleType]?.price ?? 0), Math.round(parsedSuggestion))
+    : (vehicleEstimates[vehicleType]?.price ?? null);
   const hasRouteSelection = !!originCoords && !!destinationCoords;
   const hasRouteMetrics = hasRouteSelection && estimatedDistance > 0 && estimatedDuration > 0 && estimatedPrice > 0;
   const centerPinActive =
@@ -1049,6 +1057,7 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
         onAddExtraStop={beginAddExtraStop}
         onRemoveStop={handleRemoveStop}
         styles={styles}
+        colors={colors}
         tr={tr}
       />
       </Animated.View>
@@ -1119,6 +1128,8 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
                       onSelectVehicle={handleSelectVehicle}
                       onSetDesignatedDriverMode={setDesignatedDriverMode}
                       onUpdatePassengers={updatePassengers}
+                      priceSuggestion={priceSuggestion}
+                      onSetPriceSuggestion={setPriceSuggestion}
                       onTakeVehiclePhoto={handleTakeVehiclePhoto}
                       colors={colors}
                       styles={styles}
@@ -1126,21 +1137,15 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
                     />
 
                     <SearchRideSummary
-                      calculatingRoute={calculatingRoute}
                       estimatedDistance={estimatedDistance}
                       estimatedDuration={estimatedDuration}
-                      estimatedPrice={estimatedPrice}
-                      calculatingPrice={calculatingPrice}
-                      priceCalculationError={priceCalculationError}
                       paymentMethod={paymentMethod}
-                      priceSuggestion={priceSuggestion}
                       rideComment={rideComment}
                       checkingDrivers={checkingDrivers}
                       driversAvailable={driversAvailable}
                       isPeakHour={priceBreakdown?.isPeakHour ?? isPeakHour(calculationAt)}
                       colors={colors}
                       onSetPaymentMethod={setPaymentMethod}
-                      onSetPriceSuggestion={setPriceSuggestion}
                       onSetRideComment={setRideComment}
                       styles={styles}
                       tr={tr}
@@ -1194,11 +1199,11 @@ export default function SearchRideScreenNewDesign({ navigation, route }: any) {
                           </View>
                           <View style={styles.collapsedSummaryRight}>
                             <Text style={styles.collapsedSummaryPrice}>
-                              {formatPriceValue(vehicleEstimates[vehicleType]?.price ?? null)}
+                              {formatPriceValue(peekPrice)}
                             </Text>
                             <View style={styles.collapsedSummaryExpandHint}>
                               <Text style={styles.collapsedSummaryExpandHintText}>{tr('labels.viewOptions')}</Text>
-                              <RideIcon name="expand-less" size={14} color={colors.primary || '#b38737'} />
+                              <RideIcon name="chevron-up" size={14} color={colors.primary || '#b38737'} />
                             </View>
                           </View>
                         </View>
@@ -1365,22 +1370,51 @@ function createStyles(colors: any, isDark: boolean = false) {
     timelineIcon: { width: 20, height: 20 },
     timelineConnector: { flex: 1, width: 2, backgroundColor: borderColor, marginTop: 4 },
     timelineCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
+    // Cada fila luce como campo de búsqueda (mismo relleno que los inputs) +
+    // lupa a la derecha: señala que se toca para abrir el selector de lugar.
     timelineContent: {
       flex: 1,
       marginHorizontal: 12,
-      paddingVertical: 8,
-      borderBottomWidth: StyleSheet.hairlineWidth,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 9,
+      paddingHorizontal: 10,
+      borderRadius: 10,
+      backgroundColor: inputBg,
+      borderWidth: 0.1,
       borderColor: borderColor,
     },
-    timelineContentCompact: { marginRight: 4 },
-    inlineAddStop: {
-      paddingVertical: 4,
-      paddingHorizontal: 9,
-      borderRadius: 99,
-      backgroundColor: accent,
+    timelineContentText: { flex: 1 },
+    // Pin de parada atenuado = "espacio disponible" para una parada nueva.
+    addStopMarker: {
+      width: 20,
+      height: 20,
+      opacity: 0.5,
     },
-    inlineAddStopIcon: { fontSize: 16, fontWeight: '800', color: '#fff' },
+    addStopButton: {
+      marginHorizontal: 12,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingVertical: 5,
+      paddingHorizontal: 11,
+      borderRadius: 24,
+      borderWidth: 1,
+      borderStyle: 'dashed',
+      borderColor: accentBorder,
+      backgroundColor: accentSoft,
+      // Sin elevation: en Android, elevation + fondo rgba translúcido hace que
+      // la sombra sangre dentro de la vista (bandas de dos tonos).
+      shadowColor: accent,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.04,
+      shadowRadius: 6,
+    },
+    addStopButtonIcon: { fontSize: 13, fontWeight: '800', color: accent, lineHeight: 15 },
+    addStopButtonText: { fontSize: 12.5, fontWeight: '600', color: accent },
     timelineLabel: { fontSize: 14, fontWeight: '600', color: textPrimary },
+    timelineLabelPlaceholder: { color: textSecondary, fontWeight: '500' },
     timelineSubtitle: { fontSize: 11, color: textSecondary, marginTop: 2 },
     timelineRemove: { padding: 8 },
     timelineRemoveText: { fontSize: 14, color: colors.error || '#e53935', fontWeight: '700' },
@@ -1481,45 +1515,6 @@ function createStyles(colors: any, isDark: boolean = false) {
     summaryAvailabilityRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 4 },
     summaryAvailabilityDot: { width: 7, height: 7, borderRadius: 4, marginTop: 4 },
     summaryAvailabilityText: { flex: 1, fontSize: 12, lineHeight: 16, fontWeight: '600' },
-    summaryFareCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: 12,
-      minHeight: 68,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      borderRadius: 16,
-      backgroundColor: 'rgba(179, 135, 55, 0.1)',
-      shadowColor: '#000',
-      shadowOpacity: isDark ? 0.25 : 0.08,
-      shadowRadius: 10,
-      shadowOffset: { width: 0, height: 4 },
-      elevation: 0,
-    },
-    summaryFareDetails: { gap: 5 },
-    summaryFareLabel: {
-      color: textSecondary,
-      fontSize: 10,
-      fontWeight: '700',
-      textTransform: 'uppercase',
-      letterSpacing: 0.55,
-    },
-    summaryPayment: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      alignSelf: 'flex-start',
-      borderRadius: 999,
-      paddingHorizontal: 10,
-      paddingVertical: 5,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.7)',
-    },
-    summaryPaymentText: { color: textPrimary, fontSize: 13, fontWeight: '700' },
-    summaryPriceValue: { color: accentStrong, fontSize: 22, fontWeight: '800', fontVariant: ['tabular-nums'] },
-    summaryPricePending: { flexDirection: 'row', alignItems: 'center', gap: 7, flexShrink: 1 },
-    summaryPricePendingText: { fontSize: 12, fontWeight: '600', color: textSecondary, flexShrink: 1 },
-    summaryPriceError: { maxWidth: 140, color: colors.warning || '#ffa726', fontSize: 12, fontWeight: '700', textAlign: 'right' },
     summaryRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1542,7 +1537,7 @@ function createStyles(colors: any, isDark: boolean = false) {
       paddingHorizontal: 10,
     },
     vehicleOptionCardSelected: {
-      backgroundColor: isDark ? 'rgba(55, 55, 55, 0.8)' : surfaceBg,
+      backgroundColor: isDark ? 'rgba(72, 72, 72, 0.45)' : surfaceBg,
     },
     vehicleOptionTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, minHeight: 64 },
     vehicleOptionIconBubble: {
@@ -1571,7 +1566,6 @@ function createStyles(colors: any, isDark: boolean = false) {
     vehicleOptionMeta: { fontSize: 12.5, color: textPrimary, marginTop: 1, fontVariant: ['tabular-nums'] },
     vehicleOptionSubtitle: { fontSize: 12.5, color: textSecondary, marginTop: 1 },
     vehicleOptionPrice: { fontSize: 16, fontWeight: '700', color: textPrimary, fontVariant: ['tabular-nums'], marginLeft: 4 },
-    vehicleOptionPriceSelected: { fontSize: 17, fontWeight: '800', color: accentStrong },
     vehicleOptionExpanded: {
       gap: 10,
       paddingTop: 10,
@@ -1596,19 +1590,100 @@ function createStyles(colors: any, isDark: boolean = false) {
       justifyContent: 'center',
     },
     vehicleOptionCounterBtnDisabled: { opacity: 0.35 },
-    vehicleOptionPassengerCount: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    vehicleOptionPassengerCountText: { fontSize: 17, fontWeight: '800', color: textPrimary, fontVariant: ['tabular-nums']},
+    vehicleOptionSelectArea: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
+    vehicleOptionPassengerControlsCompact: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      borderRadius: 999,
+      backgroundColor: isDark ? 'rgba(72, 72, 72, 0.6)' : '#ededed',
+      padding: 4,
+      marginLeft: 4,
+    },
+    vehicleOptionCounterBtnCompact: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      backgroundColor: cardBg,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    vehicleOptionPassengerCountCompact: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+    vehicleOptionPassengerCountTextCompact: { fontSize: 15, fontWeight: '800', color: textPrimary, fontVariant: ['tabular-nums'] },
+
+    vehicleOptionOfferControls: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      borderRadius: 14,
+      backgroundColor: isDark ? 'rgba(72, 72, 72, 0.6)' : '#ededed',
+      padding: 8,
+    },
+    vehicleOptionOfferCounterBtn: {
+      width: 50,
+      height: 50,
+      borderRadius: 25,
+      backgroundColor: cardBg,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    vehicleOptionOfferCenter: { alignItems: 'center', gap: 2 },
+    vehicleOptionSuggestRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+    vehicleOptionSuggestLabel: {
+      fontSize: 10.5,
+      fontWeight: '700',
+      color: textSecondary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.45,
+    },
+    vehicleOptionEstimateTag: {
+      fontSize: 10.5,
+      fontWeight: '700',
+      color: textSecondary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.45,
+    },
+    vehicleOptionEstimateLine: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: textSecondary,
+      opacity: 0.6,
+      textDecorationLine: 'line-through',
+      fontVariant: ['tabular-nums'],
+    },
+    vehicleOptionOfferValue: { fontSize: 22, fontWeight: '800', color: accentStrong, fontVariant: ['tabular-nums'] },
+    vehicleOptionOfferInput: {
+      minWidth: 72,
+      fontSize: 22,
+      fontWeight: '800',
+      color: accentStrong,
+      fontVariant: ['tabular-nums'],
+      textAlign: 'center',
+      padding: 0,
+    },
+    vehicleOptionOfferFallback: {
+      flex: 1,
+      fontSize: 13,
+      fontWeight: '600',
+      color: textSecondary,
+      textAlign: 'center',
+      paddingVertical: 10,
+    },
 
     vehicleFeaturesSection: { gap: 7 },
     vehicleFeaturesHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
     vehicleFeaturesLabel: {
-      fontSize: 11,
+      fontSize: 12,
       fontWeight: '700',
       color: textSecondary,
       textTransform: 'uppercase',
       letterSpacing: 0.5,
     },
-    vehicleFeaturesHint: { fontSize: 11, color: textSecondary },
+    vehicleFeaturesHint: { 
+      fontSize: 13, 
+      color: textSecondary,
+      fontWeight: '600',
+    },
     vehicleFeatureRail: { gap: 8, paddingRight: 8 },
     vehicleFeatureCard: {
       flexDirection: 'row',

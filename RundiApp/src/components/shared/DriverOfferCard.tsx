@@ -84,15 +84,12 @@ export default function DriverOfferCard({
         })
       : t('common.components.driverOfferCard.savings.match');
 
-  // Límites relativos a la cotización; C$100,000 solo es un límite técnico.
+  // El conductor negocia desde la tarifa estimada.
   const minNegotiationPrice = Math.min(
     100000,
-    Math.max(50, Math.round(estimatedPrice * 0.6667 * 100) / 100),
+    Math.max(1, estimatedPrice),
   );
-  const maxNegotiationPrice = Math.max(
-    minNegotiationPrice,
-    Math.min(100000, Math.round(estimatedPrice * 1.3333 * 100) / 100),
-  );
+  const maxNegotiationPrice = 100000;
 
 
   const [showBiometricModal, setShowBiometricModal] = useState(false);

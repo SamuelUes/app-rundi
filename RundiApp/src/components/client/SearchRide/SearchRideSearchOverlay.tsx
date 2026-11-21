@@ -11,7 +11,7 @@ import {
 import { LoadingIcon } from '../../ui/LoadingIcon';
 import { formatCoords, type Coords } from '../../../utils/geo/rideCoords';
 import type { NormalizedSuggestion } from '../../../utils/ride/suggestions';
-import { RideIcon, type RideIconSet } from './SearchRideVehicleOptions';
+import { RideIcon } from './SearchRideVehicleOptions';
 type TrFunction = (path: string, options?: Record<string, any>) => string;
 
 interface SavedLocation {
@@ -42,7 +42,6 @@ interface SearchRideSearchOverlayProps {
   onSelectSavedLocation: (location: SavedLocation) => void;
   styles: any;
   tr: TrFunction;
-  iconSet?: RideIconSet;
 }
 
 export function SearchRideSearchOverlay({
@@ -68,21 +67,20 @@ export function SearchRideSearchOverlay({
   onSelectSavedLocation,
   styles,
   tr,
-  iconSet,
 }: SearchRideSearchOverlayProps) {
   const metaColor = colors.textSecondary || '#999';
   const accentColor = colors.primary || '#b38737';
   const successColor = colors.success || '#4caf50';
   const recentIconColor = colors.SecondBorder || '#6e44ff';
 
-  const renderSavedItem = (location: SavedLocation, index: number, keyPrefix: string, icon: 'star' | 'history') => (
+  const renderSavedItem = (location: SavedLocation, index: number, keyPrefix: string, icon: 'star' | 'time') => (
     <TouchableOpacity
       key={`${keyPrefix}-${index}`}
       style={styles.savedItem}
       onPress={() => onSelectSavedLocation(location)}
       accessibilityRole="button"
     >
-      <RideIcon name={icon} iconSet={iconSet} size={17} color={icon === 'history' ? recentIconColor : accentColor} />
+      <RideIcon name={icon} size={17} color={icon === 'time' ? recentIconColor : accentColor} />
       <View style={styles.searchResultBody}>
         <Text style={styles.searchResultMain} numberOfLines={1}>
           {location.label}
@@ -108,12 +106,12 @@ export function SearchRideSearchOverlay({
             accessibilityRole="button"
             accessibilityLabel={tr('search.close')}
           >
-            <RideIcon name="close" iconSet={iconSet} size={20} color={colors.text || '#111'} />
+            <RideIcon name="close" size={20} color={colors.text || '#111'} />
           </TouchableOpacity>
         </View>
 
         <View style={styles.searchInputWrapper}>
-          <RideIcon name="search" iconSet={iconSet} size={18} color={metaColor} />
+          <RideIcon name="search" size={18} color={metaColor} />
           <TextInput
             style={styles.searchInput}
             placeholder={(() => {
@@ -144,7 +142,6 @@ export function SearchRideSearchOverlay({
           >
             <RideIcon
               name="map"
-              iconSet={iconSet}
               size={15}
               color={shouldHighlightMapAction ? '#FFFFFF' : accentColor}
             />
@@ -162,8 +159,7 @@ export function SearchRideSearchOverlay({
             accessibilityRole="button"
           >
             <RideIcon
-              name="my-location"
-              iconSet={iconSet}
+              name="locate"
               size={15}
               color={shouldHighlightMapAction ? accentColor : '#FFFFFF'}
             />
@@ -178,7 +174,7 @@ export function SearchRideSearchOverlay({
 
         {isDestinationSelection && hasConfirmedDestination ? (
           <View style={styles.searchConfirmedRow}>
-            <RideIcon name="check-circle" iconSet={iconSet} size={14} color={successColor} />
+            <RideIcon name="checkmark-circle" size={14} color={successColor} />
             <Text style={[styles.searchConfirmedText, { color: successColor }]} numberOfLines={1}>
               {tr('search.destinationConfirmed')}
             </Text>
@@ -207,7 +203,7 @@ export function SearchRideSearchOverlay({
           {recentLocations.length > 0 && !searchLoading && searchResults.length === 0 && (
             <View style={styles.savedSection}>
               <Text style={styles.savedSectionTitle}>{tr('labels.recent')}</Text>
-              {recentLocations.map((location, index) => renderSavedItem(location, index, 'recent', 'history'))}
+              {recentLocations.map((location, index) => renderSavedItem(location, index, 'recent', 'time'))}
             </View>
           )}
 
@@ -219,7 +215,7 @@ export function SearchRideSearchOverlay({
                 onPress={() => onSelectSuggestion(suggestion)}
                 accessibilityRole="button"
               >
-                <RideIcon name="place" iconSet={iconSet} size={18} color={accentColor} />
+                <RideIcon name="location-outline" size={18} color={accentColor} />
                 <View style={styles.searchResultBody}>
                   <Text style={styles.searchResultMain} numberOfLines={1}>
                     {suggestion.mainText}

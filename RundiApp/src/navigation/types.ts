@@ -6,7 +6,13 @@ export type AuthStackParamList = {
   AuthLanding: undefined;
   Login: undefined;
   Register: undefined;
-  RegisterNew: undefined;
+  RegisterNew:
+    | {
+        email?: string;
+        phone?: string;
+        phoneVerified?: boolean;
+      }
+    | undefined;
   RegistrationCheckpoint: undefined;
   PhoneVerification: {
     name: string;

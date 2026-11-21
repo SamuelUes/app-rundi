@@ -53,6 +53,10 @@ const (
 	// ColDriverDailyCompliance — resultado diario reutilizable de compliance;
 	// solo el backend lo lee/escribe (los clientes no lo ven en las reglas).
 	ColDriverDailyCompliance = "SYSTEM_driver_daily_compliance"
+	// Backend-owned inputs for the staged Firestore availability cutover.
+	ColDriverAvailabilityInputs = "SYSTEM_driver_availability_inputs"
+	ColDriverAvailabilityExpiry = "SYSTEM_driver_availability_expirations"
+	ColCompliancePolicy         = "SYSTEM_compliance_policy"
 )
 
 func NewClient(ctx context.Context, cfg *config.Config) (*firestore.Client, error) {

@@ -5,8 +5,17 @@
 #   ./deploy.sh api             # solo API
 #   ./deploy.sh jobs            # solo jobs + triggers
 #
+# Env opcionales:
+#   BUILD_MODE=auto|local|cloudbuild  build de imágenes (default auto: local
+#     si el daemon de docker está activo — go cross-compile + buildx push,
+#     $0 en build minutes; si no, Cloud Build remoto reproducible)
+#   SKIP_SETUP=1     omite services enable + IAM bindings (re-deploy rápido)
+#   SKIP_BUILD=1     omite build de imágenes (reutiliza :latest — p.ej. solo
+#                    cambiar frecuencia de un tick: SKIP_BUILD=1 ./deploy.sh jobs)
+#
 # El .env de este directorio es la fuente: cada deploy carga sus variables,
-# crea/actualiza las versiones en Secret Manager y solo referencia los
+# crea/actualiza las versiones en Secret Manager SOLO si el valor cambió
+# (evita acumular versiones ENABLED facturadas) y solo referencia los
 # secretos que tienen valor (LiveKit/PuntoExpress opcionales → skip si vacío).
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -26,13 +35,47 @@ API_SA="rundi-api@$PROJECT.iam.gserviceaccount.com"
 WORKER_SA="rundi-worker@$PROJECT.iam.gserviceaccount.com"
 SCHED_SA="rundi-scheduler@$PROJECT.iam.gserviceaccount.com"
 
+# BUILD_MODE: auto (default — local si el daemon de docker está activo, si no
+# Cloud Build) | local (go cross-compile + buildx --push, $0 en build minutes)
+# | cloudbuild (remoto reproducible, ~E2_HIGHCPU_8 por servicio).
+BUILD_MODE="${BUILD_MODE:-auto}"
 build() { # $1 = api|consumer|scheduler
-  gcloud builds submit --config cloudbuild.yaml \
-    --substitutions "_SERVICE=$1,_REGION=$REGION" "$DIR"
+  if [[ "${SKIP_BUILD:-}" == "1" ]]; then
+    echo "  SKIP_BUILD — reutiliza :latest de $1"; return 0
+  fi
+  local mode="$BUILD_MODE"
+  if [[ "$mode" == "auto" ]]; then
+    if docker info >/dev/null 2>&1; then mode=local; else mode=cloudbuild; fi
+  fi
+  if [[ "$mode" == "local" ]]; then
+    build_local "$1"
+  else
+    gcloud builds submit --config cloudbuild.yaml \
+      --substitutions "_SERVICE=$1,_REGION=$REGION" "$DIR"
+  fi
+}
+
+# build_local — compila el binario para linux/amd64 EN LA MÁQUINA (CGO off,
+# dependencias puras — no hay emulación QEMU en arm64) y empaqueta con
+# Dockerfile.local (contexto = bin/, ~40MB). Tag extra: sha del commit.
+build_local() {
+  local tag="$REGION-docker.pkg.dev/$PROJECT/$REPO/$1" rev
+  rev="$(git -C "$DIR" rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)"
+  mkdir -p "$DIR/bin"
+  (cd "$DIR" && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+    go build -ldflags="-s -w" -o "bin/$1-linux-amd64" "./cmd/$1")
+  if [[ "${DOCKER_AUTH_DONE:-}" != "1" ]]; then
+    gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+    DOCKER_AUTH_DONE=1
+  fi
+  docker buildx build --platform linux/amd64 \
+    -f "$DIR/Dockerfile.local" --build-arg "SERVICE=$1" \
+    -t "$tag:$rev" -t "$tag:latest" --push "$DIR/bin"
 }
 
 # ensure_secret <env_var> <secret_name>: crea el secreto si no existe y
-# añade una versión con el valor actual del .env (solo si no está vacío).
+# añade una versión solo si el valor del .env difiere del `latest` vigente
+# (versionar en cada deploy acumulaba versiones ENABLED ~$0.06/mes c/u).
 SECRETS_FLAGS=()
 ensure_secret() {
   local var="$1" name="$2"
@@ -41,13 +84,23 @@ ensure_secret() {
   gcloud secrets describe "$name" --project="$PROJECT" >/dev/null 2>&1 \
     || gcloud secrets create "$name" --project="$PROJECT" \
          --replication-policy=automatic --quiet
-  printf '%s' "$val" | gcloud secrets versions add "$name" --project="$PROJECT" \
-    --data-file=- --quiet
+  local current
+  current="$(gcloud secrets versions access latest --secret="$name" \
+    --project="$PROJECT" 2>/dev/null || true)"
+  if [[ "$current" == "$val" ]]; then
+    echo "  $name sin cambios — no se versiona"
+  else
+    printf '%s' "$val" | gcloud secrets versions add "$name" --project="$PROJECT" \
+      --data-file=- --quiet
+    echo "  $name actualizado desde $var"
+  fi
   SECRETS_FLAGS+=("$var=$name:latest")
-  echo "  $name actualizado desde $var"
 }
 
 seed_secrets() {
+  # `all` = setup+api+jobs lo llamaba 3 veces (~21 gcloud calls). SECRETS_FLAGS
+  # ya queda poblado de la primera pasada — al re-entrar se conserva.
+  [[ "${SECRETS_SEEDED:-}" == "1" ]] && return 0
   SECRETS_FLAGS=()
   ensure_secret DB_PASSWORD db-password
   # Cloud Run uses INSTANCE_CONNECTION_NAME; DATABASE_URL would override the connector.
@@ -57,6 +110,7 @@ seed_secrets() {
   ensure_secret LIVEKIT_API_KEY livekit-api-key
   ensure_secret PUNTOEXPRESS_WEBHOOK_TOKEN puntoexpress-token
   ensure_secret APNS_P8_KEY apns-p8-key
+  SECRETS_SEEDED=1
 }
 
 secrets_arg() {
@@ -90,6 +144,9 @@ base_env() {
 }
 
 do_setup() {
+  # SKIP_SETUP=1: re-deploys rápidos sin re-correr services enable + IAM
+  # (idempotentes pero ~30s; los bindings no cambian entre deploys).
+  [[ "${SKIP_SETUP:-}" == "1" ]] && { echo "SKIP_SETUP — servicios/IAM omitidos"; return 0; }
   gcloud config set project "$PROJECT" >/dev/null
   gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
     artifactregistry.googleapis.com secretmanager.googleapis.com \
@@ -190,10 +247,10 @@ do_jobs() {
   # Frecuencias de los ticks (cron). Defaults = comportamiento vigente; al
   # validar el modelo on-demand (wake por mutación + poke de pending events)
   # pueden bajarse sin tocar el script:
-  #   CONSUMER_TICK_SCHEDULE="*/5 * * * *"  ./deploy.sh jobs
-  CONSUMER_TICK_SCHEDULE="${CONSUMER_TICK_SCHEDULE:-* * * * *}"
+  #   CONSUMER_TICK_SCHEDULE="* * * * *"  ./deploy.sh jobs  (volver a 1min)
+  CONSUMER_TICK_SCHEDULE="${CONSUMER_TICK_SCHEDULE:-*/5 * * * *}"
   SCHEDULER_TICK_SCHEDULE="${SCHEDULER_TICK_SCHEDULE:-*/5 * * * *}"
-  PROGRAMMED_TICK_SCHEDULE="${PROGRAMMED_TICK_SCHEDULE:-* * * * *}"
+  PROGRAMMED_TICK_SCHEDULE="${PROGRAMMED_TICK_SCHEDULE:-*/5 * * * *}"
   # OAuth (no OIDC): el target es la API de Google run.googleapis.com — para
   # endpoints Google se usa OAuth token con scope cloud-platform; OIDC con
   # audience custom es para invocar servicios propios (Cloud Run services).
@@ -215,8 +272,9 @@ do_jobs() {
       --location="$REGION" --schedule="$SCHEDULER_TICK_SCHEDULE" \
       --uri="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT/jobs/rundi-scheduler:run" \
       --http-method=POST --oauth-service-account-email="$SCHED_SA"
-  # Promoción de programados cada minuto (ventana +2min de gracia); el tick
-  # de 5min sigue ejecutando el mismo Process como respaldo.
+  # Programados: la puntualidad la dan las tasks por viaje (programmed-confirm
+  # T-10min / programmed-promo a la hora exacta); este tick cada 5min es solo
+  # respaldo por si una task se pierde.
   gcloud scheduler jobs create http rundi-programmed-tick \
     --location="$REGION" --schedule="$PROGRAMMED_TICK_SCHEDULE" \
     --uri="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT/jobs/rundi-programmed:run" \

@@ -15,6 +15,7 @@ import { bootstrapUser, upgradeToDriver } from '../../api/users';
 import { registerDriver, registerVehicle } from '../../api/drivers';
 import * as WebBrowser from 'expo-web-browser';
 import i18n from '../../i18n';
+import firebaseAuthService from './firebaseAuthService';
 
 // Completar el flujo de autenticación web
 WebBrowser.maybeCompleteAuthSession();
@@ -45,7 +46,6 @@ class GoogleAuthService {
 
       const auth = await getFirebaseAuth();
       const firestore = await getFirebaseFirestore();
-
       // Crear credencial de Google
       const credential = GoogleAuthProvider.credential(googleIdToken);
 
@@ -119,7 +119,6 @@ class GoogleAuthService {
       console.log('🔐 Iniciando sesión con Google...');
 
       const auth = await getFirebaseAuth();
-      const firestore = await getFirebaseFirestore();
 
       // Crear credencial de Google
       const credential = GoogleAuthProvider.credential(googleIdToken);
@@ -130,11 +129,18 @@ class GoogleAuthService {
 
       console.log('✅ Login con Google exitoso:', user.uid);
 
-      const userRef = doc(firestore, FS_COL.users, user.uid);
-      const userDoc = await getDoc(userRef);
+      let userData: any = null;
+      try {
+        userData = await firebaseAuthService.getUserProfile(user.uid);
+      } catch (profileError: any) {
+        if (profileError?.code !== 'PROFILE_NOT_FOUND') {
+          await signOut(auth).catch(() => undefined);
+          throw profileError;
+        }
+      }
 
-      // Si el perfil no existe en Firestore, delegamos al frontend para que pase por RoleSelection
-      if (!userDoc.exists()) {
+      // Si el perfil no existe en Firestore, delegamos al frontend para que pase por RoleSelection.
+      if (!userData) {
         const displayName =
           user.displayName || (user.email ? user.email.split('@')[0] : 'Usuario Google');
 
@@ -150,8 +156,6 @@ class GoogleAuthService {
           isNew: true,
         };
       }
-
-      const userData = userDoc.data();
 
       return {
         uid: user.uid,
@@ -213,19 +217,7 @@ class GoogleAuthService {
    * Obtener perfil de usuario
    */
   async getUserProfile(uid: string) {
-    try {
-      const firestore = await getFirebaseFirestore();
-      const userDoc = await getDoc(doc(firestore, FS_COL.users, uid));
-
-      if (!userDoc.exists()) {
-        throw new Error(this.tr('errors.profileNotFound'));
-      }
-
-      return userDoc.data();
-    } catch (error: any) {
-      console.error('❌ Error obteniendo perfil:', error);
-      throw new Error(error.message || this.tr('errors.profileNotFound'));
-    }
+    return firebaseAuthService.getUserProfile(uid);
   }
 }
 

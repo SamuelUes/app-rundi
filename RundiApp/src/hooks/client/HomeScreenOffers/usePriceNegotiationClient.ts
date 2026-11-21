@@ -72,7 +72,7 @@ export function usePriceNegotiationClient(
 
   const onSendCounterOffer = useCallback(
     async (price: number) => {
-      if (!rideId || !selectedOffer) return;
+      if (!rideId) return;
       try {
         await priceNegotiationService.negotiatePrice(
           rideId,
@@ -86,7 +86,7 @@ export function usePriceNegotiationClient(
         alertService.showErrorAlert(e?.message || t('client.homeOffers.alerts.counterOfferError'));
       }
     },
-    [rideId, selectedOffer, negotiationBasePrice, t],
+    [rideId, negotiationBasePrice, rideSnapshot?.pricingSnapshot?.dynamicMinimumFare, t],
   );
 
   const onAcceptAndStartRide = useCallback(async () => {
@@ -99,21 +99,13 @@ export function usePriceNegotiationClient(
     }
   }, [rideId, selectedOffer, navigateToTracking, t]);
 
-  const cancelSearch = useCallback(async () => {
+  const cancelSearch = useCallback(async (reason: string) => {
     if (!rideId) return;
-    try {
-      await ridesService.cancelRide(rideId, t('client.homeOffers.cancelReason'));
-      await clearClientActiveRideState();
-      resetRideOffers();
-      alertService.showSuccessAlert(
-        t('client.homeOffers.alerts.cancelSuccessTitle'),
-        t('client.homeOffers.alerts.cancelSuccessMessage'),
-      );
-      navigation.replace('ClientHome');
-    } catch (e: any) {
-      alertService.showErrorAlert(e?.message || t('client.homeOffers.alerts.cancelError'));
-    }
-  }, [rideId, navigation, t, resetRideOffers]);
+    await ridesService.cancelRide(rideId, reason);
+    await clearClientActiveRideState();
+    resetRideOffers();
+    navigation.replace('ClientHome');
+  }, [rideId, navigation, resetRideOffers]);
 
   const confirmSelectedDriver = useCallback(
     async (selectedDriverId: string | null) => {

@@ -101,6 +101,8 @@ func (s *Service) Create(ctx context.Context, uid string, in map[string]any) (st
 		"vehicleType", "designatedDriverVehicle", "passengers", "paymentMethod",
 		"serviceId", "serviceAreaId", "clientVehiclePhoto", "clientName",
 		"clientPhone", "notes",
+		"biometricAcceptanceRequired", "biometricAcceptanceType",
+		"biometricAcceptanceVerified", "biometricAcceptanceAt",
 	} {
 		if v, ok := in[k]; ok {
 			doc[k] = v
@@ -695,13 +697,16 @@ func (s *Service) promote(ctx context.Context, ref *firestore.DocumentRef, d map
 	if paymentType == "card" {
 		paymentType = "card_local"
 	}
+	bioReq, _ := d["biometricAcceptanceRequired"].(bool)
+	bioVer, _ := d["biometricAcceptanceVerified"].(bool)
 	err = tx.QueryRow(ctx, `
 		INSERT INTO public.rides (
 			firebase_ride_id, client_id, driver_id, ride_type, vehicle_type,
 			designated_driver_vehicle, estimated_distance, estimated_duration,
 			estimated_price, client_suggested_price, pricing_snapshot,
 			passengers, notes, payment_type, service_id, client_vehicle_photo,
-			service_area_id, status, accepted_at
+			service_area_id, biometric_acceptance_required, biometric_acceptance_type,
+			biometric_acceptance_verified, biometric_acceptance_at, status, accepted_at
 		) VALUES (
 			$1, $2, $3, COALESCE(NULLIF($4,'')::public.ride_type,'normal'), COALESCE(NULLIF($5,''),'auto'),
 			NULLIF($6,'')::public.designated_driver_vehicle, $7, $8, $9, $10, $11, COALESCE($12,1), NULLIF($13,''),
@@ -709,7 +714,8 @@ func (s *Service) promote(ctx context.Context, ref *firestore.DocumentRef, d map
 			COALESCE((SELECT id FROM public.services WHERE code = NULLIF($15, '')),
 				CASE WHEN NULLIF($15, '') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 					THEN NULLIF($15, '')::uuid END),
-			NULLIF($16,''), NULLIF($18,''),
+			NULLIF($16,''), NULLIF($18,''), $19, NULLIF($20,'')::public.biometric_type,
+			$21, $22,
 			$17::ride_status, CASE WHEN $17 = 'accepted' THEN NOW() ELSE NULL END
 		) RETURNING id::text`,
 		ref.ID, clientID, nil,
@@ -719,6 +725,8 @@ func (s *Service) promote(ctx context.Context, ref *firestore.DocumentRef, d map
 		jsonOrNil(d["pricingSnapshot"]), intOrNil(d["passengers"]),
 		str(d["notes"]), paymentType, str(d["serviceId"]),
 		str(d["clientVehiclePhoto"]), status, str(d["serviceAreaId"]),
+		bioReq, rides.NormalizeBiometricType(str(d["biometricAcceptanceType"])),
+		bioVer, rides.ParseBiometricAt(str(d["biometricAcceptanceAt"])),
 	).Scan(&rideID)
 	if err != nil {
 		_ = tx.Rollback(ctx)

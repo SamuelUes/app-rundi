@@ -30,10 +30,11 @@ import {
   resolveNegotiationBasePrice,
 } from '../../utils/ride/pricing';
 import { haversineKm } from '../../utils/geo/distance';
-import alertService from '../../services/notification/alertService';
+import notificationService from '../../services/notification/notificationService';
 import { HomeScreenOffersOfferCard } from '../../components/client/HomeScreenOffers/HomeScreenOffersOfferCard';
 import { HomeScreenOffersBottomSheet } from '../../components/client/HomeScreenOffers/HomeScreenOffersBottomSheet';
 import { HomeScreenOffersHint } from '../../components/client/HomeScreenOffers/HomeScreenOffersHint';
+import { CancelSearchSheet } from '../../components/client/HomeScreenOffers/CancelSearchSheet';
 import { useRideFlowTransition } from '../../hooks/client/useRideFlowTransition';
 import { isDesignatedRideRequest } from '../../utils/ride/availableRidesHelpers';
 
@@ -69,6 +70,8 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   const [showDriverReviews, setShowDriverReviews] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [showCancelSheet, setShowCancelSheet] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const [driverCameraTarget, setDriverCameraTarget] = useState<LatLngPoint | null>(null);
   const [bottomSheetHeight, setBottomSheetHeight] = useState(0);
 
@@ -85,6 +88,12 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     driversRaw,
     reset: resetRideOffers,
   } = useRideOffers(route?.params?.rideId || null, user?.id, serviceAreaId, driverFallbackName);
+
+  useEffect(() => {
+    if (offersError || !rideSnapshot?.id || offers.length === 0) return;
+    if (offers.some((offer) => offer.lastOfferBy !== 'client')) return;
+    void notificationService.dismissRideOfferNotification(rideSnapshot.id);
+  }, [offers, offersError, rideSnapshot?.id]);
 
   useEffect(() => {
     setDriverCameraTarget(null);
@@ -274,6 +283,29 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     resetRideOffers,
   );
 
+  const proposalStepper = useMemo(() => {
+    if (programmedRide || !rideId || negotiationBasePrice == null) return null;
+    return {
+      currentPrice: firstPositivePrice(
+        selectedOffer?.clientSuggestedPrice,
+        rideSnapshot?.clientSuggestedPrice,
+        rideSnapshot?.negotiation?.clientSuggestedPrice,
+      ) ?? negotiationBasePrice,
+      minPrice: Math.max(1, negotiationBasePrice),
+      maxPrice: 100000,
+      step: 5,
+      onSend: onSendCounterOffer,
+    };
+  }, [
+    programmedRide,
+    rideId,
+    negotiationBasePrice,
+    selectedOffer?.clientSuggestedPrice,
+    rideSnapshot?.clientSuggestedPrice,
+    rideSnapshot?.negotiation?.clientSuggestedPrice,
+    onSendCounterOffer,
+  ]);
+
   const confirmSelectedDriver = useCallback(async () => {
     if (!rideId || !selectedDriverId || isConfirming) return;
     setIsConfirming(true);
@@ -297,37 +329,28 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
     }
   }, [confirmBtnAnim, isConfirming, rideId, selectedDriverId, confirmSelectedDriverBase]);
 
-  const cancelSearch = useCallback(() => {
+  const cancelSearch = useCallback(async (reason: string) => {
     if (!rideId || isCancelling) return;
-    alertService.showConfirmAlert(
-      t('client.homeOffers.cancelConfirmTitle'),
-      visibleOffers.length > 0
-        ? t('client.homeOffers.cancelConfirmBody')
-        : t('client.homeOffers.cancelConfirmBodyEmpty'),
-      async () => {
-        setIsCancelling(true);
-        Animated.timing(cancelBtnAnim, {
-          toValue: 0.95,
-          duration: 120,
-          useNativeDriver: true,
-        }).start();
-        try {
-          await cancelSearchBase();
-        } finally {
-          Animated.timing(cancelBtnAnim, {
-            toValue: 1,
-            duration: 160,
-            useNativeDriver: true,
-          }).start();
-          setIsCancelling(false);
-        }
-      },
-      undefined,
-      t('client.homeOffers.cancelConfirmYes'),
-      t('client.homeOffers.cancelConfirmNo'),
-      true,
-    );
-  }, [rideId, isCancelling, cancelBtnAnim, cancelSearchBase, visibleOffers.length, t]);
+    setIsCancelling(true);
+    setCancelError(null);
+    Animated.timing(cancelBtnAnim, {
+      toValue: 0.95,
+      duration: 120,
+      useNativeDriver: true,
+    }).start();
+    try {
+      await cancelSearchBase(reason);
+    } catch (error: any) {
+      setCancelError(error?.message || t('client.homeOffers.alerts.cancelError'));
+    } finally {
+      Animated.timing(cancelBtnAnim, {
+        toValue: 1,
+        duration: 160,
+        useNativeDriver: true,
+      }).start();
+      setIsCancelling(false);
+    }
+  }, [rideId, isCancelling, cancelBtnAnim, cancelSearchBase, t]);
 
   // Location to center map
   const centerLat = coords?.latitude ?? rideSnapshot?.origin?.lat ?? programmedRide?.origin?.lat ?? 12.1364;
@@ -574,7 +597,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
   useEffect(() => {
     if (!programmedRide) return;
     const status = String(rideSnapshot?.status || '').toLowerCase();
-    if (!['accepted', 'driver_on_route', 'in_progress'].includes(status)) return;
+    if (!['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'].includes(status)) return;
     if (!rideSnapshot?.driverId && !rideSnapshot?.driver?.id) return;
 
     navigation.replace('RideTracking', {
@@ -727,6 +750,7 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
           latitude={centerLat}
           longitude={centerLng}
           nearbyDrivers={nearbyDrivers}
+          driverRadar
           onDriverPress={handleSelectFromList}
           showUserLocation={false}
           userLocationLightIcon={USER_LOCATION_LIGHT}
@@ -783,7 +807,11 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
         renderOffer={renderOffer}
         onShowDriverReviews={() => setShowDriverReviews(true)}
         onConfirmSelectedDriver={confirmSelectedDriver}
-        onCancelSearch={cancelSearch}
+        onCancelSearch={() => {
+          setCancelError(null);
+          setShowCancelSheet(true);
+        }}
+        proposal={proposalStepper}
         onHeightChange={(height) => setBottomSheetHeight((current) => (
           current === height ? current : height
         ))}
@@ -791,6 +819,15 @@ export default function HomeScreenOffers({ navigation, route }: Props) {
         t={t}
       />
       </Animated.View>
+
+      <CancelSearchSheet
+        visible={showCancelSheet}
+        busy={isCancelling}
+        hasOffers={visibleOffers.length > 0}
+        error={cancelError}
+        onClose={() => setShowCancelSheet(false)}
+        onConfirm={cancelSearch}
+      />
 
       {/* Modal de Negociación */}
       <PriceNegotiationModal
@@ -1252,6 +1289,58 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   reviewsLinkText: { flex: 0, fontSize: 12, fontWeight: '600' },
   reviewsRowText: { flex: 1, fontSize: 13, fontWeight: '700' },
+  proposalRow: {
+    backgroundColor: colors.surface,
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 14,
+    borderWidth: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  proposalStepBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  proposalStepBtnDisabled: { opacity: 0.4 },
+  proposalPriceWrap: {
+    flex: 1,
+    minHeight: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    paddingHorizontal: 4,
+  },
+  proposalPriceText: { fontSize: 15, fontWeight: '800', letterSpacing: -0.2 },
+  proposalPriceInput: {
+    flex: 1,
+    minHeight: 34,
+    fontSize: 15,
+    fontWeight: '800',
+    textAlign: 'center',
+    paddingVertical: 0,
+  },
+  proposalSendBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  proposalSendText: { fontSize: 12, fontWeight: '700', color: '#fff' },
   primaryBtn: {
     marginTop: 10,
     borderRadius: 14,

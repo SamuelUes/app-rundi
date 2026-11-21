@@ -55,7 +55,7 @@ class GoogleMapsService {
       const response = await axios.post(`${PLACES_NEW_BASE_URL}/places:searchNearby`, {
         languageCode: 'es',
         maxResultCount: 20,
-        rankPreference: 'DISTANCE',
+        rankPreference: 'POPULARITY',
         locationRestriction: { circle: { center, radius: 130 } },
       }, {
         timeout: 4000,

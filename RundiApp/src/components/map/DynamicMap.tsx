@@ -47,10 +47,13 @@ interface DynamicMapProps {
   onRegionChangeCenter?: (center: { latitude: number; longitude: number; altitude?: number; isGesture?: boolean }) => void;
   onRegionChangeCompleteCenter?: (center: { latitude: number; longitude: number; altitude?: number; zoom?: number; isGesture?: boolean }) => void;
   nearbyPlaces?: NearbyPlace[];
+  nearbyPlaceCandidateId?: string | null;
+  nearbyPlaceSelectedId?: string | null;
   onDriverPress?: (driverId: string) => void; // when user taps a driver marker
   showMarker?: boolean;
   markerPosition?: { latitude: number; longitude: number };
   markerType?: 'default' | 'car' | 'origin' | 'destination' | 'client' | 'manual_origin' | 'manual_origin_hold';
+  hideOriginPinImage?: boolean;
   originMarker?: { latitude: number; longitude: number };
   destinationMarker?: { latitude: number; longitude: number };
   clientMarker?: { latitude: number; longitude: number };
@@ -71,6 +74,7 @@ interface DynamicMapProps {
   cameraFitCoordinates?: Array<{ latitude: number; longitude: number }>;
   autoFitEnabled?: boolean;
   nearbyDrivers?: NearbyDriver[]; // Conductores cercanos
+  driverRadar?: boolean;
   draggableMarker?: boolean; // Permitir arrastrar el marcador
   onMarkerDragEnd?: (newLocation: { latitude: number; longitude: number }) => void; // Callback cuando se suelta el marcador
   rideRequests?: Array<RideRequestMarker>; // Solicitudes de viaje disponibles

@@ -17,6 +17,18 @@ const driver = {
             brand: 'Marca', model: 'Modelo', year: 'Año',
           },
           home: {
+            documentDates: {
+              title: 'Revisa tus documentos',
+              license: 'Licencia de conducir',
+              circulation: 'Tarjeta de circulación',
+              insurance: 'Póliza de seguro',
+              inspection: 'Inspección técnica',
+              emissions: 'Certificado de emisiones',
+              revisado: 'Revisado',
+              expired: '{{document}}: venció el {{date}}.',
+              upcoming: '{{document}}: vence el {{date}}.',
+              notYetValid: '{{document}}: inicia el {{date}}.',
+            },
             loading: {
               initializing: 'Preparando tu panel de conductor...',
               locating: 'Obteniendo tu ubicación...',

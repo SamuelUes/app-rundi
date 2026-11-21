@@ -52,10 +52,13 @@ export function RideVerificationCodeModal({
       visible={visible}
       transparent
       animationType="fade"
+      statusBarTranslucent
       onShow={() => setShown(true)}
       onRequestClose={loading ? undefined : onClose}
     >
-      <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      {/* Android: sin behavior — 'height' dentro de Modal re-layoutea al atar
+          el IME y puede cerrar el teclado; el sistema hace adjustPan solo. */}
+      <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.sheet}>
           <View style={styles.header}>
             <View style={styles.headerCopy}>

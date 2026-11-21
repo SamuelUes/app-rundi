@@ -63,7 +63,7 @@ type catalogEntry struct {
 
 var catalog = map[Type]catalogEntry{
 	RideRequested:       {"ride_request_sent", fcm.DefaultChannel, 2 * time.Minute, "ride", "Solicitud enviada", "Estamos buscando un conductor para tu viaje"},
-	RideDriverOffered:   {"driver_available", fcm.DefaultChannel, 2 * time.Minute, "ride", "Conductor disponible", "Un conductor está listo para tu viaje. Revísalo ahora."},
+	RideDriverOffered:   {"driver_available", fcm.ClientRideSilentChannel, 2 * time.Minute, "live-ride", "Conductor disponible", "Un conductor está listo para tu viaje. Revísalo ahora."},
 	RideAssigned:        {"ride_assigned", fcm.DefaultChannel, 2 * time.Minute, "ride", "Viaje asignado", "El cliente confirmó el viaje. Dirígete al punto de encuentro."},
 	RideDriverOnRoute:   {"driver_on_way", fcm.DefaultChannel, 2 * time.Minute, "ride", "Conductor en camino", "Tu conductor se dirige al punto de recogida."},
 	RideCompleted:       {"ride_completed", fcm.DefaultChannel, 2 * time.Minute, "ride", "Viaje finalizado", "Por favor confirma y realiza el pago."},
@@ -123,6 +123,7 @@ func (c *Center) Notify(ctx context.Context, uid, rideID string, t Type, opts No
 		if e, ok := liveCatalog[opts.LiveSub]; ok {
 			entry = e
 		}
+		entry.ChannelID = fcm.ClientRideSilentChannel
 	}
 	if opts.TTL > 0 {
 		entry.TTL = opts.TTL
@@ -152,6 +153,9 @@ func (c *Center) Notify(ctx context.Context, uid, rideID string, t Type, opts No
 	}
 	if rideID != "" {
 		data["rideId"] = rideID
+	}
+	if t == RideLiveUpdate && opts.LiveSub != "" {
+		data["status"] = string(opts.LiveSub)
 	}
 	if entry.I18nKey != "" {
 		data["i18nKey"] = entry.I18nKey
@@ -206,6 +210,7 @@ func (c *Center) Notify(ctx context.Context, uid, rideID string, t Type, opts No
 		ChannelID:   entry.ChannelID,
 		TTL:         entry.TTL,
 		CollapseKey: key,
+		Silent:      t == RideLiveUpdate || t == RideDriverOffered,
 	})
 	if err != nil {
 		return err

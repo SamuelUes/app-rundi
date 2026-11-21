@@ -7,11 +7,13 @@ package compliance
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/rundi/functions-v2/internal/fs"
 	"github.com/rundi/functions-v2/internal/outbox"
 )
 
@@ -48,14 +50,20 @@ func (s *Service) ActivateAvailabilityPostRide(ctx context.Context, uid string, 
 
 func (s *Service) activateAvailability(ctx context.Context, uid string, store *DailyStore, extra map[string]any) (*ActivationResult, error) {
 	now := time.Now()
-	today, dayEnd := NicaraguaDayWindow(now)
+	today, _ := NicaraguaDayWindow(now)
 
-	dID, _, found, err := driverRowWithQuerier(ctx, s.pool, uid)
+	dID, fUID, found, err := driverRowWithQuerier(ctx, s.pool, uid)
 	if err != nil {
 		return nil, err
 	}
 	if !found {
 		return nil, ErrDriverNotFound
+	}
+	if s.fs != nil {
+		if fUID == "" {
+			return nil, ErrDriverNotFound
+		}
+		return s.activateAvailabilityFirestore(ctx, fUID, extra)
 	}
 
 	// La decisión diaria vive en Firestore (la lectura más lenta del camino):
@@ -73,51 +81,11 @@ func (s *Service) activateAvailability(ctx context.Context, uid string, store *D
 		}()
 	}
 
-	batch := &pgx.Batch{}
-	batch.Queue(`SELECT id::text FROM public.vehicles
-		WHERE driver_id = $1::uuid AND is_active = TRUE AND deleted_at IS NULL
-		ORDER BY created_at DESC, id DESC LIMIT 1`, dID)
-	batch.Queue(`SELECT s.code, ds.expires_at
-		FROM public.driver_services ds
-		JOIN public.services s ON s.id = ds.service_id AND s.is_active
-		WHERE ds.driver_id = $1::uuid AND ds.is_active AND ds.is_approved
-		  AND (ds.expires_at IS NULL OR ds.expires_at > clock_timestamp())
-		ORDER BY s.code`, dID)
-	br := s.pool.SendBatch(ctx, batch)
-	defer br.Close()
-
-	var vehicleID *string
-	{
-		var id string
-		err := br.QueryRow().Scan(&id)
-		switch {
-		case errors.Is(err, pgx.ErrNoRows):
-		case err != nil:
-			return nil, err
-		default:
-			vehicleID = &id
-		}
-	}
-	serviceRows, err := br.Query()
+	actx, err := s.loadActivationContext(ctx, dID, now)
 	if err != nil {
 		return nil, err
 	}
-	var serviceCodes []string
-	var earliestExpiry *time.Time
-	for serviceRows.Next() {
-		var code string
-		var exp *time.Time
-		if err := serviceRows.Scan(&code, &exp); err != nil {
-			return nil, err
-		}
-		serviceCodes = append(serviceCodes, code)
-		if exp != nil && (earliestExpiry == nil || exp.Before(*earliestExpiry)) {
-			earliestExpiry = exp
-		}
-	}
-	if err := serviceRows.Err(); err != nil {
-		return nil, err
-	}
+	vehicleID, serviceCodes, expiresAt := actx.vehicleID, actx.serviceCodes, actx.expiresAt
 	if vehicleID == nil {
 		return nil, ErrNoActiveVehicle
 	}
@@ -126,10 +94,6 @@ func (s *Service) activateAvailability(ctx context.Context, uid string, store *D
 			Code: "NO_ENABLED_SERVICES", Severity: SevBlocking, Blocking: true,
 			Status: StatusFail, Message: "No tienes servicios habilitados.",
 		}}}, nil
-	}
-	expiresAt := dayEnd
-	if earliestExpiry != nil && earliestExpiry.Before(dayEnd) {
-		expiresAt = *earliestExpiry
 	}
 
 	reused := false
@@ -161,7 +125,37 @@ func (s *Service) activateAvailability(ctx context.Context, uid string, store *D
 			serviceCodes, decision.Context.InputGenerations, expiresAt, extra)
 		if err == nil {
 			if store != nil {
-				_ = store.Save(ctx, *decision)
+				if !reused {
+					go func(d DailyDecision) {
+						saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+						defer cancel()
+						if err := store.Save(saveCtx, d); err != nil {
+							slog.Warn("compliance cache save failed", "err", err)
+						}
+					}(*decision)
+				}
+				// SQL and the outbox are already committed. This bounded fast path
+				// avoids waiting for the scheduled consumer; the session sequence
+				// fence makes a later consumer replay safe.
+				payload := map[string]any{
+					"driverUid": uid, "driverId": dID, "sessionId": sessionID,
+					"sessionSeq": float64(seq), "vehicleId": vehicleID,
+					"day": today, "expiresAt": expiresAt.UTC().Format(time.RFC3339),
+				}
+				services := make([]any, len(serviceCodes))
+				for i, code := range serviceCodes {
+					services[i] = code
+				}
+				payload["serviceCodes"] = services
+				for k, v := range extra {
+					payload[k] = v
+				}
+				projectionCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+				err = fs.ProjectDriverSession(projectionCtx, store.client, payload, true)
+				cancel()
+				if err != nil {
+					slog.Warn("availability fast projection failed", "err", err)
+				}
 			}
 			return &ActivationResult{
 				Allowed: true, Status: decision.Status, Reasons: decision.Reasons,
@@ -174,6 +168,81 @@ func (s *Service) activateAvailability(ctx context.Context, uid string, store *D
 		decision = nil
 		reused = false
 	}
+}
+
+// activateAvailabilityFirestore — path autoritativo: la sesión nace en
+// Firestore (sin evaluar SQL) y luego se abre el espejo SQL que cierra las
+// operaciones de viaje. Si los inputs faltan o están obsoletos, se resincronizan
+// desde SQL una sola vez y se reintenta (autoreparación + migración suave).
+func (s *Service) activateAvailabilityFirestore(ctx context.Context, uid string,
+	extra map[string]any) (*ActivationResult, error) {
+	forceOnline := extra["postRideReactivation"] == true
+	for attempt := 0; attempt < 3; attempt++ {
+		sess, actErr := ActivateFirestoreSession(ctx, s.fs, uid, forceOnline)
+		if actErr == nil {
+			seq, mErr := s.openFSMirror(ctx, uid, sess, extra)
+			if mErr == nil {
+				return &ActivationResult{
+					Allowed: true, Status: "compliant",
+					SessionID: sess.SessionID, SessionSeq: seq,
+				}, nil
+			}
+			// El espejo no abrió (flag de invalidación pendiente u otro
+			// error): compensar la sesión Firestore para no mostrar online
+			// con el gate cerrado.
+			_ = DeactivateFirestoreSession(ctx, s.fs, uid)
+			if !errors.Is(mErr, ErrReactivationRequired) {
+				return nil, mErr
+			}
+		} else if !errors.Is(actErr, ErrReactivationRequired) {
+			return nil, actErr
+		}
+		res, serr := s.SyncFirestoreInputs(ctx, uid)
+		if serr != nil {
+			return nil, serr
+		}
+		if !res.Allowed {
+			return &ActivationResult{Allowed: false, Status: res.Status, Reasons: res.Reasons}, nil
+		}
+	}
+	return nil, ErrReactivationRequired
+}
+
+// openFSMirror — abre la fila-espejo _fs y el evento durable driver.activated
+// en una tx serializable. Si el trigger de señales marcó reactivation_required
+// (mutación SQL pendiente de resync), devuelve ErrReactivationRequired.
+func (s *Service) openFSMirror(ctx context.Context, uid string, sess FirestoreDriverSession,
+	extra map[string]any) (int64, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+	vehicleID := sess.VehicleID
+	seq, err := OpenFirestoreMirrorSession(ctx, tx, sess.DriverID, sess.SessionID, sess.Day,
+		&vehicleID, sess.ServiceCodes, sess.InputsVersion, sess.PolicyVersion, sess.ExpiresAt)
+	if err != nil {
+		return 0, err
+	}
+	payload := map[string]any{
+		"driverUid": uid, "driverId": sess.DriverID, "sessionId": sess.SessionID,
+		"sessionSeq": seq, "vehicleId": sess.VehicleID, "serviceCodes": sess.ServiceCodes,
+		"day": sess.Day, "expiresAt": sess.ExpiresAt.UTC().Format(time.RFC3339),
+		"source": "firestore",
+	}
+	for k, v := range extra {
+		payload[k] = v
+	}
+	if _, err := outbox.InsertReturning(ctx, tx, outbox.Event{
+		Type: "driver.activated", AggregateType: "driver", AggregateID: sess.DriverID,
+		Payload: payload,
+	}); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return seq, nil
 }
 
 // authorizeSession — re-verifica las señales registradas bajo FOR SHARE dentro
@@ -235,7 +304,7 @@ func (s *Service) authorizeSession(ctx context.Context, uid, dID, today string,
 // sesión vigente y registra la intención durable de offline (el consumer la
 // proyecta; si ya no había sesión viva es idempotente).
 func (s *Service) DeactivateAvailability(ctx context.Context, uid string) error {
-	dID, _, found, err := driverRowWithQuerier(ctx, s.pool, uid)
+	dID, fUID, found, err := driverRowWithQuerier(ctx, s.pool, uid)
 	if err != nil {
 		return err
 	}
@@ -254,14 +323,25 @@ func (s *Service) DeactivateAvailability(ctx context.Context, uid string) error 
 	_, err = outbox.InsertReturning(ctx, tx, outbox.Event{
 		Type: "driver.deactivated", AggregateType: "driver", AggregateID: dID,
 		Payload: map[string]any{
-			"driverUid": uid, "driverId": dID,
+			"driverUid": fUID, "driverId": dID,
 			"sessionSeq": seq, "reason": "manual",
 		},
 	})
 	if err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	// El gate SQL ya quedó cerrado; la sesión Firestore se cierra después. Si
+	// falla, el conductor no puede operar de todas formas (espejo revocado) y
+	// el próximo intento la cierra de forma idempotente.
+	if s.fs != nil && fUID != "" {
+		if err := DeactivateFirestoreSession(ctx, s.fs, fUID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // evaluateForActivation — evalúa todos los servicios habilitados sobre un solo

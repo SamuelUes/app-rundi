@@ -49,6 +49,7 @@ interface PriceNegotiationModalProps {
   onAcceptAndStartRide: () => void;
   negotiationStatus?: string;
   acceptedClientPrice?: boolean;
+  proposalOnly?: boolean;
 }
 
 export default function PriceNegotiationModal({
@@ -56,7 +57,6 @@ export default function PriceNegotiationModal({
   onClose,
   driver = null,
   estimatedPrice = 0,
-  dynamicMinimumFare = 0,
   clientSuggestedPrice = 0,
   driverOfferedPrice = 0,
   onAcceptDriverOffer,
@@ -64,6 +64,7 @@ export default function PriceNegotiationModal({
   onAcceptAndStartRide,
   negotiationStatus = '',
   acceptedClientPrice = false,
+  proposalOnly = false,
 }: PriceNegotiationModalProps) {
   const { colors, isDark } = useTheme();
   const { t } = useTranslation();
@@ -85,16 +86,10 @@ export default function PriceNegotiationModal({
 
   const effectiveEstimatedPrice = fallbackBasePrice > 0 ? fallbackBasePrice : 0;
 
-  // Límites relativos a la cotización; solo se conserva el límite técnico de C$100,000.
-  const computedMin = Math.round(effectiveEstimatedPrice * 0.6667 * 100) / 100;
-  const computedMax = Math.round(effectiveEstimatedPrice * 1.3333 * 100) / 100;
+  // El cliente puede ofrecer a partir de la tarifa estimada (no menos).
   const MAX_NEGOTIATED_PRICE = 100000;
-  const surgeFloor = Number.isFinite(dynamicMinimumFare) ? dynamicMinimumFare : 0;
-  const MIN_PRICE = Math.min(MAX_NEGOTIATED_PRICE, Math.max(50, computedMin, surgeFloor));
-  const MAX_PRICE = Math.max(
-    MIN_PRICE,
-    Math.min(MAX_NEGOTIATED_PRICE, computedMax),
-  );
+  const MIN_PRICE = Math.min(MAX_NEGOTIATED_PRICE, Math.max(1, effectiveEstimatedPrice));
+  const MAX_PRICE = MAX_NEGOTIATED_PRICE;
 
   const handleSendCounterOffer = () => {
     const price = parseFloat(counterOffer);
@@ -139,8 +134,8 @@ export default function PriceNegotiationModal({
     }
   };
 
-  const driverAcceptedClientPrice = acceptedClientPrice || negotiationStatus === 'driver_accepted';
-  const driverMadeCounterOffer = driverOfferedPrice > 0 && !acceptedClientPrice;
+  const driverAcceptedClientPrice = !proposalOnly && (acceptedClientPrice || negotiationStatus === 'driver_accepted');
+  const driverMadeCounterOffer = proposalOnly || (driverOfferedPrice > 0 && !acceptedClientPrice);
 
   const textColor = colors?.text || '#000';
   const textSecondaryColor = colors?.textSecondary || '#666';
@@ -351,7 +346,7 @@ export default function PriceNegotiationModal({
               ) : driverMadeCounterOffer ? (
                 // Conductor hizo contraoferta
                 <View style={styles.stateBlock}>
-                  <View
+                  {!proposalOnly && <View
                     style={[
                       styles.offerBanner,
                       { backgroundColor: goldTint, borderColor: goldBorder },
@@ -375,9 +370,9 @@ export default function PriceNegotiationModal({
                         {t('common.components.priceNegotiationModal.state.counterOffer.subtitle')}
                       </Text>
                     </View>
-                  </View>
+                  </View>}
 
-                  <TouchableOpacity
+                  {!proposalOnly && <TouchableOpacity
                     style={[styles.primaryButton, { backgroundColor: warningColor }]}
                     onPress={onAcceptDriverOffer}
                     activeOpacity={0.85}
@@ -389,9 +384,9 @@ export default function PriceNegotiationModal({
                         amount: driverOfferedPrice || 0,
                       })}
                     </Text>
-                  </TouchableOpacity>
+                  </TouchableOpacity>}
 
-                  <View style={styles.dividerRow}>
+                  {/* <View style={styles.dividerRow}>
                     <View style={[styles.dividerLine, { backgroundColor: insetBorder }]} />
                     <Text style={[styles.dividerLabel, { color: textTertiaryColor }]}>
                       {t('common.components.priceNegotiationModal.counterOffer.label')}
@@ -429,9 +424,9 @@ export default function PriceNegotiationModal({
                         </Text>
                       </View>
                     </View>
-                  </View>
+                  </View> */}
 
-                  <View style={styles.counterOfferInput}>
+                  {/* <View style={styles.counterOfferInput}>
                     <View
                       style={[
                         styles.inputWrap,
@@ -447,7 +442,7 @@ export default function PriceNegotiationModal({
                         onChangeText={handleCounterOfferChange}
                         keyboardType="decimal-pad"
                         placeholder={t('common.components.priceNegotiationModal.counterOffer.placeholder', {
-                          value: Math.round((MIN_PRICE + MAX_PRICE) / 2),
+                          value: Math.round(effectiveEstimatedPrice || MIN_PRICE),
                         })}
                         placeholderTextColor={textTertiaryColor}
                       />
@@ -466,7 +461,7 @@ export default function PriceNegotiationModal({
                         {t('common.components.priceNegotiationModal.counterOffer.send')}
                       </Text>
                     </TouchableOpacity>
-                  </View>
+                  </View> */}
                 </View>
               ) : (
                 // Esperando respuesta del conductor

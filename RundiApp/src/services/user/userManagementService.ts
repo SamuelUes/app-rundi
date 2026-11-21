@@ -3,70 +3,105 @@
  */
 
 import { doc, getDoc } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
-import { getFirebaseFirestore } from '../../config/firebase';
+import {
+  EmailAuthProvider,
+  getAuth,
+  reauthenticateWithCredential,
+} from 'firebase/auth';
+import { getFirebaseAuth, getFirebaseFirestore } from '../../config/firebase';
 import { FS_COL } from '../../constants/firestore';
-import { deactivateAccount, deleteMyData } from '../../api/users';
+import { deleteMyData } from '../../api/users';
 import i18n from '../../i18n';
+import phoneAuthService from '../auth/phoneAuthService';
 
 class UserManagementService {
-  /**
-   * Desactiva la cuenta del usuario sin eliminar sus datos.
-   * En v2 el backend marca la baja en SQL + proyección (POST /users/me/deactivate).
-   */
-  async deleteUserAccount(email: string, _password: string): Promise<{ success: boolean; message: string }> {
+  async deleteUserAccountWithEmail(
+    email: string,
+    password: string,
+  ): Promise<{ success: boolean; message: string }> {
     try {
-      console.log('🗑️ Iniciando desactivación de cuenta de usuario...');
-
-      const auth = getAuth();
+      const auth = await getFirebaseAuth();
       const user = auth.currentUser;
-
       if (!user || !user.email) {
         throw new Error(i18n.t('services.userManagementService.errors.notAuthenticated') as string);
       }
 
       const normalizedInputEmail = (email || '').trim().toLowerCase();
       const normalizedUserEmail = user.email.trim().toLowerCase();
-
       if (!normalizedInputEmail || normalizedInputEmail !== normalizedUserEmail) {
         throw new Error(i18n.t('services.userManagementService.errors.emailMismatch') as string);
       }
 
-      console.log('☁️ Solicitando desactivación de cuenta en backend v2...');
-      await deactivateAccount();
-
-      console.log('✅ Cuenta desactivada exitosamente');
-      return {
-        success: true,
-        message: 'Cuenta eliminada exitosamente. Todos tus datos han sido borrados.',
-      };
+      await reauthenticateWithCredential(
+        user,
+        EmailAuthProvider.credential(user.email, password),
+      );
+      return await this.deleteCurrentAccountData();
     } catch (error: any) {
-      console.error('❌ Error eliminando cuenta:', error);
+      return this.toDeleteResult(error);
+    }
+  }
 
-      if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-        return {
-          success: false,
-          message: i18n.t('services.userManagementService.errors.wrongPassword') as string,
-        };
-      }
-      if (error.code === 'auth/user-not-found') {
-        return {
-          success: false,
-          message: i18n.t('services.userManagementService.errors.userNotFound') as string,
-        };
-      }
-      if (error.code === 'auth/too-many-requests') {
-        return {
-          success: false,
-          message: i18n.t('services.userManagementService.errors.tooManyRequests') as string,
-        };
+  async deleteUserAccountWithPhone(
+    phone: string,
+    code: string,
+    expectedPhone: string,
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      const matches = (value: string) => value.replace(/\D/g, '');
+      if (!phone || !expectedPhone || matches(phone) !== matches(expectedPhone)) {
+        throw new Error(i18n.t('shared.deleteAccount.errors.phoneMismatch') as string);
       }
 
+      const verification = await phoneAuthService.confirmVerificationCode(phone, code);
+      const verifiedPhone = verification.user?.phoneNumber || '';
+      if (!verifiedPhone || matches(verifiedPhone) !== matches(expectedPhone)) {
+        throw new Error(i18n.t('shared.deleteAccount.errors.phoneMismatch') as string);
+      }
+
+      await phoneAuthService.signOutCurrentUser().catch(() => undefined);
+      return await this.deleteCurrentAccountData();
+    } catch (error: any) {
+      return this.toDeleteResult(error);
+    }
+  }
+
+  private async deleteCurrentAccountData(): Promise<{ success: boolean; message: string }> {
+    const auth = await getFirebaseAuth();
+    if (!auth.currentUser) {
+      throw new Error(i18n.t('services.userManagementService.errors.notAuthenticated') as string);
+    }
+
+    await deleteMyData();
+    return {
+      success: true,
+      message: i18n.t('shared.deleteAccount.alerts.successMessage') as string,
+    };
+  }
+
+  private toDeleteResult(error: any): { success: boolean; message: string } {
+    if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
       return {
         success: false,
-        message: error.message || (i18n.t('services.userManagementService.errors.deleteAccountFailed') as string),
+        message: i18n.t('services.userManagementService.errors.wrongPassword') as string,
       };
     }
+    if (error.code === 'auth/user-not-found') {
+      return {
+        success: false,
+        message: i18n.t('services.userManagementService.errors.userNotFound') as string,
+      };
+    }
+    if (error.code === 'auth/too-many-requests') {
+      return {
+        success: false,
+        message: i18n.t('services.userManagementService.errors.tooManyRequests') as string,
+      };
+    }
+    return {
+      success: false,
+      message: error.message || (i18n.t('services.userManagementService.errors.deleteAccountFailed') as string),
+    };
   }
 
   /**

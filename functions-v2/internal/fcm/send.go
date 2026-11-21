@@ -29,10 +29,12 @@ type SendOpts struct {
 	ChannelID   string        // Android notification channel (rundi-default-v2)
 	TTL         time.Duration // expira en dispositivo/proxy (ttl + apns-expiration)
 	CollapseKey string        // Android tag + apns-collapse-id (dedupe/update)
+	Silent      bool          // visible notification without sound or vibration
 }
 
 const DefaultChannel = "rundi-default-v2"
 const ActiveRideChannel = "rundi-active-ride-v2"
+const ClientRideSilentChannel = "rundi-client-ride-silent-v1"
 
 // SendToTokens multicast notification+data; retorna tokens inválidos para
 // depuración. Headers APNS explícitos (apns-push-type=alert obligatorio en iOS
@@ -50,7 +52,7 @@ func (s *Sender) SendToTokens(ctx context.Context, tokens []string, title, body 
 		ttl = 120 * time.Second // default v1
 	}
 	android := &messaging.AndroidConfig{
-		Priority: "HIGH",
+		Priority: "high",
 		TTL:      &ttl,
 		Notification: &messaging.AndroidNotification{
 			ChannelID: channel,
@@ -65,6 +67,10 @@ func (s *Sender) SendToTokens(ctx context.Context, tokens []string, title, body 
 	if opts.CollapseKey != "" {
 		apnsHeaders["apns-collapse-id"] = opts.CollapseKey
 	}
+	sound := "default"
+	if opts.Silent {
+		sound = ""
+	}
 	resp, err := s.client.SendEachForMulticast(ctx, &messaging.MulticastMessage{
 		Tokens:       tokens,
 		Notification: &messaging.Notification{Title: title, Body: body},
@@ -74,7 +80,7 @@ func (s *Sender) SendToTokens(ctx context.Context, tokens []string, title, body 
 			Headers: apnsHeaders,
 			Payload: &messaging.APNSPayload{
 				Aps: &messaging.Aps{
-					Sound:            "default",
+					Sound:            sound,
 					ContentAvailable: true,
 				},
 			},
@@ -96,7 +102,7 @@ func (s *Sender) SendDataOnly(ctx context.Context, tokens []string, data map[str
 		Tokens: tokens,
 		Data:   data,
 		Android: &messaging.AndroidConfig{
-			Priority: "HIGH",
+			Priority: "high",
 		},
 		APNS: &messaging.APNSConfig{
 			Headers: map[string]string{

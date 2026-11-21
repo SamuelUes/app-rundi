@@ -58,6 +58,53 @@ func OpenDriverSession(ctx context.Context, tx pgx.Tx, driverUUID, day string,
 	return sessionID, seq, err
 }
 
+// OpenFirestoreMirrorSession — abre la fila-espejo SQL de una sesión ya
+// autorizada en Firestore (input_generations marcado con '_fs'). A diferencia
+// de OpenDriverSession NO reabre una fila marcada reactivation_required: esa
+// marca la pone el trigger de señales al detectar una mutación SQL y solo la
+// limpia el resync de inputs (SyncFirestoreInputs). Devuelve
+// ErrReactivationRequired cuando la fila está marcada.
+func OpenFirestoreMirrorSession(ctx context.Context, tx pgx.Tx, driverUUID, sessionID, day string,
+	vehicleID *string, serviceCodes []string, inputsRevision, policyVersion int64, expiresAt time.Time) (seq int64, err error) {
+
+	if day == "" || len(serviceCodes) == 0 || inputsRevision <= 0 || policyVersion <= 0 || expiresAt.IsZero() {
+		return 0, errors.New("invalid firestore mirror session context")
+	}
+	if _, err := uuid.Parse(sessionID); err != nil {
+		return 0, errors.New("invalid firestore session id")
+	}
+	gensJSON, err := json.Marshal(map[string]int64{
+		"_fs": 1, "inputs": inputsRevision, "policy": policyVersion,
+	})
+	if err != nil {
+		return 0, err
+	}
+	err = tx.QueryRow(ctx, `
+		INSERT INTO public.driver_sessions
+			(driver_id, session_seq, session_id, day, vehicle_id, service_codes,
+			 input_generations, reactivation_required, authorized_at, expires_at, revoked_at)
+		VALUES ($1::uuid, 1, $2::uuid, $3, $4::uuid, $5, $6, FALSE, clock_timestamp(), $7, NULL)
+		ON CONFLICT (driver_id) DO UPDATE SET
+			session_seq = driver_sessions.session_seq + 1,
+			session_id = EXCLUDED.session_id,
+			day = EXCLUDED.day,
+			vehicle_id = EXCLUDED.vehicle_id,
+			service_codes = EXCLUDED.service_codes,
+			input_generations = EXCLUDED.input_generations,
+			reactivation_required = FALSE,
+			authorized_at = EXCLUDED.authorized_at,
+			expires_at = EXCLUDED.expires_at,
+			revoked_at = NULL
+		WHERE driver_sessions.reactivation_required = FALSE
+		RETURNING session_seq`,
+		driverUUID, sessionID, day, vehicleID, serviceCodes, string(gensJSON), expiresAt).
+		Scan(&seq)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrReactivationRequired
+	}
+	return seq, err
+}
+
 // RevokeDriverSession — cierra la autorización vigente: reactivation_required
 // y seq+1, para que una transición Firestore atrasada no reviva la sesión.
 // Crea la fila de control si faltaba; idempotente sobre una sesión ya cerrada.
@@ -67,11 +114,20 @@ func RevokeDriverSession(ctx context.Context, tx pgx.Tx, driverUUID string) (seq
 		ON CONFLICT (driver_id) DO NOTHING`, driverUUID); err != nil {
 		return 0, err
 	}
+	// Para filas _fs la marca reactivation_required significa "datos SQL
+	// mutados desde el último sync": una revocación deliberada no es
+	// obsolescencia, así que se preserva el valor (falso → reactivar sin
+	// resync; verdadero → resync pendiente). Las filas legacy conservan la
+	// semántica anterior.
 	if err = tx.QueryRow(ctx, `
 		UPDATE public.driver_sessions
 		SET session_seq = session_seq + 1,
 		    session_id = NULL,
-		    reactivation_required = TRUE,
+		    reactivation_required = CASE
+		        WHEN COALESCE(input_generations ->> '_fs', '') = '1'
+		            THEN reactivation_required
+		        ELSE TRUE
+		    END,
 		    revoked_at = clock_timestamp()
 		WHERE driver_id = $1::uuid
 		  AND (session_id IS NOT NULL OR reactivation_required = FALSE)
@@ -94,7 +150,11 @@ func RevokeDriverSessionIfSeq(ctx context.Context, tx pgx.Tx, driverUUID string,
 		UPDATE public.driver_sessions
 		SET session_seq = session_seq + 1,
 		    session_id = NULL,
-		    reactivation_required = TRUE,
+		    reactivation_required = CASE
+		        WHEN COALESCE(input_generations ->> '_fs', '') = '1'
+		            THEN reactivation_required
+		        ELSE TRUE
+		    END,
 		    revoked_at = clock_timestamp()
 		WHERE driver_id = $1::uuid AND session_seq = $2
 		  AND session_id IS NOT NULL`, driverUUID, expectedSeq)
@@ -136,6 +196,13 @@ func CheckDriverSession(ctx context.Context, tx pgx.Tx, driverUUID string) (sess
 	var recorded map[string]int64
 	if err := json.Unmarshal(gensJSON, &recorded); err != nil || len(recorded) == 0 {
 		return "", ErrSessionSignalsStale
+	}
+	// Sesiones espejo de Firestore: la revocación es eager vía trigger
+	// (fs_availability_invalidate) dentro de la tx que muta el dato, así que
+	// basta la verificación de vivacidad bajo FOR SHARE — serializable contra
+	// el UPDATE de revocación sobre esta misma fila.
+	if recorded["_fs"] == 1 {
+		return *sessID, nil
 	}
 	keys := make([]signalKey, 0, len(recorded))
 	for mapKey := range recorded {

@@ -284,6 +284,11 @@ export const createStyles = (colors: any, isDark: boolean) => StyleSheet.create(
     borderRadius: 14,
     alignSelf: 'flex-start',
     marginTop: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   editProfileText: {
     fontSize: 12,

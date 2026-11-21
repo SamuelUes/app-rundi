@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	firestore "cloud.google.com/go/firestore"
+	firebaseauth "firebase.google.com/go/v4/auth"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/rundi/functions-v2/internal/apperr"
@@ -113,60 +114,87 @@ func (s *Service) DeactivateAccount(ctx context.Context, uid, requestID string) 
 	return tx.Commit(ctx)
 }
 
-// DeleteUserData — deleteUserFromSupabase/manualDeleteUserData v1 (GDPR):
-// anonimiza PII en SQL (nombre/email/phone → NULL, id conservado por FKs
-// históricas), marca deleted_at, y borra campos PII del doc operativo.
-// El borrado de Firebase Auth es responsabilidad del caller (cliente) o de
-// un job admin — no hay auth admin client en este servicio.
+// DeleteUserData — anonimiza el registro SQL conservado por FKs históricas,
+// marca deleted_at, marca el perfil Firestore como deleted y elimina la identidad Auth.
+// La operación es idempotente para poder completar una limpieza parcial.
 func (s *Service) DeleteUserData(ctx context.Context, uid, requestID string) error {
+	var exists bool
+	if err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM public.users WHERE id = $1)`, uid,
+	).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return apperr.New(404, "user not found")
+	}
+
+	authClient, err := s.app.Auth(ctx)
+	if err != nil {
+		return fmt.Errorf("firebase auth client: %w", err)
+	}
+	if _, err := authClient.UpdateUser(ctx, uid, (&firebaseauth.UserToUpdate{}).Disabled(true)); err != nil &&
+		!firebaseauth.IsUserNotFound(err) {
+		return fmt.Errorf("disable firebase user: %w", err)
+	}
+
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	tag, err := tx.Exec(ctx, `
-		UPDATE public.users
-		SET name = NULL, email = NULL, phone = NULL, profile_photo = NULL,
-		    birth_date = NULL, is_active = FALSE, deleted_at = NOW()
-		WHERE id = $1 AND deleted_at IS NULL`, uid)
+	var deleted bool
+	err = tx.QueryRow(ctx,
+		`SELECT deleted_at IS NOT NULL FROM public.users WHERE id = $1 FOR UPDATE`, uid,
+	).Scan(&deleted)
 	if err != nil {
+		if err == pgx.ErrNoRows {
+			return apperr.New(404, "user not found")
+		}
 		return err
 	}
-	if tag.RowsAffected() == 0 {
-		return apperr.New(404, "user not found")
-	}
-	// Driver histórico: anonimiza también el perfil de conductor.
-	if _, err := tx.Exec(ctx, `
-		UPDATE public.drivers
-		SET profile_photo = NULL, license_number = NULL,
-		    license_photo_front = NULL, license_photo_back = NULL,
-		    deleted_at = COALESCE(deleted_at, NOW())
-		WHERE user_id = $1`, uid); err != nil {
-		return err
-	}
-	// Credenciales de dispositivo son material de auth del titular: se borran
-	// con la cuenta (un UID reutilizado no debe heredar sessions de device).
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM public.user_devices WHERE user_id = $1`, uid); err != nil {
-		return err
-	}
-	if err := outbox.Insert(ctx, tx, outbox.Event{
-		Type: "user.deleted", AggregateType: "user", AggregateID: uid,
-		RequestID: requestID, Payload: map[string]any{"uid": uid, "kind": "gdpr"},
-	}); err != nil {
-		return err
+	if !deleted {
+		if _, err := tx.Exec(ctx, `
+			UPDATE public.users
+			SET name = NULL, email = NULL, phone = NULL, profile_photo = NULL,
+			    birth_date = NULL, is_active = FALSE, deleted_at = NOW()
+			WHERE id = $1 AND deleted_at IS NULL`, uid); err != nil {
+			return err
+		}
+		// Driver histórico: anonimiza también el perfil de conductor.
+		if _, err := tx.Exec(ctx, `
+			UPDATE public.drivers
+			SET profile_photo = NULL, license_number = NULL,
+			    license_photo_front = NULL, license_photo_back = NULL,
+			    deleted_at = COALESCE(deleted_at, NOW())
+			WHERE user_id = $1`, uid); err != nil {
+			return err
+		}
+		// Device credentials must not survive account deletion.
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM public.user_devices WHERE user_id = $1`, uid); err != nil {
+			return err
+		}
+		if err := outbox.Insert(ctx, tx, outbox.Event{
+			Type: "user.deleted", AggregateType: "user", AggregateID: uid,
+			RequestID: requestID, Payload: map[string]any{"uid": uid, "kind": "gdpr"},
+		}); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	// Firestore: borra campos PII del perfil operativo (post-commit).
+	// Preserve the old UID's profile and subcollections as history; auth/profile
+	// status gates prevent this tombstone from being used to sign in again.
 	_, err = s.fs.Collection(fs.ColUsers).Doc(uid).Set(ctx, map[string]any{
-		"name": firestore.Delete, "email": firestore.Delete, "phone": firestore.Delete,
-		"profilePhoto": firestore.Delete, "birthDate": firestore.Delete,
 		"accountStatus": "deleted", "updatedAt": firestore.ServerTimestamp,
 	}, firestore.MergeAll)
 	if err != nil {
 		return fmt.Errorf("user sql deleted, firestore cleanup failed: %w", err)
+	}
+
+	if err := authClient.DeleteUser(ctx, uid); err != nil && !firebaseauth.IsUserNotFound(err) {
+		return fmt.Errorf("delete firebase auth user: %w", err)
 	}
 	return nil
 }

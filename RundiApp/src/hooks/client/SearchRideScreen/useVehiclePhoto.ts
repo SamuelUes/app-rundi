@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
-import { launchCameraSafely } from '../../../utils/system/cameraUtils';
+import { isCameraAvailable, launchCameraSafely } from '../../../utils/system/cameraUtils';
 import alertService from '../../../services/notification/alertService';
 import { uploadClientVehiclePhoto } from '../../../services/media/storageService';
 import type { TFunction } from 'i18next';
@@ -61,13 +61,65 @@ export function useVehiclePhoto(userId: string | undefined, t: TFunction) {
     }
   }, [userId, tr]);
 
-  const uploadPhotoIfNeeded = useCallback(async (): Promise<string | null> => {
+  /**
+   * Flujo directo del CTA "confirmar y solicitar": abre la cámara sin diálogo
+   * intermedio y cae a la galería cuando la cámara no está disponible (sin
+   * permiso, sin hardware o fallo al abrirla). Devuelve el uri local elegido,
+   * o null si el usuario canceló / hubo error.
+   */
+  const captureVehiclePhotoNow = useCallback(async (): Promise<string | null> => {
+    if (!userId) {
+      alertService.showErrorAlert(tr('alerts.photoLoginRequired'));
+      return null;
+    }
+
+    try {
+      let result: ImagePicker.ImagePickerResult | null = null;
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+
+      if (status === 'granted' && isCameraAvailable()) {
+        try {
+          result = await launchCameraSafely({
+            allowsEditing: true,
+            quality: 0.8,
+          });
+        } catch {
+          result = null; // cámara falló al abrir → galería
+        }
+        if (result && result.canceled) return null; // cancelación explícita
+      }
+
+      if (!result || !result.assets?.[0]?.uri) {
+        try {
+          result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsEditing: true,
+            quality: 0.8,
+          });
+        } catch {
+          result = null;
+        }
+        if (!result || result.canceled || !result.assets?.[0]?.uri) return null;
+      }
+
+      const uri = result.assets[0].uri;
+      setClientVehiclePhotoLocalUri(uri);
+      setClientVehiclePhoto(null);
+      return uri;
+    } catch (error) {
+      alertService.showErrorAlert(tr('alerts.photoCaptureFailed'));
+      return null;
+    }
+  }, [userId, tr]);
+
+  const uploadPhotoIfNeeded = useCallback(async (uriOverride?: string): Promise<string | null> => {
     if (clientVehiclePhoto) return clientVehiclePhoto;
-    if (!clientVehiclePhotoLocalUri || !userId) return null;
+    const localUri = uriOverride ?? clientVehiclePhotoLocalUri;
+    if (!localUri || !userId) return null;
 
     setUploadingPhoto(true);
     try {
-      const url = await uploadClientVehiclePhoto(userId, clientVehiclePhotoLocalUri);
+      const url = await uploadClientVehiclePhoto(userId, localUri);
       setClientVehiclePhoto(url);
       alertService.showSuccessAlert(tr('alerts.photoUploadedTitle'), tr('alerts.photoUploadedMessage'), { duration: 2000 });
       setUploadingPhoto(false);
@@ -87,6 +139,7 @@ export function useVehiclePhoto(userId: string | undefined, t: TFunction) {
     uploadingPhoto,
     setUploadingPhoto,
     handleTakeVehiclePhoto,
+    captureVehiclePhotoNow,
     uploadPhotoIfNeeded,
   };
 }

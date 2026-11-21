@@ -7,7 +7,6 @@ import type { TFunction } from 'i18next';
 interface DriverHomeNavChipsProps {
   userRole: string | undefined;
   onNavigate: (route: any) => void;
-  onLogout: () => void;
   styles: any;
   t: TFunction;
 }
@@ -37,14 +36,12 @@ const NAV_CHIPS: NavChipConfig[] = [
 export function DriverHomeNavChips({
   userRole,
   onNavigate,
-  onLogout,
   styles,
   t,
 }: DriverHomeNavChipsProps) {
   const { isDark } = useTheme();
   const isDriver = userRole === 'driver' || userRole === 'designated_driver';
   const chipInk = isDark ? '#F5F1EA' : '#1C1917';
-  const dangerColor = isDark ? '#EF8A80' : '#C62828';
 
   return (
     <ScrollView
@@ -70,21 +67,6 @@ export function DriverHomeNavChips({
         </Pressable>
       ))}
 
-      <Pressable
-        style={({ pressed }) => [
-          styles.navChip,
-          styles.navChipDanger,
-          pressed && styles.navChipPressed,
-        ]}
-        onPress={onLogout}
-        accessibilityRole="button"
-        accessibilityLabel={t('driver.home.menu.logout')}
-      >
-        <MaterialIcons name="logout" size={16} color={dangerColor} />
-        <Text style={[styles.navChipLabel, { color: dangerColor }]}>
-          {t('driver.home.menu.logout')}
-        </Text>
-      </Pressable>
     </ScrollView>
   );
 }

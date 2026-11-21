@@ -10,7 +10,7 @@ import {
   Animated,
 } from 'react-native';
 import { Picker as RNPicker } from '@react-native-picker/picker';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TimerEditIcon } from '../../ui/TimerEditIcon';
 type TrFunction = (path: string, options?: Record<string, any>) => string;
@@ -142,7 +142,7 @@ export function SearchRideScheduleModal({
                 accessibilityRole="button"
                 accessibilityLabel={tr('scheduling.modalCancel')}
               >
-                <MaterialIcons name="close" size={20} color={colors.textSecondary} />
+                <Ionicons name="close" size={20} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
@@ -221,7 +221,7 @@ export function SearchRideScheduleModal({
             </TouchableOpacity>
 
             <View style={styles.scheduleHintRow}>
-              <MaterialIcons name="info-outline" size={14} color={colors.textSecondary} />
+              <Ionicons name="information-circle" size={14} color={colors.textSecondary} />
               <Text style={styles.scheduleHintText}>{tr('scheduling.scheduleHint')}</Text>
             </View>
           </Animated.View>

@@ -137,14 +137,36 @@ func main() {
 	})
 
 	// Rutas protegidas: ID token + App Check (modo según config)
+	// wakeNow — wake inmediato sin dedupe para rutas sensibles a latencia:
+	// rides (ride.requested dispara dispatchOffers = matching + push a
+	// conductores, que SOLO corre en el sweep del consumer — no tiene
+	// fast-path como el resto de transiciones), calls (push de llamada
+	// entrante), client-events y events/poke (pending events de chat/calls/
+	// foto = push percibidos por el usuario).
+	wakeNow := func(r chi.Router) {
+		if taskProducer != nil {
+			r.Use(middleware.WakeConsumerOnMutation(taskProducer.WakeConsumer))
+		}
+	}
+	// wakeSoon — wake coalescido (~15s) para rutas con trabajo real pero
+	// tolerantes al desfase: una ráfaga de mutaciones produce ≤1 ejecución
+	// del job por ventana entre todas las instancias (dedupe por nombre).
+	// Solo se instala en grupos que de verdad insertan outbox_events o
+	// SYSTEM_pending_events (verificado por código — internal/outbox y
+	// fs.ColPendingEvents). chats/support/inspections/emergency-calls/pricing
+	// no escriben ninguno de los dos: despertaban al consumer para que no
+	// encontrara nada que hacer.
+	wakeSoon := func(r chi.Router) {
+		if taskProducer != nil {
+			r.Use(middleware.WakeConsumerOnMutation(taskProducer.WakeConsumerCoalesced))
+		}
+	}
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.AppCheck(cfg.AppCheckEnforce, verifyAppCheck))
 		r.Use(middleware.Auth(app))
 		r.Use(middleware.RateLimit(rateStore, cfg.RateLimitMode, false, cfg.RateLimitLimits))
-		if taskProducer != nil {
-			r.Use(middleware.WakeConsumerOnMutation(taskProducer.WakeConsumer))
-		}
 		r.Route("/v1/rides", func(r chi.Router) {
+			wakeNow(r)
 			ridesHandler := rides.NewHandler(rides.NewService(pool, fsClient))
 			r.Mount("/", ridesHandler.Routes())
 		})
@@ -154,6 +176,7 @@ func main() {
 		dailyStore := compliance.NewDailyStore(fsClient)
 		compHandler := compliance.NewHandler(compSvc, dailyStore)
 		r.Route("/v1/payments", func(r chi.Router) {
+			wakeSoon(r)
 			paymentsH := payments.NewHandler(payments.NewService(pool, fsClient), fsClient)
 			paymentsH.SetDriverReactivation(compSvc, dailyStore)
 			paymentsH.SetPaymentProjector(func(ctx context.Context, paymentID string) error {
@@ -165,36 +188,51 @@ func main() {
 			r.Mount("/", paymentsH.Routes())
 		})
 		r.Route("/v1/crew", func(r chi.Router) {
+			wakeSoon(r)
 			r.Mount("/", crew.NewHandler(crew.NewService(pool, fsClient)).Routes())
 		})
 		r.Route("/v1/ratings", func(r chi.Router) {
+			wakeSoon(r)
 			r.Mount("/", ratings.NewHandler(ratings.NewService(pool)).Routes())
 		})
+		// Sin outbox ni pending events (internal/pricing): solo lectura de
+		// tarifas/estimaciones — nunca produce trabajo para el consumer.
 		r.Route("/v1/pricing", func(r chi.Router) {
 			r.Mount("/", pricing.NewHandler(pricing.NewService(pool, fsClient)).Routes())
 		})
 		r.Route("/v1/users", func(r chi.Router) {
+			wakeSoon(r)
 			r.Mount("/", usersH.Routes())
 		})
 		r.Route("/v1/drivers", func(r chi.Router) {
+			wakeSoon(r)
 			r.Mount("/", drivers.NewHandler(drivers.NewService(pool, app, fsClient)).Routes())
 		})
 		r.Route("/v1/compliance", func(r chi.Router) {
+			wakeSoon(r)
 			r.Mount("/", compHandler.Routes())
 		})
+		// Sin outbox ni pending events (internal/chats): los mensajes van
+		// directo por el SDK de Firestore desde la app (ver src/live/chats.ts
+		// + /v1/events/poke), no por esta ruta REST.
 		r.Route("/v1/chats", func(r chi.Router) {
 			r.Mount("/", chats.NewHandler(chats.NewService(pool, fsClient)).Routes())
 		})
 		r.Route("/v1/client-events", func(r chi.Router) {
+			wakeNow(r)
 			r.Mount("/", clientevents.NewHandler(pool, fsClient).Routes())
 		})
 		r.Route("/v1/calls", func(r chi.Router) {
+			wakeNow(r)
 			r.Mount("/", callsH.Routes())
 		})
+		// Sin outbox ni pending events (internal/support): solo persiste en
+		// SQL — el chat de soporte real va por /v1/chats (Firestore).
 		r.Route("/v1/support", func(r chi.Router) {
 			r.Mount("/", support.NewHandler(support.NewService(pool, fsClient)).Routes())
 		})
 		r.Route("/v1/programmed-rides", func(r chi.Router) {
+			wakeSoon(r)
 			progSvc := programmed.NewService(pool, fsClient)
 			sender, err := fcm.NewSender(ctx, app)
 			if err != nil {
@@ -208,22 +246,38 @@ func main() {
 			}
 			r.Mount("/", programmed.NewHandler(progSvc).Routes())
 		})
-		// Los comandos de eventos escriben y despiertan al consumer por el
-		// middleware de mutaciones; los ticks programados siguen de respaldo.
-		// Las apps anteriores deben actualizarse antes del corte de reglas.
+		// Sin outbox ni pending events (internal/emergency): solo registra el
+		// llamado en SQL; la llamada real a emergencias ocurre en el
+		// dispositivo (marcador telefónico), no por un flujo async backend.
 		r.Route("/v1/emergency-calls", func(r chi.Router) {
 			r.Mount("/", emergency.NewHandler(emergency.NewService(pool)).Routes())
 		})
+		// Sin outbox ni pending events (internal/inspections).
 		r.Route("/v1/inspections", func(r chi.Router) {
 			r.Mount("/", inspections.NewHandler(inspections.NewService(pool)).Routes())
 		})
 		r.Route("/v1/platform", func(r chi.Router) {
+			wakeSoon(r)
 			r.Mount("/", platform.NewHandler(platform.NewService(pool, fsClient, cfg.RideShareSecret)).Routes())
 		})
+		// Poke del consumer: la app lo llama tras escribir pending events
+		// directo en Firestore (chat/calls/foto). Es solo la señal de "hay
+		// trabajo" — 204 sin cuerpo; el middleware hace el wake inmediato.
+		if taskProducer != nil {
+			r.With(middleware.WakeConsumerOnMutation(taskProducer.WakeConsumer)).
+				Post("/v1/events/poke", func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusNoContent)
+				})
+		} else {
+			r.Post("/v1/events/poke", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			})
+		}
 		// Admin/operator: catálogo de pricing + aprobación de conductores +
 		// revisión documental de compliance.
 		r.Route("/v1/admin", func(r chi.Router) {
 			r.Use(middleware.RequireRole("admin", "operator"))
+			wakeSoon(r)
 			r.Mount("/catalog", catalog.NewHandler(catalog.NewService(pool)).Routes())
 			r.Mount("/compliance", compHandler.AdminRoutes())
 			drivers.NewHandler(drivers.NewService(pool, app, fsClient)).AdminRoutes(r)
@@ -307,5 +361,5 @@ func complianceService(ctx context.Context, app *firebase.App, pool *pgxpool.Poo
 	} else {
 		slog.Warn("compliance: signer no disponible (paths sin firmar)", "err", err)
 	}
-	return compliance.NewService(pool, center, signer)
+	return compliance.NewService(pool, center, signer, fsClient)
 }

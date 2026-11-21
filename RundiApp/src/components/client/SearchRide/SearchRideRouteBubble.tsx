@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Image } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { formatCoords } from '../../../utils/geo/rideCoords';
 import { MAP_ICONS } from '../../../constants/mapIcons';
 import DestPinImg from '../../../assets/icons/final-marker/final-marker.svg';
@@ -36,6 +37,7 @@ interface SearchRideRouteBubbleProps {
   onAddExtraStop: () => void;
   onRemoveStop: (index: number) => void;
   styles: any;
+  colors: any;
   tr: TrFunction;
 }
 
@@ -56,6 +58,7 @@ export function SearchRideRouteBubble({
   onAddExtraStop,
   onRemoveStop,
   styles,
+  colors,
   tr,
 }: SearchRideRouteBubbleProps) {
   return (
@@ -65,65 +68,100 @@ export function SearchRideRouteBubble({
           const isLast = idx === orderedRouteRows.length - 1;
           const isExtra = row.kind === 'extra';
           const isDestinationRow = row.kind === 'destination';
-          const showInlineAdd = isDestinationRow && canAddExtraStop;
           let label = '';
           let subtitle = '';
+          let hasValue = false;
           if (row.kind === 'origin') {
             label = manualOriginLoading ? tr('labels.searching') : manualOriginAddress || tr('labels.originPlaceholder');
+            hasValue = !!manualOriginAddress && !manualOriginLoading;
             if (manualOriginDraft) subtitle = formatCoords(manualOriginDraft);
           } else if (row.kind === 'destination') {
             label = manualDestinationLoading ? tr('labels.searching') : destination || tr('labels.destinationPlaceholder');
+            hasValue = !!destination && !manualDestinationLoading;
             if (manualDestinationDraft && mapSelectionMode === 'destination') subtitle = formatCoords(manualDestinationDraft);
             else if (destinationCoords) subtitle = formatCoords(destinationCoords);
           } else if (typeof row.index === 'number') {
             const stop = extraDestinations[row.index];
             label = stop?.address || tr('labels.stopLabel', { index: row.index + 1 });
+            hasValue = !!stop?.address;
             if (stop?.coords) subtitle = formatCoords(stop.coords);
           }
 
           if (subtitle && subtitle === label) subtitle = '';
 
           return (
-            <View key={`${row.kind}-${row.index ?? 'final'}`} style={styles.timelineRow}>
-              <View style={styles.timelineLeft}>
-                {row.kind === 'origin' ? (
-                  <Image source={ORIGIN_PIN} style={styles.timelineIcon} resizeMode="contain" />
-                ) : row.kind === 'destination' ? (
-                  <DestPinImg width={20} height={20} />
-                ) : (
-                  <StopPinImg width={20} height={20} />
-                )}
-                {!isLast && <View style={styles.timelineConnector} />}
-              </View>
+            <React.Fragment key={`${row.kind}-${row.index ?? 'final'}`}>
+              {isDestinationRow && canAddExtraStop ? (
+                <View style={styles.timelineRow}>
+                  <View style={styles.timelineLeft}>
+                    <View style={styles.addStopMarker}>
+                      <StopPinImg width={20} height={20} />
+                    </View>
+                    {!isLast && <View style={styles.timelineConnector} />}
+                  </View>
+                  <View style={styles.timelineCenter}>
+                    <TouchableOpacity
+                      style={styles.addStopButton}
+                      onPress={onAddExtraStop}
+                      accessibilityRole="button"
+                      accessibilityLabel={tr('accessibility.addExtraStop')}
+                    >
+                      <Text style={styles.addStopButtonIcon}>＋</Text>
+                      <Text style={styles.addStopButtonText} numberOfLines={1}>
+                        {tr('labels.inlineAddStop')}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null}
 
-              <View style={styles.timelineCenter}>
-                <TouchableOpacity style={[styles.timelineContent, showInlineAdd && styles.timelineContentCompact]} onPress={() => onRouteRowPress(row)}>
-                  <Text style={styles.timelineLabel} numberOfLines={1}>
-                    {label}
-                  </Text>
-                  {subtitle ? (
-                    <Text style={styles.timelineSubtitle} numberOfLines={1}>
-                      {subtitle}
-                    </Text>
-                  ) : null}
-                </TouchableOpacity>
-                {showInlineAdd ? (
+              <View style={styles.timelineRow}>
+                <View style={styles.timelineLeft}>
+                  {row.kind === 'origin' ? (
+                    <Image source={ORIGIN_PIN} style={styles.timelineIcon} resizeMode="contain" />
+                  ) : row.kind === 'destination' ? (
+                    <DestPinImg width={20} height={20} />
+                  ) : (
+                    <StopPinImg width={20} height={20} />
+                  )}
+                  {!isLast && <View style={styles.timelineConnector} />}
+                </View>
+
+                <View style={styles.timelineCenter}>
                   <TouchableOpacity
-                    style={styles.inlineAddStop}
-                    onPress={onAddExtraStop}
-                    accessibilityLabel={tr('accessibility.addExtraStop')}
+                    style={styles.timelineContent}
+                    onPress={() => onRouteRowPress(row)}
+                    accessibilityRole="button"
+                    accessibilityLabel={label}
                   >
-                    <Text style={styles.inlineAddStopIcon}>＋</Text>
+                    <View style={styles.timelineContentText}>
+                      <Text
+                        style={[styles.timelineLabel, !hasValue && styles.timelineLabelPlaceholder]}
+                        numberOfLines={1}
+                      >
+                        {label}
+                      </Text>
+                      {subtitle ? (
+                        <Text style={styles.timelineSubtitle} numberOfLines={1}>
+                          {subtitle}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <Ionicons
+                      name="search"
+                      size={14}
+                      color={colors.textSecondary || '#666666'}
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                {isExtra && typeof row.index === 'number' ? (
+                  <TouchableOpacity style={styles.timelineRemove} onPress={() => onRemoveStop(row.index!)}>
+                    <Text style={styles.timelineRemoveText}>✕</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
-
-              {isExtra && typeof row.index === 'number' ? (
-                <TouchableOpacity style={styles.timelineRemove} onPress={() => onRemoveStop(row.index!)}>
-                  <Text style={styles.timelineRemoveText}>✕</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
+            </React.Fragment>
           );
         })}
       </View>

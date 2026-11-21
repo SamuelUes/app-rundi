@@ -11,6 +11,10 @@ export const MAP_ICONS = {
   USER_LOCATION_HOLDING_DARK: require('../assets/icons/actuall-position-black-holding/actuallpositionblackholding2x.webp'),
   MANUAL_ORIGIN: require('../assets/icons/select-origin-position/selectoriginposition.webp'),
   MANUAL_ORIGIN_HOLD: require('../assets/icons/select-origin-position-holding/selectoriginpositionholding.webp'),
+  SUGGESTED_PLACE: require('../assets/icons/suggest-position-marker/suggestposition2x.webp'),
+  SUGGESTED_PLACE_HUGE: require('../assets/icons/suggest-position-huge/suggestpositionhuge2x.webp'),
+  SUGGESTED_PLACE_SELECTED_LIGHT: require('../assets/icons/actuall-suggest-position-white/actuallsuggestpositionwhite3x.webp'),
+  SUGGESTED_PLACE_SELECTED_DARK: require('../assets/icons/actuall-suggest-position-black/actuallsuggestpositionblack3x.webp'),
   REQUEST_PIN: require('../assets/icons/requests_pin/requests_pin2x.png'),
   DRIVER_PROFILE_BUBBLE: require('../assets/icons/driver-profile-bubble/driverprofilebubble_2x.png'),
 } as const;

@@ -23,7 +23,7 @@ import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { getFirebaseAuth, getFirebaseFirestore } from '../../config/firebase';
 import { FS_COL } from '../../constants/firestore';
-import { getPendingPayments, registerCashPayment } from '../../api/payments';
+import { getPendingPayments, registerCashPayment, type CashPaymentAuth } from '../../api/payments';
 import { getPendingRating } from '../../api/ratings';
 import { formatNicaraguaTime } from '../../utils/format/dateUtils';
 import { formatCurrency } from '../../utils/format/safeFormatters';
@@ -532,9 +532,12 @@ export default function CashPaymentScreen({ route, navigation }: any) {
       const finalAmount = ride?.finalFare || ride?.estimatedPrice || paramAmount || 0;
       const numericAmount = typeof finalAmount === 'string' ? parseFloat(finalAmount) : finalAmount;
 
-      const biometricResult = await BiometricService.authenticate(
-        t('client.cashPayment.biometricPrompt', { amount: formatCurrency(numericAmount) })
-      );
+      const biometricResult = await BiometricService.authenticateAndLog({
+        reason: t('client.cashPayment.biometricPrompt', { amount: formatCurrency(numericAmount) }),
+        rideId,
+        context: 'cash_payment_confirmation',
+        userType: 'client',
+      });
 
       if (!biometricResult.success) {
         if (biometricResult.errorCode === 'NOT_SUPPORTED') {
@@ -551,7 +554,14 @@ export default function CashPaymentScreen({ route, navigation }: any) {
 
       // El cliente DECLARA el pago (register-cash → pending_confirmation);
       // la confirmación final la hace el conductor con el código privado.
-      const payment = await registerCashPayment(rideId, paymentTipRef.current ?? 0);
+      const paymentAuth: CashPaymentAuth = biometricResult.success && biometricResult.biometryType
+        ? {
+            authenticationMethod: 'biometric',
+            biometricType: biometricResult.biometryType,
+            biometricAuthenticated: true,
+          }
+        : { biometricAuthenticated: false };
+      const payment = await registerCashPayment(rideId, paymentTipRef.current ?? 0, paymentAuth);
       console.log('✅ Respuesta del backend:', payment);
 
       if (payment.status === 'confirmed' || payment.status === 'completed') {

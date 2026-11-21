@@ -311,6 +311,13 @@ const client = {
             card: 'Tarjeta',
           },
           homeOffers: {
+            editProposal: 'Modificar mi propuesta',
+            proposal: {
+              decrease: 'Reducir propuesta',
+              increase: 'Aumentar propuesta',
+              edit: 'Editar precio',
+              send: 'Enviar',
+            },
             title: 'Ofertas cercanas',
             loading: 'Cargando ofertas...',
             errorStatus: 'Error',
@@ -330,6 +337,15 @@ const client = {
             cancelConfirmBodyEmpty: 'Tu solicitud se eliminará y los conductores cercanos dejarán de verla.',
             cancelConfirmYes: 'Sí, cancelar',
             cancelConfirmNo: 'Seguir buscando',
+            cancelConfirmSkip: 'Omitir y cancelar',
+            cancelReasons: {
+              prompt: '¿Por qué quieres cancelar?',
+              wait_too_long: 'La espera es demasiado larga',
+              price_too_high: 'El precio es muy alto',
+              plans_changed: 'Mis planes cambiaron',
+              wrong_details: 'Me equivoqué en los datos del viaje',
+              other: 'Otro motivo',
+            },
             list: {
               designatedOffer: 'Conductor designado',
               crewTitle: 'Equipo de llegada',
@@ -360,6 +376,7 @@ const client = {
             a11y: {
               messageDriver: 'Enviar mensaje al conductor',
               seeReviews: 'Ver reseñas del conductor',
+              close: 'Cerrar y seguir buscando',
             },
             negotiation: {
               pill: 'Negociar',

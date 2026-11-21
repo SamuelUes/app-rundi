@@ -18,7 +18,8 @@ import {
 import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { useNavigation } from '@react-navigation/native';
+import Animated, { FadeIn, FadeInDown, LinearTransition, ReduceMotion } from 'react-native-reanimated';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useTheme } from '../../hooks/shared/theme/useTheme';
@@ -26,7 +27,7 @@ import registrationService from '../../services/auth/registrationService';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import firebaseAuthService from '../../services/auth/firebaseAuthService';
 import { getFirebaseAuth } from '../../config/firebase';
-import { RegistrationMethod, RegistrationAuthProvider } from '../../navigation/types';
+import { AuthStackParamList, RegistrationMethod, RegistrationAuthProvider } from '../../navigation/types';
 import {
   CountryDialOption,
   formatPhoneNumber,
@@ -35,21 +36,25 @@ import {
   getCountryLocalNumberLength,
 } from '../../utils/format/phoneUtils';
 import { useTranslation } from 'react-i18next';
-import { RegisterMethodSwitcher } from '../../components/auth/Register/RegisterMethodSwitcher';
 import { RegisterBaseFields } from '../../components/auth/Register/RegisterBaseFields';
 import { RegisterPasswordFields } from '../../components/auth/Register/RegisterPasswordFields';
 import { RegisterPhoneSubmit } from '../../components/auth/Register/RegisterPhoneSubmit';
+import { PressableScale } from '../../components/ui/PressableScale';
 
 export default function RegisterScreen() {
   const navigation = useNavigation<any>();
+  const route = useRoute<RouteProp<AuthStackParamList, 'RegisterNew'>>();
+  const registerParams = route.params;
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const { t } = useTranslation();
 
   // Estados principales
-  const [method, setMethod] = useState<RegistrationMethod>('email');
+  const [method, setMethod] = useState<RegistrationMethod>(
+    registerParams?.email ? 'email' : 'phone',
+  );
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(registerParams?.email || '');
 
   const countryOptions = useMemo(() => getCountryDialOptions(), []);
   const defaultCountry =
@@ -61,12 +66,32 @@ export default function RegisterScreen() {
     formatPhoneNumber('', defaultCountry.dialCode)
   );
   const [normalizedPhone, setNormalizedPhone] = useState('');
+  const [verifiedPhone, setVerifiedPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [passwordStatus, setPasswordStatus] = useState<'idle' | 'match' | 'mismatch'>('idle');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  useEffect(() => {
+    if (!registerParams?.phone) return;
+
+    const matchingCountry = countryOptions
+      .filter((option) => registerParams.phone!.startsWith(option.dialCode))
+      .sort((a, b) => b.dialCode.length - a.dialCode.length)[0];
+    const country = matchingCountry || defaultCountry;
+    const localDigits = registerParams.phone.startsWith(country.dialCode)
+      ? registerParams.phone.slice(country.dialCode.length)
+      : '';
+
+    setMethod('phone');
+    setSelectedCountry(country);
+    setPhoneDigits(localDigits);
+    setNormalizedPhone(registerParams.phone);
+    setPhone(formatPhoneNumber(registerParams.phone, country.dialCode));
+    setVerifiedPhone(registerParams.phoneVerified ? registerParams.phone : '');
+  }, [registerParams, countryOptions, defaultCountry]);
 
   // Métodos activos
   const isEmailMethod = method === 'email';
@@ -124,6 +149,7 @@ export default function RegisterScreen() {
         ? formatPhoneNumber(newNormalized, nextCountry.dialCode)
         : formatPhoneNumber('', nextCountry.dialCode)
     );
+    if (newNormalized !== verifiedPhone) setVerifiedPhone('');
   };
 
   const handlePhoneChange = (localDigits: string) => {
@@ -137,6 +163,7 @@ export default function RegisterScreen() {
       : formatPhoneNumber('', selectedCountry.dialCode);
 
     setPhone(formatted || `${selectedCountry.dialCode} `);
+    if (normalized !== verifiedPhone) setVerifiedPhone('');
   };
 
   // Navegación
@@ -206,7 +233,7 @@ export default function RegisterScreen() {
     setLoading(true);
     try {
       const normalizedEmail = email.trim().toLowerCase();
-      const phoneForCheck = normalizedPhone || undefined;
+      const phoneForCheck = undefined;
 
       const { emailExists, phoneExists } = await firebaseAuthService.checkUserExists({
         email: normalizedEmail,
@@ -284,7 +311,7 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
-      const normalizedEmail = email.trim().toLowerCase() || undefined;
+      const normalizedEmail = undefined;
 
       const { emailExists, phoneExists } = await firebaseAuthService.checkUserExists({
         email: normalizedEmail,
@@ -296,43 +323,32 @@ export default function RegisterScreen() {
         return;
       }
 
-      // ✅ Caso especial: el usuario ya está autenticado y tiene una verificación previa de registro
-      // en Supabase para este número → saltar SMS y pasar directo a selección de rol.
-      let handledByVerifiedLog = false;
+      // Reuse the Firebase phone identity verified during the login attempt.
       try {
         const auth = await getFirebaseAuth();
         const firebaseUser = auth.currentUser;
 
-        if (firebaseUser && firebaseUser.phoneNumber === normalizedPhone) {
-          const hasVerified = await firebaseAuthService.hasVerifiedRegisterPhoneLog(normalizedPhone);
+        if (
+          verifiedPhone === normalizedPhone &&
+          firebaseUser?.phoneNumber === normalizedPhone
+        ) {
+          await registrationService.saveTemporaryData({
+            name: name.trim(),
+            phone: normalizedPhone,
+            method: 'phone',
+            authProvider: 'phone',
+            phoneVerified: true,
+            lastStep: 'register',
+          });
 
-          if (hasVerified) {
-            console.log(
-              '✅ [Register] Teléfono ya verificado previamente (Supabase); saltando a RoleSelection',
-            );
-
-            await registrationService.saveTemporaryData({
-              name: name.trim(),
-              email: normalizedEmail,
-              phone: normalizedPhone,
-              method: 'phone',
-              authProvider: 'phone',
-              phoneVerified: true,
-              lastStep: 'register',
-            });
-
-            navigation.navigate('RoleSelection', {
-              name: name.trim(),
-              email: normalizedEmail,
-              phone: normalizedPhone,
-              password: undefined,
-              method: 'phone',
-              authProvider: 'phone',
-              googleIdToken: undefined,
-              phoneVerified: true,
-            });
-            handledByVerifiedLog = true;
-          }
+          navigation.navigate('RoleSelection', {
+            name: name.trim(),
+            phone: normalizedPhone,
+            method: 'phone',
+            authProvider: 'phone',
+            phoneVerified: true,
+          });
+          return;
         }
       } catch (checkError) {
         console.warn(
@@ -341,7 +357,7 @@ export default function RegisterScreen() {
         );
       }
 
-      if (phoneExists && !handledByVerifiedLog) {
+      if (phoneExists) {
         Alert.alert(
           t('authScreens.register.alerts.genericTitle'),
           t('authScreens.register.alerts.phoneExists'),
@@ -354,10 +370,14 @@ export default function RegisterScreen() {
 
       await registrationService.saveTemporaryData({
         name: name.trim(),
+        email: undefined,
         phone: normalizedPhone,
+        password: undefined,
+        googleIdToken: undefined,
         method: 'phone',
         authProvider: 'phone',
         phoneVerified: false,
+        emailVerified: false,
         lastStep: 'register',
       });
 
@@ -389,30 +409,31 @@ export default function RegisterScreen() {
         automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.card}>
+        <Animated.View
+          entering={FadeInDown.duration(740).reduceMotion(ReduceMotion.System)}
+          style={styles.card}
+        >
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => navigation.goBack()}
             disabled={loading}
             activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={t('common.actions.back')}
           >
             <Ionicons name="chevron-back" size={22} color={colors.text} />
           </TouchableOpacity>
 
-          <Text style={styles.title}>{t('authScreens.register.header.title')}</Text>
-          <Text style={styles.subtitle}>
-            {t('authScreens.register.header.subtitle')}
-          </Text>
-
-          <RegisterMethodSwitcher
-            isEmailMethod={isEmailMethod}
-            isPhoneMethod={isPhoneMethod}
-            loading={loading}
-            onSelectEmail={() => setMethod('email')}
-            onSelectPhone={() => setMethod('phone')}
-            t={t}
-            styles={styles}
-          />
+          <View style={styles.cardHeader}>
+            <Text style={styles.title}>{t('authScreens.register.header.title')}</Text>
+            <Text style={styles.subtitle}>
+              {t('authScreens.register.header.subtitle')}
+            </Text>
+            <Animated.View
+              entering={FadeIn.delay(160).duration(680).reduceMotion(ReduceMotion.System)}
+              style={styles.headerAccent}
+            />
+          </View>
 
           <RegisterBaseFields
             name={name}
@@ -432,6 +453,11 @@ export default function RegisterScreen() {
             styles={styles}
           />
 
+          <Animated.View
+            key={method}
+            entering={FadeInDown.duration(240).reduceMotion(ReduceMotion.System)}
+            style={styles.animatedSection}
+          >
           {isEmailMethod && (
             <RegisterPasswordFields
               password={password}
@@ -461,13 +487,30 @@ export default function RegisterScreen() {
               styles={styles}
             />
           )}
+          </Animated.View>
+
+          <Animated.View
+            layout={LinearTransition.duration(220).reduceMotion(ReduceMotion.System)}
+            style={styles.animatedSection}
+          >
+          <PressableScale
+            style={styles.alternativeButton}
+            onPress={() => setMethod(isPhoneMethod ? 'email' : 'phone')}
+            disabled={loading}
+            accessibilityRole="button"
+          >
+            <Text style={styles.alternativeButtonText}>
+              {t(isPhoneMethod ? 'authScreens.login.useEmail' : 'authScreens.login.usePhone')}
+            </Text>
+          </PressableScale>
 
           <View style={styles.footerInfo}>
             <Text style={styles.footerText}>
               {t('authScreens.register.footer')}
             </Text>
           </View>
-        </View>
+          </Animated.View>
+        </Animated.View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -476,6 +519,20 @@ export default function RegisterScreen() {
 // ==================== ESTILOS ====================
 const createStyles = (colors: any, isDark: boolean) =>
   StyleSheet.create({
+    alternativeButton: {
+      minHeight: 50,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 12,
+    },
+    alternativeButtonText: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: '600',
+    },
     container: {
       flex: 1,
       backgroundColor: colors.background,
@@ -488,34 +545,49 @@ const createStyles = (colors: any, isDark: boolean) =>
       paddingTop: 16,
       paddingBottom: 32,
       paddingHorizontal: 14,
-      justifyContent: 'flex-start',
+      justifyContent: 'center',
     },
     card: {
       backgroundColor: colors.card,
+      width: '100%',
+      maxWidth: 480,
+      alignSelf: 'center',
       borderRadius: 28,
-      paddingVertical: 32,
+      paddingTop: 24,
+      paddingBottom: 32,
       paddingHorizontal: 24,
-      borderWidth: 0.1,
+      borderWidth: isDark ? 1 : 0,
       borderColor: colors.border,
       gap: 20,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.18,
-      shadowRadius: 10,
+      shadowOpacity: isDark ? 0.24 : 0.14,
+      shadowRadius: 12,
       elevation: 6,
+    },
+    cardHeader: {
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    headerAccent: {
+      width: 32,
+      height: 3,
+      borderRadius: 3,
+      backgroundColor: colors.primary,
+      marginTop: 18,
+      opacity: 0.7,
     },
     title: {
       fontSize: 26,
       fontWeight: '800',
-      color: 'rgba(207, 152, 48, 1)',
+      color: colors.primary,
       textAlign: 'center',
-      marginBottom: 4,
+      marginBottom: 8,
     },
     subtitle: {
       fontSize: 14,
       color: colors.textSecondary,
       textAlign: 'center',
-      marginBottom: 20,
     },
     methodSwitcher: {
       flexDirection: 'row',
@@ -549,21 +621,19 @@ const createStyles = (colors: any, isDark: boolean) =>
       color: 'rgba(172, 127, 44, 1)',
     },
     fieldGroup: {
-      gap: -8,
+      gap: 7,
       marginBottom: 2,
     },
+    animatedSection: {
+      gap: 20,
+    },
     backButton: {
-      width: 32,
-      height: 32,
+      width: 44,
+      height: 44,
       alignSelf: 'flex-start',
-      marginBottom: 2,
+      marginLeft: -8,
       justifyContent: 'center',
       alignItems: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.1,
-      shadowRadius: 4,
-      elevation: 2,
     },
 
     countryPickerContainer: {

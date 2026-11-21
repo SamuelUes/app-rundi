@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TextInput, TouchableOpacity } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { LoadingIcon } from '../../ui/LoadingIcon';
+import { PressableScale } from '../../ui/PressableScale';
 import type { TFunction } from 'i18next';
 
 interface RegisterPasswordFieldsProps {
@@ -125,7 +126,7 @@ export function RegisterPasswordFields({
         )}
       </View>
 
-      <TouchableOpacity
+      <PressableScale
         style={[
           styles.primaryButton,
           (!isEmailFormValid || loading) && styles.buttonDisabled,
@@ -140,7 +141,7 @@ export function RegisterPasswordFields({
             {t('authScreens.register.buttons.continueEmail')}
           </Text>
         )}
-      </TouchableOpacity>
+      </PressableScale>
     </>
   );
 }

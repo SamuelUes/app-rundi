@@ -2,9 +2,10 @@ import React from 'react';
 import { Platform } from 'react-native';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import GoogleMap from './GoogleMaps';
+import PinMarkerWithBubble from './mapMarkers/PinMarkerWithBubble';
 import { useMapCamera } from '../../hooks/shared/map/useMapCamera';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
-import { DARK_MAP_STYLE } from '../../constants/mapStyles';
+import { DARK_MAP_STYLE, LIGHT_MAP_STYLE } from '../../constants/mapStyles';
 
 const mockFitToCoordinates = jest.fn();
 
@@ -30,8 +31,9 @@ jest.mock('../../hooks/shared/map/useMapCamera', () => ({
   coordsAreClose: () => false,
   clampValue: (value, min, max) => Math.min(max, Math.max(min, value)),
 }));
-jest.mock('./mapMarkers/PinMarkerWithBubble', () => () => null);
+jest.mock('./mapMarkers/PinMarkerWithBubble', () => jest.fn(() => null));
 jest.mock('./mapMarkers/NearbyDriversLayer', () => () => null);
+jest.mock('./mapMarkers/DriverRadarLayer', () => () => null);
 jest.mock('./mapMarkers/RideRequestsLayer', () => () => null);
 
 const origin = { latitude: 12, longitude: -86 };
@@ -40,6 +42,7 @@ const destination = { latitude: 12.1, longitude: -86.1 };
 beforeEach(() => {
   jest.useFakeTimers();
   useTheme.mockReturnValue({ isDark: false });
+  PinMarkerWithBubble.mockClear();
 });
 afterEach(() => {
   jest.useRealTimers();
@@ -73,7 +76,7 @@ test('Android resets the dark style without remounting the map', () => {
     useTheme.mockReturnValue({ isDark: false });
     screen.rerender(<GoogleMap latitude={12} longitude={-86} />);
     expect(screen.getByTestId('map')).toBe(map);
-    expect(screen.getByTestId('map').props.customMapStyle).toEqual([]);
+    expect(screen.getByTestId('map').props.customMapStyle).toEqual(LIGHT_MAP_STYLE);
     useTheme.mockReturnValue({ isDark: true });
     screen.rerender(<GoogleMap latitude={12} longitude={-86} />);
     expect(screen.getByTestId('map').props.customMapStyle).toEqual(DARK_MAP_STYLE);
@@ -120,4 +123,82 @@ test('fits after layout and retries changes deferred by a camera movement', () =
   expect(fitToCoordinates).toHaveBeenCalledTimes(3);
   const padding = fitToCoordinates.mock.calls[2][1].edgePadding;
   expect(padding.top + padding.bottom).toBeLessThanOrEqual(720);
+});
+
+test('hides the manual origin pin image but keeps its marker mounted', () => {
+  useMapCamera.mockReturnValue({
+    mapRef: { current: null },
+    currentZoom: 16,
+    isMapReady: true,
+    defaultCameraSettings: { altitude: 140, zoom: 18 },
+    minZoomLevel: 15,
+    maxZoomLevel: 19,
+    lastCameraAltitudeRef: { current: 140 },
+    gestureActiveRef: { current: false },
+    applyCamera: jest.fn(),
+    animateCameraToCoordinate: jest.fn(),
+    handleRegionChange: jest.fn(),
+    handleRegionChangeComplete: jest.fn(),
+    handleMapReady: jest.fn(),
+    markGestureActive: jest.fn(),
+  });
+
+  render(
+    <GoogleMap
+      latitude={12}
+      longitude={-86}
+      showMarker
+      markerPosition={origin}
+      markerType="manual_origin"
+      manualOriginIcon={1}
+      hideOriginPinImage
+      originLabel="PONKY MANIA"
+    />,
+  );
+
+  expect(PinMarkerWithBubble).toHaveBeenCalledWith(
+    expect.objectContaining({
+      coordinate: origin,
+      pinVisible: false,
+      showBubble: true,
+      bubbleText: 'PONKY MANIA',
+    }),
+    undefined,
+  );
+});
+
+test('keeps the manual origin pin image when no suggested place is selected', () => {
+  useMapCamera.mockReturnValue({
+    mapRef: { current: null },
+    currentZoom: 16,
+    isMapReady: true,
+    defaultCameraSettings: { altitude: 140, zoom: 18 },
+    minZoomLevel: 15,
+    maxZoomLevel: 19,
+    lastCameraAltitudeRef: { current: 140 },
+    gestureActiveRef: { current: false },
+    applyCamera: jest.fn(),
+    animateCameraToCoordinate: jest.fn(),
+    handleRegionChange: jest.fn(),
+    handleRegionChangeComplete: jest.fn(),
+    handleMapReady: jest.fn(),
+    markGestureActive: jest.fn(),
+  });
+
+  render(
+    <GoogleMap
+      latitude={12}
+      longitude={-86}
+      showMarker
+      markerPosition={origin}
+      markerType="manual_origin"
+      manualOriginIcon={1}
+      hideOriginPinImage={false}
+    />,
+  );
+
+  expect(PinMarkerWithBubble).toHaveBeenCalledWith(
+    expect.objectContaining({ pinVisible: true }),
+    undefined,
+  );
 });

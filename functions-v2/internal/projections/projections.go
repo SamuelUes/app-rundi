@@ -45,6 +45,8 @@ func Publish(ctx context.Context, pool *pgxpool.Pool, c *firestore.Client, ev Ev
 	}
 
 	switch ev.AggregateType {
+	case "driver_documents":
+		return projectDriverDocuments(ctx, pool, c, ev.AggregateID)
 	case "ride":
 		if err := projectRide(ctx, pool, c, ev, p); err != nil {
 			return -1, err
@@ -945,57 +947,7 @@ func projectDriverWallet(ctx context.Context, pool *pgxpool.Pool, c *firestore.C
 // atrasado no apaga una activación más reciente ni revive una ya cerrada.
 // Una activación nunca baja un 'on_ride'/'busy' en curso.
 func projectDriverSession(ctx context.Context, c *firestore.Client, p map[string]any, online bool) error {
-	uid, _ := p["driverUid"].(string)
-	if uid == "" {
-		return errors.New("driver session event without driverUid")
-	}
-	seq, _ := p["sessionSeq"].(float64)
-	ref := c.Collection(fs.ColDriversLive).Doc(uid)
-	return c.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
-		snap, err := tx.Get(ref)
-		if err != nil && status.Code(err) != codes.NotFound {
-			return err
-		}
-		existingStatus := ""
-		if err == nil {
-			existingStatus, _ = snap.Data()["status"].(string)
-			var prev float64
-			switch v := snap.Data()["sessionSeq"].(type) {
-			case int64:
-				prev = float64(v)
-			case float64:
-				prev = v
-			}
-			if prev > seq {
-				return nil
-			}
-		}
-		data := map[string]any{
-			"sessionSeq": seq,
-			"updatedAt":  firestore.ServerTimestamp,
-		}
-		if online {
-			// postRideReactivation: reactivación automática tras cerrar viaje+pago;
-			// un 'on_ride' proyectado es obsoleto (el conductor venía de offline,
-			// no pudo tomar otro viaje) — el flag lo baja a 'online'.
-			forceOnline, _ := p["postRideReactivation"].(bool)
-			if forceOnline || (existingStatus != "on_ride" && existingStatus != "busy") {
-				data["status"] = "online"
-			}
-			data["sessionId"], _ = p["sessionId"].(string)
-			data["sessionExpiresAt"], _ = p["expiresAt"].(string)
-			if codes, ok := p["serviceCodes"].([]any); ok {
-				data["activeServiceCodes"] = codes
-			}
-			data["offlineAt"] = nil
-		} else {
-			data["status"] = "offline"
-			data["offlineAt"] = firestore.ServerTimestamp
-			data["sessionId"] = nil
-			data["sessionExpiresAt"] = nil
-		}
-		return tx.Set(ref, data, firestore.MergeAll)
-	})
+	return fs.ProjectDriverSession(ctx, c, p, online)
 }
 
 // projectRideDriverEngagement — un viaje asignado/en curso marca al conductor

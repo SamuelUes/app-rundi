@@ -122,34 +122,25 @@ class PriceNegotiationService {
 
   private calculatePriceLimits(
     estimatedPrice: number,
-    dynamicMinimumFare?: number,
   ): { min: number; max: number } {
     const min = Math.min(
       MAX_NEGOTIATED_PRICE,
-      Math.max(
-        50,
-        Math.round(estimatedPrice * 0.6667 * 100) / 100,
-        Number.isFinite(dynamicMinimumFare) ? Number(dynamicMinimumFare) : 0,
-      ),
+      Math.max(1, estimatedPrice),
     );
-    const max = Math.max(
-      min,
-      Math.min(MAX_NEGOTIATED_PRICE, Math.round(estimatedPrice * 1.3333 * 100) / 100),
-    );
+    const max = MAX_NEGOTIATED_PRICE;
     return { min, max };
   }
 
   private validatePrice(
     price: number,
     estimatedPrice?: number,
-    dynamicMinimumFare?: number,
   ): { valid: boolean; error?: string } {
     if (!Number.isFinite(price) || price > MAX_NEGOTIATED_PRICE) {
       return { valid: false, error: this.tr('errors.invalidNumber') };
     }
 
     if (!estimatedPrice) {
-      const globalMin = 50;
+      const globalMin = 1;
       const globalMax = MAX_NEGOTIATED_PRICE;
       if (price < globalMin) {
         return { valid: false, error: this.tr('errors.minPrice', { value: globalMin }) };
@@ -162,7 +153,6 @@ class PriceNegotiationService {
 
     const { min: MIN_PRICE, max: MAX_PRICE } = this.calculatePriceLimits(
       estimatedPrice,
-      dynamicMinimumFare,
     );
 
     if (price < MIN_PRICE) {
@@ -181,10 +171,10 @@ class PriceNegotiationService {
     _role: 'client' | 'driver',
     estimatedPrice?: number,
     _driverId?: string,
-    dynamicMinimumFare?: number,
+    _dynamicMinimumFare?: number,
   ) {
     try {
-      const validation = this.validatePrice(suggestedPrice, estimatedPrice, dynamicMinimumFare);
+      const validation = this.validatePrice(suggestedPrice, estimatedPrice);
       if (!validation.valid) throw new Error(validation.error);
 
       const call = () => negotiateRidePrice(rideId, { offeredPrice: suggestedPrice });

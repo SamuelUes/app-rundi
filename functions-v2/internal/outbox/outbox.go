@@ -38,7 +38,7 @@ func InsertReturning(ctx context.Context, tx pgx.Tx, e Event) (string, error) {
 			(event_type, aggregate_type, aggregate_id, payload, request_id)
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING event_id::text`,
-		e.Type, e.AggregateType, e.AggregateID, payload, nullStr(e.RequestID),
+		e.Type, e.AggregateType, e.AggregateID, string(payload), nullStr(e.RequestID),
 	).Scan(&eventID)
 	return eventID, err
 }

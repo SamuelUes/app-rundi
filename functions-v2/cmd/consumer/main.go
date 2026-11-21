@@ -23,6 +23,7 @@ import (
 
 	"github.com/rundi/functions-v2/internal/apns"
 	"github.com/rundi/functions-v2/internal/calls"
+	"github.com/rundi/functions-v2/internal/compliance"
 	"github.com/rundi/functions-v2/internal/config"
 	"github.com/rundi/functions-v2/internal/db"
 	"github.com/rundi/functions-v2/internal/fcm"
@@ -67,6 +68,7 @@ func main() {
 		fcmSender = nil
 	}
 	notify := notifications.NewCenter(fsClient, fcmSender)
+	compSvc := compliance.NewService(pool, nil, nil, fsClient)
 
 	// APNs para pushes VoIP (CallKit/PushKit). Sin config → nil, no fatal.
 	apnsSender, err := apns.NewSenderFromEnv()
@@ -75,22 +77,47 @@ func main() {
 		apnsSender = nil
 	}
 
-	n, sweepErr := sweep(ctx, pool, fsClient, fcmSender, notify, cfg)
-	if sweepErr != nil {
-		slog.Error("sweep", "err", sweepErr, "processed", n)
-	}
-	slog.Info("outbox sweep done", "processed", n)
+	// Drain: mientras haya trabajo, seguir barriendo en la misma ejecución.
+	// Una sola corrida absorbe la ráfaga completa (events comprometidos a
+	// mitad del run y pending events que insertan nuevos outbox events —
+	// p.ej. arrival_photo → ride.arrival_photo_updated) en vez de esperar
+	// otro wake o el tick. El claim es idempotente (lease + dedup por
+	// event_id), así que re-barrer es seguro. Un run ocioso hace una sola
+	// pasada vacía, igual que antes.
+	deadline := time.Now().Add(drainBudget)
+	var failed bool
+	for {
+		n, sweepErr := sweep(ctx, pool, fsClient, fcmSender, notify, cfg, compSvc)
+		if sweepErr != nil {
+			slog.Error("sweep", "err", sweepErr, "processed", n)
+			failed = true
+		}
+		slog.Info("outbox sweep done", "processed", n)
 
-	pe, err := processPendingEvents(ctx, pool, fsClient, notify, apnsSender)
-	if err != nil {
-		slog.Error("pending events", "err", err, "processed", pe)
-	}
-	slog.Info("pending events done", "processed", pe)
+		pe, err := processPendingEvents(ctx, pool, fsClient, notify, apnsSender)
+		if err != nil {
+			slog.Error("pending events", "err", err, "processed", pe)
+			failed = true
+		}
+		slog.Info("pending events done", "processed", pe)
 
-	if sweepErr != nil || err != nil {
+		if n == 0 && pe == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			slog.Warn("drain budget exhausted; deferred to next wake/tick",
+				"budget", drainBudget)
+			break
+		}
+	}
+	if failed {
 		os.Exit(1)
 	}
 }
+
+// drainBudget — techo de trabajo por ejecución, con margen bajo el timeout
+// del job (600s): si el flujo no cesa, el siguiente wake/tick continúa.
+const drainBudget = 4 * time.Minute
 
 type pendingEvent struct {
 	EventID       string
@@ -115,7 +142,7 @@ const (
 // abierta; cada resultado (published/backoff/dead-letter) es su propio UPDATE.
 // Si el proceso muere, el lease expira y otro sweep retoma los eventos (los
 // handlers son idempotentes: create-once + reserva SQL + índice parcial).
-func sweep(ctx context.Context, pool *pgxpool.Pool, fsClient *firestore.Client, fcmSender *fcm.Sender, notify *notifications.Center, cfg *config.Config) (int, error) {
+func sweep(ctx context.Context, pool *pgxpool.Pool, fsClient *firestore.Client, fcmSender *fcm.Sender, notify *notifications.Center, cfg *config.Config, compSvc *compliance.Service) (int, error) {
 	leaseUntil := time.Now().Add(sweepLease)
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -193,6 +220,28 @@ func sweep(ctx context.Context, pool *pgxpool.Pool, fsClient *firestore.Client, 
 		var appliedRevision int64 = -1
 		publishErr := publishAndDispatch(ev,
 			func() error {
+				switch ev.EventType {
+				case "analytics.ride_canceled":
+					return recordCancellationReason(ctx, pool, ev)
+				case "driver.fs_inputs_stale":
+					var p struct {
+						DriverUID string `json:"driverUid"`
+					}
+					if err := json.Unmarshal(ev.Payload, &p); err != nil || p.DriverUID == "" {
+						return fmt.Errorf("driver.fs_inputs_stale sin driverUid")
+					}
+					if compSvc == nil {
+						return fmt.Errorf("compliance service unavailable")
+					}
+					_, err := compSvc.SyncFirestoreInputs(ctx, p.DriverUID)
+					return err
+				case "compliance.rules_changed":
+					if _, err := compliance.BumpCompliancePolicy(ctx, fsClient); err != nil {
+						return err
+					}
+					_, err := compliance.RevokeAllFirestoreSessions(ctx, fsClient, pool)
+					return err
+				}
 				var err error
 				appliedRevision, err = projections.Publish(ctx, pool, fsClient, pev)
 				return err
@@ -243,6 +292,30 @@ func sweep(ctx context.Context, pool *pgxpool.Pool, fsClient *firestore.Client, 
 		notifySideEffects(ctx, pool, notify, ev)
 	}
 	return len(published), nil
+}
+
+func recordCancellationReason(ctx context.Context, pool *pgxpool.Pool, ev pendingEvent) error {
+	var payload struct {
+		ReasonCode  string `json:"reasonCode"`
+		ReasonCodes string `json:"reasonCodes"`
+	}
+	if err := json.Unmarshal(ev.Payload, &payload); err != nil {
+		return fmt.Errorf("decode cancellation reason: %w", err)
+	}
+	codes := payload.ReasonCodes
+	if codes == "" {
+		codes = payload.ReasonCode
+	}
+	if codes == "" {
+		return nil
+	}
+	_, err := pool.Exec(ctx, `
+		INSERT INTO public.ride_cancellation_reasons (ride_id, reason_code, canceled_at)
+		SELECT id, code, canceled_at
+		FROM public.rides, unnest(string_to_array($2, ',')) AS code
+		WHERE id = $1::uuid AND status = 'canceled' AND canceled_at IS NOT NULL
+		ON CONFLICT (ride_id, reason_code) DO NOTHING`, ev.AggregateID, codes)
+	return err
 }
 
 func publishAndDispatch(ev pendingEvent, publish func() error, dispatch func(map[string]any) error, closeOffers func() error) error {
@@ -408,6 +481,11 @@ func applyPendingEvent(ctx context.Context, pool *pgxpool.Pool, c *firestore.Cli
 	notify pendingNotifier, apnsSender *apns.Sender, eventType string, d map[string]any) (string, error) {
 	payload, _ := d["payload"].(map[string]any)
 	switch eventType {
+	case compliance.ComplianceHistoryEventType:
+		if err := archiveComplianceHistory(ctx, pool, d); err != nil {
+			return "", err
+		}
+		return "compliance history archived", nil
 	case "arrival_photo_uploaded":
 		rideID, _ := payload["rideId"].(string)
 		uid, _ := payload["uid"].(string)
@@ -670,10 +748,9 @@ func notifySideEffects(ctx context.Context, pool *pgxpool.Pool, notify *notifica
 		send(clientID, notifications.RideLiveUpdate, notifications.LiveCompleted)
 		send(driverID, notifications.RideCompleted, "")
 	case "ride.canceled":
+		send(clientID, notifications.RideLiveUpdate, notifications.LiveCanceled)
 		if canceledBy == "client" {
 			send(driverID, notifications.RideCanceledDriver, "")
-		} else {
-			send(clientID, notifications.RideCanceledClient, "")
 		}
 	case "ride.follower_attached":
 		follower, _ := p["followerDriverId"].(string)

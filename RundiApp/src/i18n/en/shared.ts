@@ -423,7 +423,7 @@ const shared = {
             passengers: 'Passengers',
             passengersCount_one: '{{count}} passenger',
             passengersCount_other: '{{count}} passengers',
-            paymentMethod: 'Payment method',
+            paymentMethod: 'Payment',
             priceSuggestion: 'Suggested price',
             pricePlaceholder: 'C$0.00',
             comment: 'Comment',
@@ -515,6 +515,11 @@ const shared = {
           payment: {
             cash: 'Cash',
             card: 'Card',
+          },
+          offer: {
+            suggesting: 'Suggesting',
+            estimated: 'Estimated price',
+            belowEstimate: "Your offer can't be lower than the estimate",
           },
           availability: {
             checking: 'Looking for drivers nearby…',
@@ -1258,6 +1263,7 @@ const shared = {
             profileUpdatedTitle: 'Profile updated',
             profileUpdatedMessage: 'Your information was saved successfully.',
             profileUpdateError: 'We could not update your profile. Try again.',
+            invalidBirthDate: 'Check your birth date: it needs a complete day, month and year.',
           },
           cards: {
             addPassword: {
@@ -1567,7 +1573,8 @@ const shared = {
         },
        deleteAccount: {
          header: {
-          title: 'Delete Account',
+          eyebrow: 'ACCOUNT SECURITY',
+          title: 'Delete account',
            roles: {
             driver: 'Driver',
             client: 'Client',
@@ -1575,48 +1582,59 @@ const shared = {
            },
          },
          warning: {
-          title: '⚠️ Irreversible action',
-          intro: 'When you delete your account, the following data will be permanently removed:',
+          title: 'Account deletion',
+          intro: 'Your access will be removed. The previous UID profile and history will be retained.',
           bullets: {
-            profile: '• Your profile and personal information',
-            rideHistory: '• Ride history',
-            vehicles: '• Registered vehicles (if you are a driver)',
-            ratings: '• Ratings and reviews',
-            paymentMethods: '• Saved payment methods',
-            notifications: '• Notifications and messages',
-            locations: '• Locations and tracking',
-            dataStores: '• All data stored in Firebase and Supabase',
+            accountAccess: 'You will no longer be able to sign in with this identity.',
+            dataRetained: 'The previous profile will be marked deleted and kept separate from any new account.',
+            reactivation: 'You can register again with the same email or phone; it will create a separate account.',
           },
          },
          form: {
-          title: 'Confirm credentials',
+          step: 'STEP 1 · VERIFICATION',
+          title: 'Confirm it’s you',
+          phoneMethod: 'Text message',
+          emailMethod: 'Email and password',
+          phoneLabel: 'Number linked to your account',
+          phoneDescription: 'We’ll send a one-time code to verify your identity.',
+          emailLabel: 'Email address',
+          passwordLabel: 'Password',
           emailPlaceholder: 'Email',
           passwordPlaceholder: 'Password',
+          codePlaceholder: '6-digit code',
+          codeSent: 'Code sent. Check your text messages.',
          },
          confirmation: {
           checkbox:
-            'I understand this action is irreversible and all my data will be permanently deleted',
+            'I understand my sign-in identity will be removed and the historical profile will remain stored.',
          },
          buttons: {
-          delete: 'Delete account permanently',
+          delete: 'Delete my account',
           deleting: 'Deleting account...',
+          sendCode: 'Send SMS code',
+          resendCode: 'Send another code',
           cancel: 'Cancel',
+         },
+         errors: {
+          phoneMismatch: 'The verified number does not match the phone linked to this account.',
          },
          alerts: {
           confirmRequiredTitle: 'Confirmation required',
           confirmRequiredMessage:
-            'Confirm that you understand the consequences by checking the verification box.',
+            'Check the box to confirm you understand the consequences of deleting your account.',
           missingFieldsTitle: 'Incomplete fields',
-          missingFieldsMessage: 'Enter your email and password to confirm the deletion.',
-          confirmDeleteTitle: 'Delete account permanently',
+          missingFieldsMessage: 'Enter your email and password to verify your identity.',
+          codeRequired: 'Request and enter the 6-digit SMS code.',
+          confirmDeleteTitle: 'Permanently delete account',
           confirmDeleteMessage:
-            'This action cannot be undone. All your data will be permanently deleted.\n\nAre you sure you want to continue?',
+            'Your sign-in identity will be deleted. The historical profile remains under the old UID and access to that account cannot be restored. Continue?',
           confirmDeleteCancel: 'Cancel',
           confirmDeleteConfirm: 'Delete account',
           successTitle: 'Account deleted',
+          successMessage: 'Your account was deleted. You can register again with the same email or phone.',
           successOk: 'OK',
           genericErrorTitle: 'Error',
-          deleteErrorMessage: 'An error occurred while deleting the account.',
+          deleteErrorMessage: 'We could not complete account deletion.',
          },
        },
        supportcomplaint: {

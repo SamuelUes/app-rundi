@@ -7,6 +7,7 @@ import { getScheduleBounds } from '../../../utils/format/schedule';
 import type { TFunction } from 'i18next';
 import type { Coords } from '../../../utils/geo/rideCoords';
 import type { ServiceItem } from '../../../services/catalog/servicesService';
+import i18n from '../../../i18n';
 
 type VehicleType = 'moto' | 'auto' | 'designated_driver';
 type DesignatedDriverMode = 'auto' | 'moto';
@@ -38,6 +39,10 @@ interface ValidateFn {
 }
 
 interface UploadPhotoFn {
+  (uriOverride?: string): Promise<string | null>;
+}
+
+interface CapturePhotoFn {
   (): Promise<string | null>;
 }
 
@@ -66,6 +71,7 @@ interface UseSearchRideSubmissionParams {
   setSubmittingRequest: (v: boolean) => void;
   validateLocationForContext: ValidateFn;
   uploadPhotoIfNeeded: UploadPhotoFn;
+  captureVehiclePhotoNow: CapturePhotoFn;
   tr: (path: string, options?: Record<string, any>) => string;
   navigation: any;
 }
@@ -95,6 +101,7 @@ export function useSearchRideSubmission({
   setSubmittingRequest,
   validateLocationForContext,
   uploadPhotoIfNeeded,
+  captureVehiclePhotoNow,
   tr,
   navigation,
 }: UseSearchRideSubmissionParams) {
@@ -196,17 +203,33 @@ export function useSearchRideSubmission({
         setSubmittingRequest(false);
         return;
       }
+      const minimum = Math.max(1, Math.round(routeCalc.estimatedPrice));
+      if (value < minimum || value > 100000) {
+        alertService.showErrorAlert(i18n.t(
+          value < minimum
+            ? 'common.components.priceNegotiationModal.alerts.minPrice'
+            : 'common.components.priceNegotiationModal.alerts.maxPrice',
+          { amount: value < minimum ? minimum : 100000 },
+        ));
+        submittingRef.current = false;
+        setSubmittingRequest(false);
+        return;
+      }
       clientSuggestedPrice = value;
     }
 
     let biometricAcceptancePayload: Record<string, any> | null = null;
     let vehiclePhotoUrl = clientVehiclePhoto;
+    let vehiclePhotoLocalUri = clientVehiclePhotoLocalUri;
     if (vehicleType === 'designated_driver') {
-      if (!vehiclePhotoUrl && !clientVehiclePhotoLocalUri) {
-        alertService.showErrorAlert(tr('alerts.vehiclePhotoRequired'));
-        submittingRef.current = false;
-        setSubmittingRequest(false);
-        return;
+      if (!vehiclePhotoUrl && !vehiclePhotoLocalUri) {
+        // Sin foto: directo a cámara (galería si no hay cámara), sin toast.
+        vehiclePhotoLocalUri = await captureVehiclePhotoNow();
+        if (!vehiclePhotoLocalUri) {
+          submittingRef.current = false;
+          setSubmittingRequest(false);
+          return;
+        }
       }
       biometricAcceptancePayload = await runDesignatedDriverBiometricVerification();
       if (!biometricAcceptancePayload) {
@@ -215,8 +238,8 @@ export function useSearchRideSubmission({
         return;
       }
 
-      if (!vehiclePhotoUrl && clientVehiclePhotoLocalUri) {
-        vehiclePhotoUrl = await uploadPhotoIfNeeded();
+      if (!vehiclePhotoUrl && vehiclePhotoLocalUri) {
+        vehiclePhotoUrl = await uploadPhotoIfNeeded(vehiclePhotoLocalUri);
         if (!vehiclePhotoUrl) {
           submittingRef.current = false;
           setSubmittingRequest(false);
@@ -426,7 +449,7 @@ export function useSearchRideSubmission({
     vehicleType, paymentMethod, passengersByVehicle, priceSuggestion, rideComment,
     extraDestinations, clientVehiclePhoto, clientVehiclePhotoLocalUri,
     servicesCatalog, navigation, scheduledAt, designatedDriverMode, selectedFeatureCodes,
-    validateLocationForContext, uploadPhotoIfNeeded,
+    validateLocationForContext, uploadPhotoIfNeeded, captureVehiclePhotoNow,
     runDesignatedDriverBiometricVerification, tr, setSubmittingRequest, defaultLabels,
   ]);
 

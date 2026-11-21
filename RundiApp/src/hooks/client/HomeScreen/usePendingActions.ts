@@ -82,7 +82,7 @@ export function usePendingActions(
         return;
       }
 
-      if (['accepted', 'driver_on_route', 'in_progress'].includes(activeRide.status)) {
+      if (['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'].includes(activeRide.status)) {
         navigation.replace('RideTracking', {
           rideId: activeRide.id,
           driverId: activeRide.driverId,

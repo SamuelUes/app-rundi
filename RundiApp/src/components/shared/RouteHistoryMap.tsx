@@ -120,6 +120,7 @@ const RouteHistoryMap: React.FC<RouteHistoryMapProps> = ({
         provider={PROVIDER_GOOGLE}
         style={styles.map}
         initialRegion={initialRegion || undefined}
+        toolbarEnabled={false}
       >
         {/* Polyline de la ruta */}
         <Polyline

@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { LoadingIcon } from '../../ui/LoadingIcon';
 import { TimerEditIcon } from '../../ui/TimerEditIcon';
 type TrFunction = (path: string, options?: Record<string, any>) => string;
@@ -52,7 +52,7 @@ export function SearchRideCTA({
             accessibilityRole="button"
             accessibilityLabel={tr('scheduling.clearButton')}
           >
-            <MaterialIcons name="close" size={18} color={colors.textSecondary || '#666666'} />
+            <Ionicons name="close" size={18} color={colors.textSecondary || '#666666'} />
           </TouchableOpacity>
         </View>
       ) : null}

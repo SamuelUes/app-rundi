@@ -1,5 +1,6 @@
 import { navigate, navigationRef } from '../../navigation/NavigationService';
 import { openProgrammedPrompt } from '../../stores/programmedPromptStore';
+import { getRideDetail } from '../../api/rides';
 
 const parseMaybeJson = (value: any) => {
   if (typeof value !== 'string') return value;
@@ -186,8 +187,43 @@ export const routeNotification = async (data: any, options: RouteOptions = {}): 
       return;
     }
 
-    case 'ride_live_update': {
-      // Handled by liveRideNotificationService for display, no navigation needed
+    case 'ride_live_update':
+    case 'ride_driver_offered': {
+      if (typeof rideId !== 'string' || !rideId) return;
+      // The notification may have been tapped after the trip advanced; SQL is
+      // authoritative, not the status carried by the old notification.
+      try {
+        const start = Date.now();
+        while (Date.now() - start < 10000) {
+          if (navigationRef.isReady() && navigationRef.getRootState()?.routeNames.includes('ClientHome')) break;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        if (!navigationRef.isReady() || !navigationRef.getRootState()?.routeNames.includes('ClientHome')) return;
+        const ride = await getRideDetail(rideId);
+        const status = String(ride.status || '').toLowerCase();
+        if (['requested', 'driver_offered'].includes(status)) {
+          navigate('HomeOffers', { rideId: ride.id });
+        } else if (['accepted', 'driver_on_route', 'driver_arrived', 'in_progress'].includes(status) && ride.driverId) {
+          navigate('RideTracking', {
+            rideId: ride.id,
+            driverId: ride.driverId,
+            driverName: '',
+            vehiclePlate: '',
+            estimatedFare: ride.finalFare || ride.estimatedPrice || 0,
+          });
+        } else if (['pending_payment', 'completed'].includes(status)) {
+          const amount = ride.finalFare || ride.estimatedPrice || 0;
+          if (ride.paymentType === 'card' || ride.paymentType === 'card_local') {
+            navigate('Payment', { rideId: ride.id, amount, driverId: ride.driverId, isPendingPayment: true });
+          } else {
+            navigate('CashPayment', { rideId: ride.id, amount, driverName: 'Conductor' });
+          }
+        } else {
+          navigate('ClientHome');
+        }
+      } catch (error) {
+        console.warn('[notificationRouter] No se pudo abrir el viaje:', error);
+      }
       return;
     }
 
@@ -211,7 +247,6 @@ export const routeNotification = async (data: any, options: RouteOptions = {}): 
     case 'ride_completed':
     case 'ride_canceled':
     case 'ride_requested':
-    case 'ride_driver_offered':
     case 'ride_assigned':
     case 'ride_driver_on_route':
     case 'ride_completed_rating':

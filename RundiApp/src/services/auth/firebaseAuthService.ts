@@ -105,9 +105,8 @@ class FirebaseAuthService {
    * Iniciar sesión
    */
   async login(email: string, password: string) {
+    const auth = await getFirebaseAuth();
     try {
-      const auth = await getFirebaseAuth();
-
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
@@ -122,7 +121,17 @@ class FirebaseAuthService {
       };
     } catch (error: any) {
       console.error('❌ Error en login:', error);
-      throw new Error(error.message);
+      const accountStatusError =
+        error?.code === 'ACCOUNT_DISABLED' ||
+        error?.code === 'ACCOUNT_DEACTIVATED' ||
+        error?.code === 'ACCOUNT_DELETED' ||
+        error?.message === 'ACCOUNT_DISABLED' ||
+        error?.message === 'ACCOUNT_DEACTIVATED' ||
+        error?.message === 'ACCOUNT_DELETED';
+      if (accountStatusError) {
+        await signOut(auth).catch(() => undefined);
+      }
+      throw error;
     }
   }
 
@@ -211,15 +220,24 @@ class FirebaseAuthService {
       }
 
       const data: any = userDoc.data();
+      const accountStatuses = [
+        String(data?.accountStatus || '').toLowerCase(),
+        String(data?.status || '').toLowerCase(),
+      ];
+      const isAccountDeleted = accountStatuses.includes('deleted');
+      const isAccountDeactivated = accountStatuses.includes('deactivated');
       const isAccountDisabled =
-        data?.accountDisabled === true ||
-        String(data?.accountStatus || '').toLowerCase() === 'disabled' ||
-        String(data?.status || '').toLowerCase() === 'disabled';
+        data?.accountDisabled === true || accountStatuses.includes('disabled');
 
-      if (isAccountDisabled) {
-        const accountDisabledError: any = new Error('ACCOUNT_DISABLED');
-        accountDisabledError.code = 'ACCOUNT_DISABLED';
-        throw accountDisabledError;
+      if (isAccountDeleted || isAccountDeactivated || isAccountDisabled) {
+        const errorCode = isAccountDeleted
+          ? 'ACCOUNT_DELETED'
+          : isAccountDeactivated
+            ? 'ACCOUNT_DEACTIVATED'
+            : 'ACCOUNT_DISABLED';
+        const accountStatusError: any = new Error(errorCode);
+        accountStatusError.code = errorCode;
+        throw accountStatusError;
       }
 
       // Normalización de role solo en memoria — el rol es privilegiado y lo
@@ -243,6 +261,7 @@ class FirebaseAuthService {
       }
 
       const forwardError: any = new Error(message);
+      if (error?.code) forwardError.code = error.code;
       if (isProfileMissing) {
         forwardError.code = 'PROFILE_NOT_FOUND';
       }
@@ -293,24 +312,6 @@ class FirebaseAuthService {
     } catch (error: any) {
       console.error('❌ Error verificando existencia de usuario:', error);
       throw new Error(error?.message || this.tr('errors.availabilityFailed'));
-    }
-  }
-
-  /**
-   * Verificar si existe al menos un log de verificación de registro
-   * para un número telefónico dado (context: register_phone, verified: true).
-   * Se usa para evitar pedir nuevamente SMS cuando ya se verificó antes.
-   */
-  async hasVerifiedRegisterPhoneLog(phoneNumber: string): Promise<boolean> {
-    try {
-      if (!phoneNumber || typeof phoneNumber !== 'string') {
-        return false;
-      }
-      return await platformApi.hasVerifiedRegisterPhone(phoneNumber);
-    } catch (error: any) {
-      console.error('❌ Error verificando logs de verificación de registro:', error);
-      // No romper el flujo de usuario: si falla, asumimos que no hay verificación previa
-      return false;
     }
   }
 
@@ -449,32 +450,6 @@ class FirebaseAuthService {
 
     await reload(user);
     return { verified: Boolean(user.emailVerified), user };
-  }
-
-  /**
-   * Registrar una verificación SMS exitosa (log/historial en backend)
-   */
-  async logSmsVerification(params: {
-    userId: string;
-    phoneNumber: string;
-    code?: string;
-    context: 'register_phone' | 'login_phone' | 'add_phone' | string;
-    attemptCount?: number;
-  }): Promise<void> {
-    const { phoneNumber, code, context } = params;
-
-    if (!code) {
-      // v2: el endpoint requiere code no vacío (400) — sin código no hay nada que loguear.
-      console.warn('[FirebaseAuthService] logSmsVerification sin código — se omite');
-      return;
-    }
-
-    try {
-      await platformApi.logSmsCode(code, { phone: phoneNumber, context });
-    } catch (error: any) {
-      console.error('❌ Error registrando verificación SMS:', error);
-      // No romper el flujo de usuario: esto es solo logging
-    }
   }
 
   async logEmailVerification(params: {

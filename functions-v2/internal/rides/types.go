@@ -98,6 +98,38 @@ type RequestRideRequest struct {
 	// (gate de elegibilidad en queries.go). designatedDriverVehicle en 'auto'|'moto'.
 	SelectedFeatureCodes    []string `json:"selectedFeatureCodes,omitempty"`
 	DesignatedDriverVehicle *string  `json:"designatedDriverVehicle,omitempty"`
+	// Aceptación biométrica del cliente al solicitar (conductor designado).
+	BiometricAcceptanceRequired bool   `json:"biometricAcceptanceRequired,omitempty"`
+	BiometricAcceptanceType     string `json:"biometricAcceptanceType,omitempty"`
+	BiometricAcceptanceVerified bool   `json:"biometricAcceptanceVerified,omitempty"`
+	BiometricAcceptanceAt       string `json:"biometricAcceptanceAt,omitempty"` // ISO-8601
+}
+
+// NormalizeBiometricType — acota el tipo reportado por el cliente al enum
+// public.biometric_type (el cliente también reporta valores fuera del enum,
+// p.ej. 'device_biometric_not_found' → 'NOT_SUPPORTED').
+func NormalizeBiometricType(t string) string {
+	switch t {
+	case "fingerprint", "face_id", "biometric", "device_credential", "NOT_SUPPORTED":
+		return t
+	case "device_biometric_not_found":
+		return "NOT_SUPPORTED"
+	case "":
+		return ""
+	default:
+		return "biometric"
+	}
+}
+
+// ParseBiometricAt — timestamp ISO-8601 reportado por el cliente; inválido → nil.
+func ParseBiometricAt(s string) *time.Time {
+	if s == "" {
+		return nil
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return &t
+	}
+	return nil
 }
 
 // RideLocationInput — punto de ruta enviado por el cliente (lat/lng + address

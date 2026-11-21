@@ -184,8 +184,10 @@ func (s *Service) ConfirmCash(ctx context.Context, rideID, driverUID, code, requ
 }
 
 // RegisterCash — participante declara pago en efectivo (registerCashPayment
-// v1): status 'pending' → 'pending_confirmation' + tip (≤1000 C$ como v1).
-func (s *Service) RegisterCash(ctx context.Context, rideID, uid string, tip float64, requestID string) (*Payment, error) {
+// v1): status 'pending' → 'pending_confirmation' + tip (≤1000 C$ como v1) +
+// evidencia de autenticación del cobro (paridad v1: authentication_method,
+// biometric_authenticated, biometric_type).
+func (s *Service) RegisterCash(ctx context.Context, rideID, uid string, tip float64, auth CashAuth, requestID string) (*Payment, error) {
 	if tip < 0 || tip > 1000 {
 		return nil, apperr.New(400, "tip debe ser 0..1000")
 	}
@@ -203,7 +205,10 @@ func (s *Service) RegisterCash(ctx context.Context, rideID, uid string, tip floa
 	var clientID, driverID *string
 	err = tx.QueryRow(ctx, `
 		UPDATE public.payments p
-		SET status = 'pending_confirmation', tip = $3
+		SET status = 'pending_confirmation', tip = $3,
+			authentication_method = COALESCE($4::public.payment_auth_method, p.authentication_method),
+			biometric_authenticated = p.biometric_authenticated OR $5,
+			biometric_type = COALESCE(NULLIF($6, '')::public.biometric_type, p.biometric_type)
 		FROM public.rides r
 		WHERE p.ride_id = $1
 		  AND p.ride_id = r.id
@@ -214,7 +219,7 @@ func (s *Service) RegisterCash(ctx context.Context, rideID, uid string, tip floa
 		          p.commission_rate_applied, p.total, p.payment_method,
 		          p.payment_provider, p.status, p.commission_status, p.paid_at,
 		          r.client_id, r.driver_id`,
-		rideID, uid, tip,
+		rideID, uid, tip, auth.authMethodPtr(), auth.BiometricAuthenticated, auth.bioType(),
 	).Scan(&p.ID, &p.RideID, &p.Amount, &p.Tip, &p.Commission,
 		&p.CommissionRateApplied, &p.Total, &p.PaymentMethod,
 		&p.PaymentProvider, &p.Status, &p.CommissionStatus, &p.PaidAt,

@@ -82,7 +82,7 @@ func TestDispatchRecoveryIntegration(t *testing.T) {
 	}
 	cfg := &config.Config{OfferTTL: time.Minute, MatchRadiusKm: 15, MatchMaxOffers: 10}
 	notify := notifications.NewCenter(db, nil)
-	if _, err := sweep(ctx, pool, db, nil, notify, cfg); err != nil {
+	if _, err := sweep(ctx, pool, db, nil, notify, cfg, nil); err != nil {
 		t.Fatal(err)
 	}
 	var eventStatus string
@@ -111,7 +111,7 @@ func TestDispatchRecoveryIntegration(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := sweep(ctx, pool, db, nil, notify, cfg)
+			_, err := sweep(ctx, pool, db, nil, notify, cfg, nil)
 			errs <- err
 		}()
 	}
@@ -217,7 +217,7 @@ func TestDispatchRecoveryIntegration(t *testing.T) {
 	if _, err := rides.NewService(pool, db).AcceptRide(ctx, rideID, otherID, "test", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sweep(ctx, pool, db, nil, notify, cfg); err != nil {
+	if _, err := sweep(ctx, pool, db, nil, notify, cfg, nil); err != nil {
 		t.Fatal(err)
 	}
 	for driver, want := range map[string]string{driverID: "rejected", otherID: "accepted", thirdID: "canceled"} {
@@ -237,7 +237,7 @@ func TestDispatchRecoveryIntegration(t *testing.T) {
 	if _, err := rides.NewService(pool, db).CancelRide(ctx, rideID, clientID, "client", "test", "test"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sweep(ctx, pool, db, nil, notify, cfg); err != nil {
+	if _, err := sweep(ctx, pool, db, nil, notify, cfg, nil); err != nil {
 		t.Fatal(err)
 	}
 	for driver, want := range map[string]string{driverID: "rejected", otherID: "canceled", thirdID: "canceled"} {

@@ -16,11 +16,18 @@ export async function confirmCashPayment(rideId: string, code?: string): Promise
   return data.payment;
 }
 
-/** Participante declara pago en efectivo (pending_confirmation + tip). */
-export async function registerCashPayment(rideId: string, tip = 0): Promise<Payment> {
+/** Evidencia de autenticación del cobro (paridad v1: se archiva en payments). */
+export interface CashPaymentAuth {
+  authenticationMethod?: 'biometric' | 'sms' | 'manual' | 'code';
+  biometricType?: string;
+  biometricAuthenticated?: boolean;
+}
+
+/** Participante declara pago en efectivo (pending_confirmation + tip + auth). */
+export async function registerCashPayment(rideId: string, tip = 0, auth?: CashPaymentAuth): Promise<Payment> {
   const { data } = await client.post<{ payment: Payment }>(
     '/payments/register-cash',
-    { rideId, tip },
+    { rideId, tip, ...auth },
   );
   return data.payment;
 }

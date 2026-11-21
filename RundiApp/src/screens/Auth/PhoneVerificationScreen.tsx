@@ -14,8 +14,8 @@ import {
   ScrollView,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import Animated, { FadeIn, FadeInDown, ReduceMotion } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LoadingIcon } from '../../components/ui/LoadingIcon';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -28,7 +28,7 @@ import accountLinkingService from '../../services/auth/accountLinkingService';
 import { AuthStackParamList } from '../../navigation/types';
 import { formatPhoneNumber, getCountryDialOptions } from '../../utils/format/phoneUtils';
 import alertService from '../../services/notification/alertService';
-import OtpCodeInput from '../../components/ui/OtpCodeInput';
+import PhoneCodeForm from '../../components/auth/PhoneCodeForm';
 import { useTranslation } from 'react-i18next';
 
 type PhoneVerificationNavigationProp = NativeStackNavigationProp<
@@ -60,8 +60,8 @@ const buildAuthProviderField = (providers: string[]) => {
 };
 
 export default function PhoneVerificationScreen({ navigation, route }: Props) {
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const { t } = useTranslation();
 
   const {
@@ -83,7 +83,9 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(60);
+  const [timeLeft, setTimeLeft] = useState(
+    verificationContext === 'add_phone' || phoneAuthService.hasActiveVerification(phone) ? 60 : 0,
+  );
   const [attempts, setAttempts] = useState(0);
   const [displayPhone, setDisplayPhone] = useState<string>(phone);
 
@@ -194,21 +196,6 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
 
           if (userId && linkedPhone) {
             try {
-              await firebaseAuthService.logSmsVerification({
-                userId,
-                phoneNumber: linkedPhone,
-                code,
-                context: 'add_phone',
-                attemptCount: attempts + 1,
-              });
-            } catch (logError) {
-              console.error(
-                '⚠️ No se pudo registrar el log de verificación SMS (add_phone):',
-                logError,
-              );
-            }
-
-            try {
               const authProviderLabel = buildAuthProviderField(providers || []);
               await firebaseAuthService.updateUserProfile(userId, {
                 phone: linkedPhone,
@@ -280,39 +267,9 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
         }
       }
 
-      const credential = await phoneAuthService.confirmVerificationCode(phone, code, {
+      await phoneAuthService.confirmVerificationCode(phone, code, {
         signOutAfterConfirm: true,
       });
-
-      try {
-        let logUserId = credential?.user?.uid;
-
-        if (verificationContext === 'register_upgrade_driver') {
-          try {
-            const currentUser = await firebaseAuthService.getCurrentUser();
-            if (currentUser?.uid) {
-              logUserId = currentUser.uid;
-            }
-          } catch (currentUserError) {
-            console.warn(
-              '⚠️ No se pudo obtener usuario actual para log de verificación SMS (upgrade):',
-              currentUserError,
-            );
-          }
-        }
-
-        if (logUserId) {
-          await firebaseAuthService.logSmsVerification({
-            userId: logUserId,
-            phoneNumber: phone,
-            code,
-            context: verificationContext || 'register_phone',
-            attemptCount: attempts + 1,
-          });
-        }
-      } catch (logError) {
-        console.error('⚠️ No se pudo registrar el log de verificación SMS (registro):', logError);
-      }
 
       alertService.showSuccessAlert(
         t('authScreens.phoneVerification.alerts.verificationSuccessTitle'),
@@ -372,7 +329,10 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
         automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
         showsVerticalScrollIndicator={false}
       >
-          <View style={styles.content}>
+          <Animated.View
+            entering={FadeInDown.duration(740).reduceMotion(ReduceMotion.System)}
+            style={styles.card}
+          >
             <TouchableOpacity
               style={styles.backButton}
               onPress={() => navigation.goBack()}
@@ -390,78 +350,27 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
                   ? t('authScreens.phoneVerification.subtitles.addPhone')
                   : t('authScreens.phoneVerification.subtitles.register')}
               </Text>
+              <Animated.View
+                entering={FadeIn.delay(160).duration(680).reduceMotion(ReduceMotion.System)}
+                style={styles.headerAccent}
+              />
               <Text style={styles.phoneNumber}>{displayPhone}</Text>
             </View>
 
-            <View style={styles.codeSection}>
-              <Text style={styles.label}>
-                {t('authScreens.phoneVerification.codeLabel')}
-              </Text>
-
-              <OtpCodeInput
-                value={code}
-                onChange={setCode}
-                disabled={loading}
-                accessibilityLabel={t('authScreens.phoneVerification.codeLabel')}
-              />
-            </View>
-
-            {attempts > 0 && (
-              <View style={styles.attemptsWarning}>
-                <Text style={styles.attemptsText}>
-                  {t('authScreens.phoneVerification.attemptsLabel', {
-                    remaining: MAX_ATTEMPTS - attempts,
-                    max: MAX_ATTEMPTS,
-                  })}
-                </Text>
-              </View>
-            )}
-
-            <TouchableOpacity
-              style={[
-                styles.primaryButton,
-                (loading || code.length !== 6) && styles.buttonDisabled,
-              ]}
-              onPress={handleVerifyCode}
-              disabled={loading || code.length !== 6}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: loading || code.length !== 6 }}
-            >
-              {loading ? (
-                <LoadingIcon size={24} color="#241B0B" />
-              ) : (
-                <Text style={styles.primaryButtonText}>
-                  {t('authScreens.phoneVerification.verifyButton')}
-                </Text>
-              )}
-            </TouchableOpacity>
-
-            <View style={styles.resendSection}>
-              <Text style={styles.resendText}>
-                {t('authScreens.phoneVerification.resend.question')}
-              </Text>
-              {timeLeft > 0 ? (
-                <Text style={styles.resendTimer}>
-                  {t('authScreens.phoneVerification.resend.timer', { seconds: timeLeft })}
-                </Text>
-              ) : (
-                <TouchableOpacity
-                  style={styles.resendAction}
-                  onPress={handleResendCode}
-                  disabled={resendLoading}
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: resendLoading }}
-                >
-                  {resendLoading ? (
-                    <LoadingIcon size={20} color={colors.primary} />
-                  ) : (
-                    <Text style={styles.resendButton}>
-                      {t('authScreens.phoneVerification.resend.button')}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              )}
-            </View>
+            <PhoneCodeForm
+              code={code}
+              onChangeCode={setCode}
+              onVerify={handleVerifyCode}
+              onResend={handleResendCode}
+              loading={loading}
+              resendLoading={resendLoading}
+              timeLeft={timeLeft}
+              attempts={attempts}
+              maxAttempts={MAX_ATTEMPTS}
+              primaryColor={colors.primary}
+              styles={styles}
+              translationKey="phoneVerification"
+            />
 
             <View style={styles.infoBox}>
               <Text style={styles.infoTitle}>
@@ -477,13 +386,13 @@ export default function PhoneVerificationScreen({ navigation, route }: Props) {
                 {t('authScreens.phoneVerification.info.checkNumber')}
               </Text>
             </View>
-          </View>
+          </Animated.View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-const createStyles = (colors: any) =>
+const createStyles = (colors: any, isDark: boolean) =>
   StyleSheet.create({
     safeArea: {
       flex: 1,
@@ -498,22 +407,34 @@ const createStyles = (colors: any) =>
     scrollContent: {
       flexGrow: 1,
       justifyContent: 'center',
-      paddingHorizontal: 24,
+      paddingHorizontal: 14,
       paddingVertical: 20,
     },
-    content: {
+    card: {
       width: '100%',
-      maxWidth: 440,
+      maxWidth: 480,
       alignSelf: 'center',
+      borderRadius: 28,
+      backgroundColor: colors.card,
+      paddingHorizontal: 24,
+      paddingTop: 24,
+      paddingBottom: 32,
+      borderWidth: isDark ? 1 : 0,
+      borderColor: colors.border,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.24 : 0.14,
+      shadowRadius: 12,
+      elevation: 6,
     },
     backButton: {
-      minHeight: 54,
+      minHeight: 44,
       flexDirection: 'row',
       alignItems: 'center',
       alignSelf: 'flex-start',
-      top: -30,
       gap: 8,
-      marginBottom: 20,
+      marginLeft: -8,
+      marginBottom: 8,
     },
     backButtonTextLabel: {
       fontSize: 14,
@@ -525,18 +446,26 @@ const createStyles = (colors: any) =>
       marginBottom: 28,
     },
     title: {
-      fontSize: 28,
+      fontSize: 26,
       fontWeight: '800',
       color: colors.text,
       textAlign: 'center',
       marginBottom: 8,
     },
     subtitle: {
-      fontSize: 15,
-      lineHeight: 22,
+      fontSize: 14,
+      lineHeight: 21,
       color: colors.textSecondary,
       textAlign: 'center',
+    },
+    headerAccent: {
+      width: 32,
+      height: 3,
+      borderRadius: 3,
+      backgroundColor: colors.primary,
+      marginTop: 18,
       marginBottom: 14,
+      opacity: 0.7,
     },
     phoneNumber: {
       minHeight: 40,

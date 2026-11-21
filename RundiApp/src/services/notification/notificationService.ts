@@ -9,9 +9,11 @@ import i18n from '../../i18n';
 
 // Configurar cómo se muestran las notificaciones
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
+  handleNotification: async (notification) => ({
     shouldShowAlert: true,
-    shouldPlaySound: true,
+    shouldPlaySound: !['ride_live_update', 'ride_driver_offered'].includes(
+      String(notification.request.content.data?.type ?? ''),
+    ),
     shouldSetBadge: true,
     shouldShowBanner: true,
     shouldShowList: true,
@@ -71,12 +73,30 @@ class NotificationService {
     }
   }
 
+  async dismissRideOfferNotification(rideId: string) {
+    try {
+      const notifications = await Notifications.getPresentedNotificationsAsync();
+      for (const notification of notifications) {
+        const data = notification.request.content.data;
+        if (data?.type !== 'ride_driver_offered' || data?.rideId !== rideId) continue;
+        await Notifications.dismissNotificationAsync(notification.request.identifier);
+        const key = `live-ride-${rideId}`;
+        if (this.managedNotifications.get(key)?.notificationId === notification.request.identifier) {
+          this.clearManagedNotification(key);
+        }
+      }
+    } catch (error) {
+      console.warn('[notificationService] Error descartando oferta:', error);
+    }
+  }
+
   async showManagedNotification(
     title: string,
     body: string,
     data: any,
     notificationKey: string,
     expiresInMs: number = 120_000,
+    silent: boolean = false,
   ) {
     if (!notificationKey) {
       await this.showLocalNotification(title, body, data);
@@ -94,7 +114,7 @@ class NotificationService {
     await this.dismissManagedNotification(notificationKey);
 
     try {
-      await this.ensureAndroidChannel();
+      if (!silent) await this.ensureAndroidChannel();
       const notificationId = await Notifications.scheduleNotificationAsync({
         content: {
           title,
@@ -104,10 +124,10 @@ class NotificationService {
             notificationKey,
             expiresInMs: normalizedExpires,
           },
-          sound: 'notification.wav',
-          priority: Notifications.AndroidNotificationPriority.MAX,
-          vibrate: [0, 250, 250, 250],
-          ...(Platform.OS === 'android' ? { channelId: 'rundi-default-v2' } : {}),
+          sound: silent ? false : 'notification.wav',
+          priority: silent ? Notifications.AndroidNotificationPriority.LOW : Notifications.AndroidNotificationPriority.MAX,
+          ...(!silent ? { vibrate: [0, 250, 250, 250] } : {}),
+          ...(Platform.OS === 'android' ? { channelId: silent ? 'rundi-client-ride-silent-v1' : 'rundi-default-v2' } : {}),
         },
         trigger: null, // Mostrar inmediatamente
       });
@@ -130,7 +150,7 @@ class NotificationService {
       });
     } catch (error) {
       console.error('❌ Error mostrando notificación administrada:', error);
-      await this.showLocalNotification(title, body, data);
+      if (!silent) await this.showLocalNotification(title, body, data);
     }
   }
 

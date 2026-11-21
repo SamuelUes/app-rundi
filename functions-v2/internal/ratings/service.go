@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/rundi/functions-v2/internal/apperr"
+	"github.com/rundi/functions-v2/internal/db"
 	"github.com/rundi/functions-v2/internal/outbox"
 )
 
@@ -27,8 +28,20 @@ func NewService(pool *pgxpool.Pool) *Service {
 // el estado del viaje. Una sola calificación por (ride, from, to).
 func (s *Service) Submit(ctx context.Context, fromUID, requestID string, in SubmitRatingRequest) (*Rating, error) {
 	if in.Skip {
-		return nil, s.skip(ctx, in.RideID, fromUID, requestID)
+		return nil, db.RetrySerializable(ctx, func(ctx context.Context) error {
+			return s.skip(ctx, in.RideID, fromUID, requestID)
+		})
 	}
+	var r *Rating
+	err := db.RetrySerializable(ctx, func(ctx context.Context) error {
+		var err error
+		r, err = s.submit(ctx, fromUID, requestID, in)
+		return err
+	})
+	return r, err
+}
+
+func (s *Service) submit(ctx context.Context, fromUID, requestID string, in SubmitRatingRequest) (*Rating, error) {
 	if in.Rating < 1 || in.Rating > 5 {
 		return nil, apperr.New(400, "rating must be 1-5")
 	}

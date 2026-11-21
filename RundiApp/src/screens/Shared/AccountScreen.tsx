@@ -53,6 +53,42 @@ const formatBirthDateInput = (value: string): string => {
   return segments.join('-');
 };
 
+const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DISPLAY_DATE_RE = /^(\d{2})-(\d{2})-(\d{4})$/;
+
+const isRealDate = (year: number, month: number, day: number): boolean => {
+  if (year < 1900 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) {
+    return false;
+  }
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  return dt.getUTCFullYear() === year && dt.getUTCMonth() === month - 1 && dt.getUTCDate() === day;
+};
+
+/** Valor del backend (ISO YYYY-MM-DD u otro) → formato visible DD-MM-YYYY. */
+const birthDateToDisplay = (value: string): string => {
+  const v = (value || '').trim();
+  if (!v) return '';
+  const iso = ISO_DATE_RE.exec(v);
+  if (iso && isRealDate(Number(iso[1]), Number(iso[2]), Number(iso[3]))) {
+    return `${iso[3]}-${iso[2]}-${iso[1]}`;
+  }
+  return formatBirthDateInput(v);
+};
+
+/** Valor visible DD-MM-YYYY (o ya ISO) → ISO YYYY-MM-DD; null si no es fecha completa válida. */
+const birthDateToIso = (value: string): string | null => {
+  const v = (value || '').trim();
+  const display = DISPLAY_DATE_RE.exec(v);
+  if (display && isRealDate(Number(display[3]), Number(display[2]), Number(display[1]))) {
+    return `${display[3]}-${display[2]}-${display[1]}`;
+  }
+  const iso = ISO_DATE_RE.exec(v);
+  if (iso && isRealDate(Number(iso[1]), Number(iso[2]), Number(iso[3]))) {
+    return v;
+  }
+  return null;
+};
+
 type ProvidersState = {
   values: string[];
   loading: boolean;
@@ -541,7 +577,7 @@ export default function AccountScreen({ navigation }: any) {
 
       if (profileData) {
         const nextName = profileData.name || user?.name || '';
-        const nextBirthDate = formatBirthDateInput(profileData.birthDate || '');
+        const nextBirthDate = birthDateToDisplay(profileData.birthDate || '');
         const nextEmail = profileData.email || user?.email || '';
         const nextPhone = profileData.phone || '';
         const nextPhoto = await supabaseStorage.resolveDocumentPhotoUrl(
@@ -776,8 +812,19 @@ export default function AccountScreen({ navigation }: any) {
       name: profileName.trim() || user.name,
       email: profileEmail.trim() || user.email,
       phone: profilePhone.trim(),
-      birthDate: birthDate.trim(),
     };
+
+    // El backend guarda birth_date DATE — hay que enviar ISO YYYY-MM-DD.
+    // '' se omite (no borra la fecha guardada); una fecha incompleta aborta.
+    const trimmedBirthDate = birthDate.trim();
+    if (trimmedBirthDate) {
+      const isoBirthDate = birthDateToIso(trimmedBirthDate);
+      if (!isoBirthDate) {
+        alertService.showErrorAlert(t('shared.account.alerts.invalidBirthDate'));
+        return;
+      }
+      data.birthDate = isoBirthDate;
+    }
 
     try {
       setSavingProfile(true);
@@ -791,7 +838,7 @@ export default function AccountScreen({ navigation }: any) {
       });
       initialSnapshotRef.current = buildSnapshot({
         name: data.name,
-        birthDate: data.birthDate,
+        birthDate,
         email: data.email,
         phone: data.phone,
         photo: profilePhoto,
