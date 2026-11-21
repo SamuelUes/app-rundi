@@ -302,7 +302,7 @@ const client = {
             commentLabel: 'Comentario',
             commentPlaceholder: 'Detalles del viaje...',
             vehicleSection: 'Vehículo',
-            paymentSection: 'Método de pago',
+            paymentSection: 'Pago',
             incompleteRoute: 'Define el origen y el destino para guardar el viaje.',
             mapPickHint: 'Toca el mapa para fijar el punto.',
             expandForm: 'Mostrar formulario',

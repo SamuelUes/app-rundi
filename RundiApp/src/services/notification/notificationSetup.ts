@@ -12,45 +12,51 @@ export const setupAndroidChannels = async (): Promise<void> => {
     return;
   }
 
-  try {
-    await Notifications.setNotificationChannelAsync('rundi-default-v2', {
-      name: tr('channels.default'),
-      importance: Notifications.AndroidImportance.MAX,
-      bypassDnd: true,
-      sound: 'notification.wav',
-      vibrationPattern: [0, 250, 250, 250],
-      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-      enableVibrate: true,
-      enableLights: true,
-      lightColor: '#FF9800',
-      showBadge: true,
-    });
+  const create = async (channelId: string, options: Notifications.NotificationChannelInput) => {
+    try {
+      await Notifications.setNotificationChannelAsync(channelId, options);
+    } catch (error) {
+      console.warn(`⚠️ [notificationSetup] No se pudo crear canal ${channelId}:`, error);
+    }
+  };
 
-    await Notifications.setNotificationChannelAsync('rundi-active-ride-v2', {
-      name: tr('channels.activeRide'),
-      importance: Notifications.AndroidImportance.HIGH,
-      sound: 'notification.wav',
-      vibrationPattern: [0, 250, 250, 250],
-      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-      enableVibrate: true,
-      enableLights: true,
-      lightColor: '#D4AF37',
-    });
+  await create('rundi-default-v2', {
+    name: tr('channels.default'),
+    importance: Notifications.AndroidImportance.MAX,
+    bypassDnd: true,
+    sound: 'notification.wav',
+    vibrationPattern: [0, 250, 250, 250],
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    enableVibrate: true,
+    enableLights: true,
+    lightColor: '#FF9800',
+    showBadge: true,
+  });
 
-    await Notifications.setNotificationChannelAsync('rundi-client-ride-silent-v1', {
-      name: tr('channels.activeRide'),
-      importance: Notifications.AndroidImportance.LOW,
-      sound: null,
-      enableVibrate: false,
-      enableLights: false,
-      showBadge: false,
-    });
+  await create('rundi-active-ride-v2', {
+    name: tr('channels.activeRide'),
+    importance: Notifications.AndroidImportance.HIGH,
+    sound: 'notification.wav',
+    vibrationPattern: [0, 250, 250, 250],
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    enableVibrate: true,
+    enableLights: true,
+    lightColor: '#D4AF37',
+  });
 
-    channelsConfigured = true;
-    console.log('✅ [notificationSetup] Android channels configured');
-  } catch (error) {
-    console.warn('⚠️ [notificationSetup] Error setting up Android channels:', error);
-  }
+  // Canal silencioso: no pasar `sound: null` — en algunos dispositivos el
+  // bridge lanza NPE; omitir la key deja el default del sistema y
+  // enableVibrate:false + LOW lo hacen no intrusivo.
+  await create('rundi-client-ride-silent-v1', {
+    name: tr('channels.activeRide'),
+    importance: Notifications.AndroidImportance.LOW,
+    enableVibrate: false,
+    enableLights: false,
+    showBadge: false,
+  });
+
+  channelsConfigured = true;
+  console.log('✅ [notificationSetup] Android channels configured');
 };
 
 export const requestNotificationPermissions = async (): Promise<boolean> => {

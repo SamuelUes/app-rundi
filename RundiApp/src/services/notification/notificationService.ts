@@ -10,7 +10,6 @@ import i18n from '../../i18n';
 // Configurar cómo se muestran las notificaciones
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => ({
-    shouldShowAlert: true,
     shouldPlaySound: !['ride_live_update', 'ride_driver_offered'].includes(
       String(notification.request.content.data?.type ?? ''),
     ),

@@ -16,4 +16,12 @@ LogBox.ignoreLogs([
   'Require cycle:',
   'ViewPropTypes will be removed',
   'This method is deprecated (as well as all React Native Firebase namespaced API)',
+  // RN 0.88 fabric advice: ruido masivo por sombras legacy (shadowColor/etc)
+  // con fondo no opaco — preexistente en ~60 archivos; el fix real es migrar
+  // a `boxShadow` o dar backgroundColor sólido, no accionable por warning.
+  'has a shadow set but cannot calculate shadow efficiently',
+  // Race transitoria de cold start: el registry turbo aún no estaba listo;
+  // messaging/auth/app-check se recuperan y quedan operativos.
+  'NativeRNFBTurboApp is not registered',
+  'Cannot find native module',
 ]);

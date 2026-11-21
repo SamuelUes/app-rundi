@@ -26,6 +26,10 @@ const parseRideIdFromUrl = (url: string | null | undefined): string | null => {
  */
 export function useOverlayDeepLink() {
   useEffect(() => {
+    // El mismo rideId puede llegar dos veces (evento nativo + getInitialURL en
+    // cold start): dedupe por ventana corta para no disparar doble navegación.
+    let lastHandled: { rideId: string; at: number } | null = null;
+
     const openRideFromOverlay = async (rideId: string) => {
       console.log('🫧 [useOverlayDeepLink] App opened from overlay:', rideId);
 
@@ -33,6 +37,11 @@ export function useOverlayDeepLink() {
         console.warn('⚠️ [useOverlayDeepLink] No rideId provided');
         return;
       }
+
+      if (lastHandled?.rideId === rideId && Date.now() - lastHandled.at < 5000) {
+        return;
+      }
+      lastHandled = { rideId, at: Date.now() };
 
       const ensureNavigationReady = async () => {
         const maxWait = 3000;

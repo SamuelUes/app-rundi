@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { NativeModule, requireNativeModule } from 'expo';
+import { NativeModule, requireOptionalNativeModule } from 'expo';
 
 export type OverlayOpenedEvent = {
   rideId: string;
@@ -107,31 +107,34 @@ declare class RundiLiveActivityModuleType extends NativeModule {
 const isAndroid = Platform.OS === 'android';
 const isIOS = Platform.OS === 'ios';
 
+// requireOptionalNativeModule devuelve null si el módulo aún no está en el
+// registry (cold start, headless context) en vez de lanzar — los consumidores
+// ya manejan null con guards por plataforma.
 export const OverlayPermissionModule = isAndroid
-  ? requireNativeModule<OverlayPermissionModuleType>('OverlayPermissionModule')
+  ? requireOptionalNativeModule<OverlayPermissionModuleType>('OverlayPermissionModule')
   : null;
 export const ForegroundServiceModule = isAndroid
-  ? requireNativeModule<ForegroundServiceModuleType>('ForegroundServiceModule')
+  ? requireOptionalNativeModule<ForegroundServiceModuleType>('ForegroundServiceModule')
   : null;
 export const WorkManagerModule = isAndroid
-  ? requireNativeModule<WorkManagerModuleType>('WorkManagerModule')
+  ? requireOptionalNativeModule<WorkManagerModuleType>('WorkManagerModule')
   : null;
 export const BatteryOptimizationModule = isAndroid
-  ? requireNativeModule<BatteryOptimizationModuleType>('BatteryOptimizationModule')
+  ? requireOptionalNativeModule<BatteryOptimizationModuleType>('BatteryOptimizationModule')
   : null;
 export const RideProgressModule = isAndroid
-  ? requireNativeModule<RideProgressModuleType>('RideProgressModule')
+  ? requireOptionalNativeModule<RideProgressModuleType>('RideProgressModule')
   : null;
 export const RundiLiveActivityModule = isIOS
-  ? requireNativeModule<RundiLiveActivityModuleType>('RundiNative')
+  ? requireOptionalNativeModule<RundiLiveActivityModuleType>('RundiNative')
   : null;
 export const CallKitModule = isIOS
-  ? requireNativeModule<CallKitModuleType>('CallKitModule')
+  ? requireOptionalNativeModule<CallKitModuleType>('CallKitModule')
   : null;
 
 // iOS usa Apple Vision; Android usa ML Kit (ver DocumentOcrModule nativo)
 export const DocumentOcrModule = isAndroid || isIOS
-  ? requireNativeModule<DocumentOcrModuleType>('DocumentOcr')
+  ? requireOptionalNativeModule<DocumentOcrModuleType>('DocumentOcr')
   : null;
 
 export default {
