@@ -1,4 +1,4 @@
-const { withAndroidManifest, withStringsXml, withAndroidColors, AndroidConfig, withPodfile, withPodfileProperties, withDangerousMod } = require('expo/config-plugins');
+const { withAndroidManifest, withStringsXml, withAndroidColors, AndroidConfig, withPodfile, withDangerousMod } = require('expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
@@ -134,15 +134,15 @@ function withRundiNative(config) {
     return config;
   });
 
-  // 4. iOS Podfile.properties.json: compilar Expo modules y React Native desde
-  // fuente. Los XCFrameworks precompilados de Expo/RN se generan con una versión
-  // fija de Swift (6.3.x) y fallan al importarse con toolchains más nuevos
-  // (p.ej. Xcode 27 / Swift 6.4: "cannot find type '__ObjC::expo' in scope").
-  config = withPodfileProperties(config, (config) => {
-    config.modResults['EXPO_USE_PRECOMPILED_MODULES'] = 'false';
-    config.modResults['ios.buildReactNativeFromSource'] = 'true';
-    return config;
-  });
+  // 4. iOS Podfile.properties.json: los flags de compilación from-source /
+  // precompiled vienen de expo-build-properties en app.config.js (experimento
+  // SDK 58: precompiled). Si hay que revertir a from-source por errores de
+  // Swift toolchain ("cannot find type '__ObjC::expo' in scope"), descomentar:
+  // config = withPodfileProperties(config, (config) => {
+  //   config.modResults['EXPO_USE_PRECOMPILED_MODULES'] = 'false';
+  //   config.modResults['ios.buildReactNativeFromSource'] = 'true';
+  //   return config;
+  // });
 
   // 5. iOS Podfile: re-inject custom post_install modifications
   config = withPodfile(config, (config) => {

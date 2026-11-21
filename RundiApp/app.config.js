@@ -188,10 +188,12 @@ export default {
       {
         ios: {
           useFrameworks: 'static',
-          // Xcode 27 trae Swift 6.4 y los XCFrameworks precompilados de Expo/RN
-          // se generaron con Swift 6.3.1 -> compilar todo desde fuente.
-          buildReactNativeFromSource: true,
-          usePrecompiledModules: false,
+          // SDK 58: probar XCFrameworks precompilados (hechos con toolchain iOS 27).
+          // Si reaparece "cannot find type '__ObjC::expo' in scope" (Swift 6.4
+          // vs XCFrameworks Swift 6.3.x), revertir a from-source:
+          // buildReactNativeFromSource: true, usePrecompiledModules: false.
+          buildReactNativeFromSource: false,
+          usePrecompiledModules: true,
           extraPods: [
             // Firebase Auth reCAPTCHA Enterprise (SMS fraud defense) requiere el
             // SDK nativo linkeado; sin él falla con ERROR_RECAPTCHA_SDK_NOT_LINKED.
