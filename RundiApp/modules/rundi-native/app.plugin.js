@@ -146,6 +146,17 @@ function withRundiNative(config) {
 
   // 5. iOS Podfile: re-inject custom post_install modifications
   config = withPodfile(config, (config) => {
+    // @livekit/react-native-webrtc >= 141 depende del pod `LiveKitWebRTC`, que
+    // solo se publica en el spec repo de LiveKit (no en trunk). Hay que
+    // declarar ambas fuentes: al poner una, CocoaPods deja de usar trunk por
+    // defecto y el resto de los pods sigue saliendo del CDN.
+    if (!config.modResults.contents.includes('livekit/podspecs')) {
+      config.modResults.contents =
+        "source 'https://github.com/livekit/podspecs.git'\n" +
+        "source 'https://cdn.cocoapods.org/'\n\n" +
+        config.modResults.contents;
+    }
+
     // El plugin vendored de Expo (withMapsCocoaPods) emite `pod 'react-native-google-maps'`,
     // podspec que no existe en react-native-maps >= 1.21. La versión instalada (1.29.x)
     // usa el subspec `react-native-maps/Google` del podspec raíz del paquete.
