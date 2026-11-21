@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, InteractionManager } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useTheme } from '../hooks/shared/theme/useTheme';
 import fcmService from '../services/notification/fcmService';
 import { initializeNotificationSetup } from '../services/notification/notificationSetup';
@@ -51,8 +51,8 @@ export const FCMProvider: React.FC<FCMProviderProps> = ({ children }) => {
       const handle = ric(start);
       return () => (globalThis as any).cancelIdleCallback?.(handle);
     }
-    const task = InteractionManager.runAfterInteractions(start);
-    return () => task.cancel();
+    const id = setTimeout(start, 0);
+    return () => clearTimeout(id);
   }, []);
 
   const initializeFCM = async () => {
