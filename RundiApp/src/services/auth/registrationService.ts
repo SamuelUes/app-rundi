@@ -41,6 +41,7 @@ interface RegistrationData {
   driverData?: {
     licenseNumber: string;
     licenseExpiry: string;
+    licenseIssueDate?: string;
     profilePhoto?: string;
     licensePhotoFront?: string;
     licensePhotoBack?: string;
@@ -68,7 +69,6 @@ interface RegistrationData {
     lien?: string;
     emissionDate?: string;
     registrationNumber?: string;
-    registrationExpiry?: string;
     registrationPhotoFront?: string;
     registrationPhotoBack?: string;
     vehiclePhoto?: string;

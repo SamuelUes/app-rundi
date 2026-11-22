@@ -112,7 +112,6 @@ type CirculationFacts struct {
 	docFactsBase
 	CardNumber          *string
 	IssuedAt            *string
-	DeclaredValidUntil  *string
 	DeclaredPlate       *string
 	DeclaredVin         *string
 	DeclaredChasis      *string

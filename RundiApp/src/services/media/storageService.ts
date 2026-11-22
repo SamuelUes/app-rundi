@@ -30,6 +30,10 @@ import type { DesignatedDriverPhotoType } from '../../utils/driver/designatedDri
 const downloadUrlCache = new Map<string, { url: string; expiresAtMs: number }>();
 const DOWNLOAD_URL_TTL_MS = 50 * 60 * 1000; // URLs de Firebase expiran lejos; cachear 50min
 
+// URLs de consola/XML API de GCS (`storage.cloud.google.com|storage.googleapis.com
+// /<bucket>/<objectPath>`) no son descargables directo — extraer el objectPath.
+const GCS_HOST_URL = /^https?:\/\/(?:storage\.cloud\.google\.com|storage\.googleapis\.com)\/[^/]+\/(.+?)(?:[?#].*)?$/i;
+
 /**
  * Resuelve una referencia de Storage a una URL descargable.
  * Acepta `objectPath` (`bucket/path/file.jpg`, sin scheme) o URLs http(s)
@@ -38,8 +42,11 @@ const DOWNLOAD_URL_TTL_MS = 50 * 60 * 1000; // URLs de Firebase expiran lejos; c
 export async function resolveDocumentPhotoUrl(photoUrl: string | null | undefined): Promise<string | null> {
   if (!photoUrl) return null;
 
-  // URL ya resuelta (firmada por backend, http(s) externa o local).
-  if (/^https?:\/\//i.test(photoUrl) || photoUrl.startsWith('file:') || photoUrl.startsWith('content:')) {
+  const gcsMatch = photoUrl.match(GCS_HOST_URL);
+  if (gcsMatch) {
+    photoUrl = decodeURIComponent(gcsMatch[1]);
+  } else if (/^https?:\/\//i.test(photoUrl) || photoUrl.startsWith('file:') || photoUrl.startsWith('content:')) {
+    // URL ya resuelta (firmada por backend, http(s) externa o local).
     return photoUrl;
   }
 

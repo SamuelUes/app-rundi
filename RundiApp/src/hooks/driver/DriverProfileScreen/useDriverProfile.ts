@@ -53,7 +53,7 @@ export interface Vehicle {
   isActive?: boolean;
   is_active?: boolean;
   registrationNumber?: string;
-  registrationExpiry?: string;
+  emissionDate?: string;
   registrationPhoto?: string;
   registrationPhotoFront?: string;
   registrationPhotoBack?: string;

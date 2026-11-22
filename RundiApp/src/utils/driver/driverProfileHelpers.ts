@@ -72,7 +72,7 @@ export const isVehicleComplete = (vehicle: Vehicle): boolean => {
     vehicle.type;
   const hasRegistration =
     vehicle.registrationNumber &&
-    vehicle.registrationExpiry &&
+    vehicle.emissionDate &&
     vehicle.registrationPhotoFront &&
     vehicle.registrationPhotoBack;
   const hasInsurance =
@@ -94,7 +94,7 @@ export const getIncompleteReason = (
   if (!vehicle.plate || !vehicle.brand || !vehicle.model || !vehicle.year || !vehicle.color || !vehicle.type) {
     issues.push(t('driver.profile.alerts.vehicles.issues.basicInfo'));
   }
-  if (!vehicle.registrationNumber || !vehicle.registrationExpiry || !vehicle.registrationPhotoFront || !vehicle.registrationPhotoBack) {
+  if (!vehicle.registrationNumber || !vehicle.emissionDate || !vehicle.registrationPhotoFront || !vehicle.registrationPhotoBack) {
     issues.push(t('driver.profile.alerts.vehicles.issues.registration'));
   }
   if (!vehicle.insuranceNumber || !vehicle.insuranceCompany || !vehicle.insuranceExpiry || !vehicle.insurancePhoto) {

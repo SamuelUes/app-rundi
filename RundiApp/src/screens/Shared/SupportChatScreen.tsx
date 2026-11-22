@@ -28,6 +28,7 @@ import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { SupportChatHeader } from '../../components/shared/SupportChat/SupportChatHeader';
 import { SupportChatMessages } from '../../components/shared/SupportChat/SupportChatMessages';
 import { SupportChatInput } from '../../components/shared/SupportChat/SupportChatInput';
+import { withAlpha } from '../../utils/format/colors';
 
 interface SupportChatScreenRouteParams {
   rideId?: string | null;
@@ -340,13 +341,10 @@ const createStyles = (colors: any, isDark: boolean, insets: { top: number; botto
       paddingVertical: 12,
       paddingHorizontal: 14,
       borderRadius: 18,
-      backgroundColor: 'rgba(211, 153, 46, 0.94)',
+      backgroundColor: '#D3992E',
       borderWidth: 1,
       borderColor: 'rgba(255, 255, 255, 0.24)',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.16,
-      shadowRadius: 16,
+      boxShadow: '0px 6px 16px rgba(0, 0, 0, 0.16)',
       elevation: 8,
     },
     headerCircleButton: {
@@ -388,10 +386,7 @@ const createStyles = (colors: any, isDark: boolean, insets: { top: number; botto
       paddingHorizontal: 14,
       paddingVertical: 14,
       paddingBottom: 16,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.07,
-      shadowRadius: 12,
+      boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.07)',
       elevation: 4,
     },
     sectionTitle: {
@@ -591,10 +586,7 @@ const createStyles = (colors: any, isDark: boolean, insets: { top: number; botto
       borderTopWidth: 1,
       borderTopColor: colors.border,
       backgroundColor: colors.card,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: -4 },
-      shadowOpacity: isDark ? 0.25 : 0.06,
-      shadowRadius: 12,
+      boxShadow: [{ offsetX: 0, offsetY: -4, blurRadius: 12, color: withAlpha('#000', isDark ? 0.25 : 0.06)  }],
       elevation: 10,
     },
     chatInputPill: {

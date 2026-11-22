@@ -80,7 +80,6 @@ class FirebaseAuthService {
             is4x4: vehicleData.is4x4,
             vehiclePhoto: vehicleData.vehiclePhoto,
             registrationNumber: vehicleData.registrationNumber,
-            registrationExpiry: vehicleData.registrationExpiry,
             insuranceNumber: vehicleData.insuranceNumber,
             insuranceCompany: vehicleData.insuranceCompany,
             insuranceExpiry: vehicleData.insuranceExpiry,

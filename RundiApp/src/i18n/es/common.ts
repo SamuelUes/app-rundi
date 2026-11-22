@@ -896,7 +896,7 @@ const common = {
               noResults: 'No se encontraron coincidencias.',
               searching: 'Buscando...',
               passengers: 'Pasajeros',
-              paymentMethod: 'Método de pago',
+              paymentMethod: 'Pago',
               priceSuggestion: 'Precio sugerido',
               pricePlaceholder: 'C$0.00',
               comment: 'Comentario',

@@ -33,6 +33,7 @@ import alertService from '../../services/notification/alertService';
 import PhoneField from '../../components/ui/PhoneField';
 import PhoneCodeForm from '../../components/auth/PhoneCodeForm';
 import { useTranslation } from 'react-i18next';
+import { withAlpha } from '../../utils/format/colors';
 
 export default function PhoneVerificationLoginScreen({ navigation, route }: any) {
   const { colors, isDark } = useTheme();
@@ -414,10 +415,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       paddingBottom: 32,
       borderWidth: isDark ? 1 : 0,
       borderColor: colors.border,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: isDark ? 0.24 : 0.14,
-      shadowRadius: 12,
+      boxShadow: [{ offsetX: 0, offsetY: 4, blurRadius: 12, color: withAlpha('#000', isDark ? 0.24 : 0.14)  }],
       elevation: 6,
     },
     backButton: {

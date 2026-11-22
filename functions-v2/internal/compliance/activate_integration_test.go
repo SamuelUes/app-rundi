@@ -68,8 +68,8 @@ func TestActivateAvailabilityIntegration(t *testing.T) {
 			VALUES ($1,$2,$3,'auto',$4,true)`, []any{vehicleID, driverID, plate, vin}},
 		{`INSERT INTO public.driver_licenses (id,driver_id,status,license_number,license_type,categories,expiry_date,is_current)
 			VALUES ($1,$2,'verified',$3,'profesional','{b}','2100-01-01',true)`, []any{uuid.NewString(), driverID, "L-" + suffix}},
-		{`INSERT INTO public.vehicle_circulation_cards (id,vehicle_id,status,card_number,issued_at,declared_valid_until,declared_plate,declared_vin,is_current)
-			VALUES ($1,$2,'verified','C-1','2020-01-01','2100-01-01',$3,$4,true)`, []any{uuid.NewString(), vehicleID, plate, vin}},
+		{`INSERT INTO public.vehicle_circulation_cards (id,vehicle_id,status,card_number,issued_at,declared_plate,declared_vin,is_current)
+			VALUES ($1,$2,'verified','C-1','2020-01-01',$3,$4,true)`, []any{uuid.NewString(), vehicleID, plate, vin}},
 		{`INSERT INTO public.vehicle_insurance_policies (id,vehicle_id,status,policy_number,insurer_code,coverage_type,effective_from,effective_until,insured_plate,insured_vin,is_current)
 			VALUES ($1,$2,'verified',$3,'INS','rc_obligatorio','2020-01-01','2100-01-01',$4,$5,true)`, []any{uuid.NewString(), vehicleID, "P-" + suffix, plate, vin}},
 		{`INSERT INTO public.vehicle_inspections (id,vehicle_id,status,inspected_at,result,valid_until,is_current)
@@ -184,7 +184,7 @@ var activationTestDDL = []string{
 		is_current boolean, deleted_at timestamptz, created_at timestamptz)`,
 	`CREATE TABLE IF NOT EXISTS public.vehicle_circulation_cards (
 		id uuid, vehicle_id uuid, status text, card_number text, issued_at date,
-		declared_valid_until date, declared_plate text, declared_vin text,
+		declared_plate text, declared_vin text,
 		declared_chasis text, declared_motor text, declared_service_type text,
 		is_current boolean, deleted_at timestamptz, created_at timestamptz)`,
 	`CREATE TABLE IF NOT EXISTS public.vehicle_insurance_policies (

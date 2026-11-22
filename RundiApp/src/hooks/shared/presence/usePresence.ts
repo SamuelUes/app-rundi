@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getFirebaseAuth } from '../../../config/firebase';
 import { useAuth } from '../auth/useAuth';
+import { useAuthStore } from '../../../stores/authStore';
 import { AppState, AppStateStatus } from 'react-native';
 import sessionService from '../../../services/user/sessionService';
 import driverAvailabilityService from '../../../services/driver/driverAvailabilityService';
@@ -197,6 +198,9 @@ export function usePresence() {
         getFirebaseAuth()
           .then((auth) => {
             if (!auth.currentUser || auth.currentUser.uid !== user.id) return;
+            // Cleanup por cambio a modo cliente: useClientPresence toma la
+            // presencia y la deja 'online' — no pisarla con 'offline'.
+            if (useAuthStore.getState().userMode !== 'driver') return;
             markClosed('driverPresence:cleanup');
           })
           .catch(() => {});

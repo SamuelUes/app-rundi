@@ -18,7 +18,11 @@ export function vehicleVerificationData(vehicle: Record<string, any>, documents:
   const revisado = documents.vehicle_revisado_stickers?.[0];
   return {
     registrationNumber: text(card?.card_number ?? vehicle.registrationNumber),
-    registrationExpiry: date(card?.declared_valid_until ?? vehicle.registrationExpiry),
+    emissionDate: date(card?.issued_at ?? vehicle.emissionDate),
+    brand: text(card?.declared_brand ?? vehicle.brand),
+    model: text(card?.declared_model ?? vehicle.model),
+    year: card?.declared_year != null ? String(card.declared_year) : (vehicle.year != null ? String(vehicle.year) : ''),
+    vin: text(card?.declared_vin ?? vehicle.vin),
     registrationPhotoFront: text(card?.document_path ?? vehicle.registrationPhotoFront),
     registrationPhotoBack: text(card?.document_path_back ?? vehicle.registrationPhotoBack),
     insuranceNumber: text(insurance?.policy_number ?? vehicle.insuranceNumber),

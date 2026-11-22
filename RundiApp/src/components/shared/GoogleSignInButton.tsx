@@ -48,10 +48,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
       borderRadius: 12,
       paddingVertical: 14,
       paddingHorizontal: 12,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.08,
-      shadowRadius: 3,
+      boxShadow: '0px 1px 3px rgba(0, 0, 0, 0.08)',
       elevation: 2,
     },
     buttonDisabled: {

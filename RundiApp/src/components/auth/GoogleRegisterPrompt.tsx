@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useTranslation } from 'react-i18next';
+import { withAlpha } from '../../utils/format/colors';
 
 interface GoogleRegisterPromptProps {
   visible: boolean;
@@ -195,10 +196,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       backgroundColor: colors.card,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.10)' : colors.border,
-      shadowColor: '#000',
-      shadowOpacity: isDark ? 0.55 : 0.32,
-      shadowRadius: 28,
-      shadowOffset: { width: 0, height: 14 },
+      boxShadow: [{ offsetX: 0, offsetY: 14, blurRadius: 28, color: withAlpha('#000', isDark ? 0.55 : 0.32)  }],
       elevation: 14,
     },
     googleBadge: {
@@ -211,10 +209,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       alignItems: 'center',
       justifyContent: 'center',
       marginBottom: 14,
-      shadowColor: '#000',
-      shadowOpacity: 0.08,
-      shadowRadius: 6,
-      shadowOffset: { width: 0, height: 2 },
+      boxShadow: '0px 2px 6px rgba(0, 0, 0, 0.08)',
       elevation: 2,
     },
     googleIcon: {
@@ -259,10 +254,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       borderRadius: 12,
       paddingVertical: 13,
       alignItems: 'center',
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 3 },
-      shadowOpacity: 0.25,
-      shadowRadius: 6,
+      boxShadow: [{ offsetX: 0, offsetY: 3, blurRadius: 6, color: withAlpha(colors.primary, 0.25)  }],
       elevation: 4,
     },
     confirmText: {

@@ -31,6 +31,7 @@ import {
   extractLocalNumber,
 } from '../../utils/format/phoneUtils';
 import { useTranslation } from 'react-i18next';
+import { withAlpha } from '../../utils/format/colors';
 
 // Google Client ID desde variables de entorno
 // Android Client ID para Expo
@@ -503,17 +504,14 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   },
   alternativeButton: {
     minHeight: 50,
-    backgroundColor: colors.background,
+    backgroundColor: '#442aa2',
     borderWidth: 0.2,
     borderColor: colors.border,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.2)',
     elevation: 2,
   },
   alternativeButtonText: {
@@ -532,10 +530,7 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     paddingBottom: 32,
     borderWidth: isDark ? 1 : 0,
     borderColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: isDark ? 0.24 : 0.14,
-    shadowRadius: 12,
+    boxShadow: [{ offsetX: 0, offsetY: 4, blurRadius: 12, color: withAlpha('#000', isDark ? 0.24 : 0.14)  }],
     elevation: 6,
   },
   cardHeader: {
@@ -622,10 +617,7 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     justifyContent: 'center',
     minHeight: 52,
     marginTop: 6,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.5,
-    shadowRadius: 6,
+    boxShadow: [{ offsetX: 0, offsetY: 3, blurRadius: 6, color: withAlpha(colors.primary, 0.5)  }],
     elevation: 4,
   },
   loginButtonText: {

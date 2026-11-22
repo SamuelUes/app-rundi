@@ -1514,8 +1514,8 @@ const shared = {
               label: 'Registration number',
               placeholder: 'Ex: B2301230',
             },
-            registrationExpiry: {
-              label: 'Registration expiration',
+            emissionDate: {
+              label: 'Circulation issue date',
               placeholder: 'YYYY-MM-DD',
             },
             insuranceNumber: {

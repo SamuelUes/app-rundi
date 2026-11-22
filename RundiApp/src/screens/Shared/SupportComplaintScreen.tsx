@@ -17,6 +17,7 @@ import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import supportTicketsService, { SupportTicket } from '../../services/support/supportTicketsService';
+import { withAlpha } from '../../utils/format/colors';
 
 type SupportComplaintScreenRouteParams = {
   initialTicketId?: string | null;
@@ -358,13 +359,10 @@ const createStyles = (colors: any, isDark: boolean, insets: { top: number; botto
       paddingVertical: 12,
       paddingHorizontal: 14,
       borderRadius: 18,
-      backgroundColor: 'rgba(211, 153, 46, 0.94)',
+      backgroundColor: '#D3992E',
       borderWidth: 1,
       borderColor: 'rgba(255, 255, 255, 0.24)',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.16,
-      shadowRadius: 16,
+      boxShadow: '0px 6px 16px rgba(0, 0, 0, 0.16)',
       elevation: 8,
     },
     headerCircleButton: {
@@ -406,10 +404,7 @@ const createStyles = (colors: any, isDark: boolean, insets: { top: number; botto
       flexDirection: 'row',
       gap: 6,
       marginBottom: 14,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.12,
-      shadowRadius: 10,
+      boxShadow: '0px 4px 10px rgba(0, 0, 0, 0.12)',
       elevation: 4,
     },
     createButtonText: {
@@ -475,10 +470,7 @@ const createStyles = (colors: any, isDark: boolean, insets: { top: number; botto
       marginBottom: 12,
       borderWidth: 1,
       borderColor: colors.border,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 3 },
-      shadowOpacity: isDark ? 0.2 : 0.05,
-      shadowRadius: 10,
+      boxShadow: [{ offsetX: 0, offsetY: 3, blurRadius: 10, color: withAlpha('#000', isDark ? 0.2 : 0.05)  }],
       elevation: 3,
     },
     ticketCardHighlighted: {

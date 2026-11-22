@@ -670,8 +670,7 @@ type VehicleInput struct {
 	VehicleClass        *string  `json:"vehicleClass,omitempty"`
 	ServiceType         *string  `json:"serviceType,omitempty"`
 	RegistrationNumber  *string  `json:"registrationNumber,omitempty"`
-	RegistrationExpiry  *string  `json:"registrationExpiry,omitempty"` // YYYY-MM-DD
-	EmissionDate        *string  `json:"emissionDate,omitempty"`       // YYYY-MM-DD
+	EmissionDate        *string  `json:"emissionDate,omitempty"` // YYYY-MM-DD
 	InsuranceNumber     *string  `json:"insuranceNumber,omitempty"`
 	InsuranceCompany    *string  `json:"insuranceCompany,omitempty"`
 	InsuranceStartDate  *string  `json:"insuranceStartDate,omitempty"` // YYYY-MM-DD
@@ -696,7 +695,6 @@ func (s *Service) RegisterVehicle(ctx context.Context, uid string, in VehicleInp
 		name string
 		ptr  **string
 	}{
-		{"registrationExpiry", &in.RegistrationExpiry},
 		{"emissionDate", &in.EmissionDate},
 		{"insuranceStartDate", &in.InsuranceStartDate},
 		{"insuranceExpiry", &in.InsuranceExpiry},
@@ -732,11 +730,11 @@ func (s *Service) RegisterVehicle(ctx context.Context, uid string, in VehicleInp
 		INSERT INTO public.vehicles (
 			driver_id, plate, brand, model, year, color, type, motor, chasis,
 			vin, cylinders, passengers, fuel_type, tonnage, vehicle_class,
-			service_type, registration_number, registration_expiry, emission_date,
+			service_type, registration_number, emission_date,
 			insurance_number, insurance_company, insurance_start_date, insurance_expiry,
 			lien, is_4x4, vehicle_photo, registration_ocr_year, is_active
 		)
-		SELECT d.id, $2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::date,$19::date,$20,$21,$22::date,$23::date,$24,$25,$26,$27,
+		SELECT d.id, $2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::date,$19,$20,$21::date,$22::date,$23,$24,$25,$26,
 		       NOT EXISTS (SELECT 1 FROM public.vehicles existing WHERE existing.driver_id = d.id AND existing.is_active = TRUE AND existing.deleted_at IS NULL)
 		FROM public.drivers d
 		WHERE d.user_id = $1 AND d.deleted_at IS NULL
@@ -744,7 +742,7 @@ func (s *Service) RegisterVehicle(ctx context.Context, uid string, in VehicleInp
 		uid, in.Plate, in.Brand, in.Model, in.Year, in.Color, in.Type,
 		in.Motor, in.Chasis, in.Vin, in.Cylinders, in.Passengers,
 		in.FuelType, in.Tonnage, in.VehicleClass, in.ServiceType,
-		in.RegistrationNumber, in.RegistrationExpiry, in.EmissionDate,
+		in.RegistrationNumber, in.EmissionDate,
 		in.InsuranceNumber, in.InsuranceCompany, in.InsuranceStartDate,
 		in.InsuranceExpiry, in.Lien, in.Is4x4, in.VehiclePhoto, in.RegistrationOcrYear,
 	).Scan(&vehicleID)
@@ -771,7 +769,7 @@ func (s *Service) ListMyVehicles(ctx context.Context, uid string) ([]map[string]
 	rows, err := s.pool.Query(ctx, `
 		SELECT v.id::text, v.plate, v.brand, v.model, v.year, v.color, v.type,
 		       v.is_4x4, v.is_active, v.vehicle_photo, v.created_at,
-		       v.registration_number, v.registration_expiry, v.registration_photo_front, v.registration_photo_back,
+		       v.vin, v.registration_number, v.emission_date, v.registration_photo_front, v.registration_photo_back,
 		       v.insurance_number, v.insurance_company, v.insurance_expiry, v.insurance_photo
 		FROM public.vehicles v
 		JOIN public.drivers d ON d.id = v.driver_id
@@ -788,10 +786,10 @@ func (s *Service) ListMyVehicles(ctx context.Context, uid string) ([]map[string]
 		var year *int
 		var is4x4, active *bool
 		var createdAt time.Time
-		var registrationNumber, registrationFront, registrationBack, insuranceNumber, insuranceCompany, insurancePhoto *string
-		var registrationExpiry, insuranceExpiry *time.Time
+		var vin, registrationNumber, registrationFront, registrationBack, insuranceNumber, insuranceCompany, insurancePhoto *string
+		var emissionDate, insuranceExpiry *time.Time
 		if err := rows.Scan(&id, &plate, &brand, &model, &year, &color, &vtype, &is4x4, &active, &photo, &createdAt,
-			&registrationNumber, &registrationExpiry, &registrationFront, &registrationBack,
+			&vin, &registrationNumber, &emissionDate, &registrationFront, &registrationBack,
 			&insuranceNumber, &insuranceCompany, &insuranceExpiry, &insurancePhoto); err != nil {
 			return nil, err
 		}
@@ -821,7 +819,7 @@ func (s *Service) ListMyVehicles(ctx context.Context, uid string) ([]map[string]
 			m["vehiclePhoto"] = *photo
 		}
 		for key, value := range map[string]*string{
-			"registrationNumber": registrationNumber, "registrationPhotoFront": registrationFront,
+			"vin": vin, "registrationNumber": registrationNumber, "registrationPhotoFront": registrationFront,
 			"registrationPhotoBack": registrationBack, "insuranceNumber": insuranceNumber,
 			"insuranceCompany": insuranceCompany, "insurancePhoto": insurancePhoto,
 		} {
@@ -829,8 +827,8 @@ func (s *Service) ListMyVehicles(ctx context.Context, uid string) ([]map[string]
 				m[key] = *value
 			}
 		}
-		if registrationExpiry != nil {
-			m["registrationExpiry"] = registrationExpiry.Format("2006-01-02")
+		if emissionDate != nil {
+			m["emissionDate"] = emissionDate.Format("2006-01-02")
 		}
 		if insuranceExpiry != nil {
 			m["insuranceExpiry"] = insuranceExpiry.Format("2006-01-02")
@@ -847,9 +845,9 @@ var vehicleEditable = map[string]string{
 	"type": "type", "motor": "motor", "chasis": "chasis", "vin": "vin",
 	"cylinders": "cylinders", "passengers": "passengers", "fuelType": "fuel_type",
 	"tonnage": "tonnage", "vehicleClass": "vehicle_class", "serviceType": "service_type",
-	"registrationNumber": "registration_number", "registrationExpiry": "registration_expiry",
-	"emissionDate":    "emission_date",
-	"insuranceNumber": "insurance_number", "insuranceCompany": "insurance_company",
+	"registrationNumber": "registration_number",
+	"emissionDate":       "emission_date",
+	"insuranceNumber":    "insurance_number", "insuranceCompany": "insurance_company",
 	"insuranceStartDate": "insurance_start_date", "insuranceExpiry": "insurance_expiry",
 	"lien": "lien", "is4x4": "is_4x4", "vehiclePhoto": "vehicle_photo",
 }
@@ -857,7 +855,7 @@ var vehicleEditable = map[string]string{
 // vehicleDateCols — columnas DATE editables: validar formato antes de que PG
 // devuelva un 500 opaco por "invalid input syntax".
 var vehicleDateCols = map[string]bool{
-	"registration_expiry": true, "emission_date": true,
+	"emission_date":        true,
 	"insurance_start_date": true, "insurance_expiry": true,
 }
 

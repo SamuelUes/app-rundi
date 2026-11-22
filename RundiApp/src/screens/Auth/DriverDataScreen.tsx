@@ -76,6 +76,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
   // Datos de Licencia
   const [licenseNumber, setLicenseNumber] = useState('');
   const [licenseExpiry, setLicenseExpiry] = useState('');
+  const [licenseIssueDate, setLicenseIssueDate] = useState('');
   const [department, setDepartment] = useState('');
   const [municipality, setMunicipality] = useState('');
 
@@ -204,6 +205,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
         if (draftDriver) {
           setLicenseNumber(draftDriver.licenseNumber || '');
           setLicenseExpiry(draftDriver.licenseExpiry || '');
+          setLicenseIssueDate(draftDriver.licenseIssueDate || '');
           setDepartment(draftDriver.department || '');
           setMunicipality(draftDriver.municipality || '');
           setProfilePhoto(draftDriver.profilePhoto || null);
@@ -263,6 +265,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
     const driverDraft: any = {
       ...(licenseNumber ? { licenseNumber } : {}),
       ...(licenseExpiry ? { licenseExpiry } : {}),
+      ...(licenseIssueDate ? { licenseIssueDate } : {}),
       ...(department ? { department } : {}),
       ...(municipality ? { municipality } : {}),
       ...(profilePhoto ? { profilePhoto } : {}),
@@ -332,6 +335,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
     phoneVerified,
     licenseNumber,
     licenseExpiry,
+    licenseIssueDate,
     department,
     municipality,
     profilePhoto,
@@ -405,6 +409,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
       if (docType === 'license') {
         fill(licenseNumber, fields.licenseNumber, setLicenseNumber, 'licenseNumber');
         fill(licenseExpiry, fields.licenseExpiry, setLicenseExpiry, 'licenseExpiry');
+        fill(licenseIssueDate, fields.licenseIssueDate, setLicenseIssueDate, 'licenseIssueDate');
       } else if (docType === 'registration') {
         fill(plate, fields.plate, setPlate, 'plate');
         fill(brand, fields.brand, setBrand, 'brand');
@@ -602,6 +607,9 @@ export default function DriverDataScreen({ navigation, route }: Props) {
     if (licenseExpiry && !isValidDateString(licenseExpiry)) {
       invalidDates.push(t('authScreens.driverData.license.expiryPlaceholder'));
     }
+    if (licenseIssueDate && !isValidDateString(licenseIssueDate)) {
+      invalidDates.push(t('authScreens.driverData.license.issuePlaceholder'));
+    }
     if (emissionDate && !isValidDateString(emissionDate)) {
       invalidDates.push(t('authScreens.driverData.vehicle.emissionDatePlaceholder'));
     }
@@ -643,6 +651,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
           driverData: {
             licenseNumber,
             licenseExpiry,
+            licenseIssueDate: licenseIssueDate || undefined,
             department,
             municipality,
             profilePhoto: profilePhoto || undefined,
@@ -703,6 +712,7 @@ export default function DriverDataScreen({ navigation, route }: Props) {
         driverData: {
           licenseNumber,
           licenseExpiry,
+          licenseIssueDate: licenseIssueDate || undefined,
           deviceSecurityVerified,
           department,
           municipality,
@@ -871,8 +881,10 @@ export default function DriverDataScreen({ navigation, route }: Props) {
               departmentsList={departments_list}
               municipalities={municipalities}
               colors={colors}
+              licenseIssueDate={licenseIssueDate}
               onSetLicenseNumber={manualEdit('licenseNumber', setLicenseNumber)}
               onSetLicenseExpiry={manualEdit('licenseExpiry', setLicenseExpiry)}
+              onSetLicenseIssueDate={manualEdit('licenseIssueDate', setLicenseIssueDate)}
               onSetDepartment={setDepartment}
               onSetMunicipality={setMunicipality}
               onTakeProfilePhoto={() => takePhoto(setProfilePhoto)}
@@ -1041,10 +1053,7 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     paddingVertical: 26,
     borderWidth: 0.1,
     borderColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
+    boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.2)',
     elevation: 2,
   },
   tabContainer: {
@@ -1176,13 +1185,7 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     padding: 14,
     borderWidth: 0.1,
     borderColor: colors.border,
-    shadowColor: 'rgba(0, 0, 0, 0.41)',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 3.84,
+    boxShadow: '0px 0px 3.84px rgba(0, 0, 0, 0.2)',
     elevation: 5,
   },
   photoHeader: {

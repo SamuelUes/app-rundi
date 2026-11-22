@@ -70,6 +70,18 @@ Para habilitarlo manualmente, comprobar que:
   el mismo `Process` como respaldo.
 - Mantener `FIRESTORE_DATABASE_ID` vacío. No se requiere migración SQL nueva.
 
+El job `rundi-scheduler` ejecuta los barridos sensibles a latencia cada 5 min
+(`SCHEDULER_ONLY=realtime`); `rundi-maintenance` ejecuta reconciliación,
+compliance, retenciones y purga de eventos outbox publicados cada 6 horas.
+`MAINTENANCE_TICK_SCHEDULE` configura su cron al desplegar y
+`RECONCILE_WINDOW_MINUTES` configura la ventana (420 min por defecto). La
+ventana debe superar la cadencia: una interrupción mayor al solapamiento puede
+dejar cambios fuera de la reconciliación; los checkpoints aún no están conectados.
+Los eventos `failed` del outbox no se purgan automáticamente.
+El seed de catálogo en `0008` solo emite eventos para filas actualizadas en los
+últimos 30 minutos: no sirve para reconstruir proyecciones antiguas borradas ni
+recuperar un deploy interrumpido durante más tiempo.
+
 Las ofertas Firestore son recuperables e idempotentes; los pushes FCM son
 best-effort, no exactly-once: un fallo o caída tras crear una oferta puede
 dejarla sin push. La aceptación sigue siendo transaccional en SQL. Las tareas

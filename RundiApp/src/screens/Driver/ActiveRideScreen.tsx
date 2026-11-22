@@ -1230,10 +1230,7 @@ const createStyles = (colors: any, insets: { top: number; bottom: number }) => S
     paddingHorizontal: 16,
     paddingBottom: Math.max(12, insets.bottom),
     elevation: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: -4 },
+    boxShadow: '0px -4px 16px rgba(0, 0, 0, 0.18)',
   },
   grabber: {
     alignItems: 'center',
@@ -1470,10 +1467,7 @@ const createStyles = (colors: any, insets: { top: number; bottom: number }) => S
     backgroundColor: colors.primary,
     marginBottom: 6,
     elevation: 3,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
+    boxShadow: '0px 3px 6px rgba(0, 0, 0, 0.15)',
   },
   primaryButtonText: {
     color: '#1C1917',

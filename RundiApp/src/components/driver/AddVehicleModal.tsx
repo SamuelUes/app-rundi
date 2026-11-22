@@ -105,7 +105,6 @@ export function AddVehicleModal({
               ['chasis', 'chasis'],
               ['registrationNumber', 'registration_number'],
               ['emissionDate', 'emission_date'],
-              ['registrationExpiry', 'registration_expiry'],
             ]
           : [
               ['insuranceNumber', 'insurance_number'],
@@ -489,15 +488,6 @@ export function AddVehicleModal({
                     placeholder={t('driver.profile.modal.placeholders.registrationNumber')}
                     value={vehicleFormData.registration_number}
                     onChangeText={updateText('registration_number', 'registrationNumber')}
-                    placeholderTextColor={colors.textSecondary}
-                  />
-
-                  <Text style={styles.formLabel}>{t('driver.profile.modal.labels.registrationExpiry')}</Text>
-                  <DatePickerField
-                    style={styles.formInput}
-                    placeholder={t('driver.profile.modal.placeholders.registrationExpiry')}
-                    value={vehicleFormData.registration_expiry}
-                    onChangeText={updateText('registration_expiry', 'registrationExpiry')}
                     placeholderTextColor={colors.textSecondary}
                   />
                 </View>

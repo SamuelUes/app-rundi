@@ -3,7 +3,7 @@ import { View, Text, TextInput } from 'react-native';
 import { DatePickerField } from '../../ui/DatePickerField';
 import { InsuranceCompanySelectField } from '../InsuranceCompanySelectField';
 
-const DATE_FIELDS = new Set(['registrationExpiry', 'insuranceExpiry', 'insuranceStartDate']);
+const DATE_FIELDS = new Set(['emissionDate', 'insuranceExpiry', 'insuranceStartDate']);
 
 interface VehicleInfoDocumentsSectionProps {
   isComplete: boolean;
@@ -30,7 +30,7 @@ export function VehicleInfoDocumentsSection({
 }: VehicleInfoDocumentsSectionProps) {
   const fields = [
     'registrationNumber',
-    'registrationExpiry',
+    'emissionDate',
     'insuranceNumber',
     'insuranceCompany',
     'insuranceExpiry',

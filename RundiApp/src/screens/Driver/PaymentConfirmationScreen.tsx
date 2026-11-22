@@ -612,10 +612,7 @@ const createStyles = (colors: any, accentAlt: string) => StyleSheet.create({
     marginBottom: 16,
     borderWidth: 0.1,
     borderColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
+    boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.06)',
     elevation: 2,
   },
   cardTitle: {

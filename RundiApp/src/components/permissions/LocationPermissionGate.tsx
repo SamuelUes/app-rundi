@@ -383,10 +383,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     padding: 24,
     elevation: 6,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
+    boxShadow: '0px 6px 12px rgba(0, 0, 0, 0.15)',
   },
   section: {
     gap: 16,

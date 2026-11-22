@@ -123,7 +123,7 @@ const createStyles = (colors: any, isDark: boolean, top: number) =>
     card: {
       position: 'absolute', top: top + 72, left: 16, right: 16, zIndex: 40, borderRadius: 22, padding: 16, gap: 8,
       backgroundColor: isDark ? '#241F1B' : '#FFFFFF',
-      shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.26, shadowRadius: 16, elevation: 14,
+      boxShadow: '0px 8px 16px rgba(0, 0, 0, 0.26)', elevation: 14,
     },
     header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     title: { fontSize: 16, fontWeight: '700', color: colors.text },
@@ -145,7 +145,7 @@ const createStyles = (colors: any, isDark: boolean, top: number) =>
     accept: {
       backgroundColor: '#B38737',
       borderRadius: 14,
-      shadowColor: '#B38737', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.28, shadowRadius: 8, elevation: 4,
+      boxShadow: '0px 4px 8px rgba(179, 135, 55, 0.28)', elevation: 4,
     },
     rejectLabel: { fontSize: 15, fontWeight: '700', color: colors.text },
     acceptLabel: { fontSize: 15, fontWeight: '800', color: '#241A09' },

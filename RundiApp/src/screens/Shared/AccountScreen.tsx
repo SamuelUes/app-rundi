@@ -35,6 +35,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AccountProfileSection } from '../../components/shared/Account/AccountProfileSection';
 import { AccountAddPasswordCard } from '../../components/shared/Account/AccountAddPasswordCard';
 import { AccountLinkEmailCard } from '../../components/shared/Account/AccountLinkEmailCard';
+import { withAlpha } from '../../utils/format/colors';
 
 const formatBirthDateInput = (value: string): string => {
   const digits = (value || '').replace(/\D/g, '').slice(0, 8);
@@ -275,10 +276,7 @@ export default function AccountScreen({ navigation }: any) {
       borderWidth: 0.1,
       borderColor: colors.border,
       padding: 16,
-      shadowColor: '#000',
-      shadowOpacity: 0.2,
-      shadowRadius: 8,
-      shadowOffset: { width: 0, height: 4 },
+      boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.2)',
       elevation: 4,
     },
     avatarWrapper: {
@@ -318,10 +316,7 @@ export default function AccountScreen({ navigation }: any) {
       justifyContent: 'center',
       borderWidth: 2,
       borderColor: colors.card,
-      shadowColor: '#000',
-      shadowOpacity: 0.18,
-      shadowRadius: 6,
-      shadowOffset: { width: 0, height: 3 },
+      boxShadow: '0px 3px 6px rgba(0, 0, 0, 0.18)',
       elevation: 4,
     },
     avatarEditIcon: {
@@ -354,10 +349,7 @@ export default function AccountScreen({ navigation }: any) {
       borderRadius: 12,
       borderWidth: 1,
       borderColor: colors.border,
-      shadowColor: '#000',
-      shadowOpacity: 0.08,
-      shadowRadius: 12,
-      shadowOffset: { width: 0, height: 6 },
+      boxShadow: '0px 6px 12px rgba(0, 0, 0, 0.08)',
       elevation: 4,
     },
     accountTitle: {
@@ -446,10 +438,7 @@ export default function AccountScreen({ navigation }: any) {
       alignItems: 'center',
       justifyContent: 'center',
       marginTop: 4,
-      shadowColor: colors.shadow,
-      shadowOpacity: 0.12,
-      shadowRadius: 8,
-      shadowOffset: { width: 0, height: 3 },
+      boxShadow: [{ offsetX: 0, offsetY: 3, blurRadius: 8, color: withAlpha(colors.shadow, 0.12)  }],
       elevation: 3,
     },
     buttonDisabled: {

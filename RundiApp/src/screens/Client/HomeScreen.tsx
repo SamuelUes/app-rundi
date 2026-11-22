@@ -52,6 +52,7 @@ import { ClientRecurringRidesChips } from '../../components/client/HomeScreen/Cl
 import { useRecurringRides } from '../../hooks/client/useRecurringRides';
 import type { RecurringRide } from '../../types/recurringRide';
 import { useRideFlowTransition } from '../../hooks/client/useRideFlowTransition';
+import { withAlpha } from '../../utils/format/colors';
 
 // Importaciones para Firebase
 
@@ -785,10 +786,7 @@ const createStyles = (
     backgroundColor: isDark ? 'rgba(24,20,17,0.92)' : 'rgba(255,255,255,0.94)',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(28,25,23,0.08)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: isDark ? 0.35 : 0.12,
-    shadowRadius: 12,
+    boxShadow: [{ offsetX: 0, offsetY: 6, blurRadius: 12, color: withAlpha('#000', isDark ? 0.35 : 0.12)  }],
     elevation: 8,
     zIndex: 20,
   },
@@ -832,10 +830,7 @@ const createStyles = (
     backgroundColor: isDark ? 'rgba(24,20,17,0.92)' : 'rgba(255,255,255,0.94)',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(28,25,23,0.1)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: isDark ? 0.4 : 0.14,
-    shadowRadius: 12,
+    boxShadow: [{ offsetX: 0, offsetY: 6, blurRadius: 12, color: withAlpha('#000', isDark ? 0.4 : 0.14)  }],
     elevation: 8,
     zIndex: 20,
   },
@@ -881,10 +876,7 @@ const createStyles = (
     backgroundColor: isDark ? 'rgba(24,20,17,0.92)' : 'rgba(255,255,255,0.94)',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(28,25,23,0.1)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: isDark ? 0.4 : 0.14,
-    shadowRadius: 12,
+    boxShadow: [{ offsetX: 0, offsetY: 6, blurRadius: 12, color: withAlpha('#000', isDark ? 0.4 : 0.14)  }],
     elevation: 8,
     zIndex: 20,
   },
@@ -914,10 +906,7 @@ const createStyles = (
     backgroundColor: isDark ? 'rgba(24,20,17,0.92)' : 'rgba(255,255,255,0.94)',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(28,25,23,0.08)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: isDark ? 0.0135 : 0.01,
-    shadowRadius: 2,
+    boxShadow: [{ offsetX: 0, offsetY: 2, blurRadius: 2, color: withAlpha('#000', isDark ? 0.0135 : 0.01)  }],
     elevation: 1,
   },
   navChipAdd: {
@@ -960,10 +949,7 @@ const createStyles = (
     backgroundColor: isDark ? 'rgba(24,20,17,0.9)' : 'rgba(255,255,255,0.92)',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(28,25,23,0.08)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: isDark ? 0.35 : 0.1,
-    shadowRadius: 8,
+    boxShadow: [{ offsetX: 0, offsetY: 4, blurRadius: 8, color: withAlpha('#000', isDark ? 0.35 : 0.1)  }],
     elevation: 6,
   },
   regionHintText: {
@@ -984,10 +970,7 @@ const createStyles = (
     backgroundColor: isDark ? 'rgba(43,32,7,0.92)' : 'rgba(255,247,230,0.95)',
     borderWidth: 1,
     borderColor: isDark ? 'rgba(212,175,55,0.4)' : 'rgba(179,135,55,0.35)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: isDark ? 0.35 : 0.1,
-    shadowRadius: 8,
+    boxShadow: [{ offsetX: 0, offsetY: 4, blurRadius: 8, color: withAlpha('#000', isDark ? 0.35 : 0.1)  }],
     elevation: 6,
   },
   scheduledRideChipText: {
@@ -1005,10 +988,7 @@ const createStyles = (
     paddingLeft: 24,
     paddingRight: 13,
     backgroundColor: '#B38737',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.28,
-    shadowRadius: 16,
+    boxShadow: '0px 8px 16px rgba(0, 0, 0, 0.28)',
     elevation: 14,
   },
   requestActionsRow: {

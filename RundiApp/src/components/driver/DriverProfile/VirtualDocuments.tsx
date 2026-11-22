@@ -50,7 +50,7 @@ export function VirtualDocuments({ visible, onClose, vehicleId, profilePhoto, dr
     </View>
   );
   const card = (title: string, icon: React.ComponentProps<typeof Ionicons>['name'], rows: React.ReactNode, photo?: boolean) => (
-    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, shadowColor: colors.shadow }]}>
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <View style={styles.cardHeader}>
         <View style={[styles.cardIcon, { backgroundColor: colors.surface }]}>
           <Ionicons name={icon} size={22} color={colors.primary} />
@@ -76,7 +76,7 @@ export function VirtualDocuments({ visible, onClose, vehicleId, profilePhoto, dr
       <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
         <View style={styles.header}>
           <TouchableOpacity
-            style={[styles.backButton, { backgroundColor: colors.card, borderColor: colors.border, shadowColor: colors.shadow }]}
+            style={[styles.backButton, { backgroundColor: colors.card, borderColor: colors.border }]}
             onPress={onClose}
             hitSlop={8}
             accessibilityRole="button"
@@ -113,7 +113,6 @@ export function VirtualDocuments({ visible, onClose, vehicleId, profilePhoto, dr
               {row(t('driver.virtualDocuments.plate'), vehicle?.plate)}
               {row(t('driver.virtualDocuments.number'), circulation?.card_number)}
               {row(t('driver.virtualDocuments.issue'), circulation?.issued_at)}
-              {row(t('driver.virtualDocuments.expiry'), circulation?.declared_valid_until)}
               {row(t('driver.virtualDocuments.brand'), circulation?.declared_brand)}
               {row(t('driver.virtualDocuments.model'), circulation?.declared_model)}
               {row(t('driver.virtualDocuments.year'), circulation?.declared_year)}
@@ -146,9 +145,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center', 
     justifyContent: 'center',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
+    boxShadow: '0px 2px 6px rgba(0, 0, 0, 0.06)',
     elevation: 2
   },
 
@@ -174,9 +171,7 @@ const styles = StyleSheet.create({
     borderRadius: 22, 
     borderWidth: 0.2, 
     padding: 20, 
-    shadowOffset: { width: 0, height: 4 }, 
-    shadowOpacity: 0.05, 
-    shadowRadius: 12, 
+    boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.05)',
     elevation: 2 
   },
 

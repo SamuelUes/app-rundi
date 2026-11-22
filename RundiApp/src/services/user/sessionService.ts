@@ -20,7 +20,7 @@ import deviceIdentityService from '../auth/deviceIdentityService';
 // reciente — un doc viejo es un resto de una app muerta y se puede reclamar.
 const SESSION_STALE_MS = 3 * 60 * 1000;
 
-const sessionStartPromises = new Map<string, Promise<{ success: boolean }>>();
+const sessionStartPromises = new Map<string, { mode: 'client' | 'driver'; promise: Promise<{ success: boolean }> }>();
 
 export function isSessionActiveElsewhereError(error: any): boolean {
   return error?.code === 'SESSION_ACTIVE_ELSEWHERE' ||
@@ -100,15 +100,22 @@ export async function startSession(options?: {
   source?: string;
   mode?: 'client' | 'driver';
   serviceAreaId?: string;
-}) {
+}): Promise<{ success: boolean }> {
   const auth = await getFirebaseAuth();
   const uid = auth.currentUser?.uid;
   if (!uid) {
     throw new Error('UNAUTHENTICATED');
   }
 
+  const mode = options?.mode ?? 'client';
   const pending = sessionStartPromises.get(uid);
-  if (pending) return pending;
+  if (pending) {
+    if (pending.mode === mode) return pending.promise;
+    // Un start de otro modo sigue en vuelo: serializar para que el último
+    // modo pedido gane el write del doc (un commit tardío del modo viejo
+    // dejaría mode stale — los heartbeats no lo reescriben).
+    return pending.promise.catch(() => {}).then(() => startSession(options));
+  }
 
   const deviceIdStarted = Date.now();
   const deviceId = await getDeviceId();
@@ -131,7 +138,7 @@ export async function startSession(options?: {
     }
 
     const patch: UserSessionPatch = {
-      mode: options?.mode ?? 'client',
+      mode,
       device: deviceId,
       platform: Platform.OS,
       ...(options?.model !== undefined && { appVersion: options.model }),
@@ -144,11 +151,11 @@ export async function startSession(options?: {
     return { success: true };
   })();
 
-  sessionStartPromises.set(uid, request);
+  sessionStartPromises.set(uid, { mode, promise: request });
   try {
     return await request;
   } finally {
-    if (sessionStartPromises.get(uid) === request) sessionStartPromises.delete(uid);
+    if (sessionStartPromises.get(uid)?.promise === request) sessionStartPromises.delete(uid);
   }
 }
 

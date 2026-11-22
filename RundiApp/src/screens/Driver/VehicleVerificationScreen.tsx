@@ -53,7 +53,11 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
   const [insurancePhoto, setInsurancePhoto] = useState<string | null>(null);
   
   const [registrationNumber, setRegistrationNumber] = useState('');
-  const [registrationExpiry, setRegistrationExpiry] = useState('');
+  const [emissionDate, setEmissionDate] = useState('');
+  const [brand, setBrand] = useState('');
+  const [model, setModel] = useState('');
+  const [year, setYear] = useState('');
+  const [vin, setVin] = useState('');
   const [insuranceNumber, setInsuranceNumber] = useState('');
   const [insuranceCompany, setInsuranceCompany] = useState('');
   const [insuranceExpiry, setInsuranceExpiry] = useState('');
@@ -148,7 +152,11 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
             verifiedStatuses.has(data.insuranceStatus.toLowerCase()),
           );
           setRegistrationNumber(data.registrationNumber);
-          setRegistrationExpiry(data.registrationExpiry);
+          setEmissionDate(data.emissionDate);
+          setBrand(data.brand);
+          setModel(data.model);
+          setYear(data.year);
+          setVin(data.vin);
           setRegistrationPhotoFront(data.registrationPhotoFront || null);
           setRegistrationPhotoBack(data.registrationPhotoBack || null);
           setInsuranceNumber(data.insuranceNumber);
@@ -183,8 +191,9 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
   // Verificar si faltan datos y fotos
   const photosCompleted = [vehiclePhoto, registrationPhotoFront, registrationPhotoBack, insurancePhoto]
     .filter(Boolean).length;
-  const allDataProvided = vehiclePhoto && registrationPhotoFront && registrationPhotoBack && insurancePhoto && 
-                          registrationNumber && registrationExpiry && insuranceNumber && insuranceCompany && insuranceExpiry;
+  const allDataProvided = vehiclePhoto && registrationPhotoFront && registrationPhotoBack && insurancePhoto &&
+                          registrationNumber && emissionDate && brand && model && year && vin &&
+                          insuranceNumber && insuranceCompany && insuranceExpiry;
 
   // Cambios sobre los datos precargados: cualquier edición reabre el guardado;
   // si el documento estaba verificado, el backend crea una versión 'pending'.
@@ -195,7 +204,11 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
   const loadedForDiff = loadedDocumentsRef.current?.data;
   const docChanged = !loadedForDiff ||
     !eq(registrationNumber, loadedForDiff.registrationNumber) ||
-    !eq(registrationExpiry, loadedForDiff.registrationExpiry) ||
+    !eq(emissionDate, loadedForDiff.emissionDate) ||
+    !eq(brand, loadedForDiff.brand) ||
+    !eq(model, loadedForDiff.model) ||
+    !eq(year, loadedForDiff.year) ||
+    !eq(vin, loadedForDiff.vin) ||
     !eq(registrationPhotoFront, loadedForDiff.registrationPhotoFront) ||
     !eq(registrationPhotoBack, loadedForDiff.registrationPhotoBack) ||
     !eq(insuranceNumber, loadedForDiff.insuranceNumber) ||
@@ -259,7 +272,11 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
 
       if (docType === 'registration') {
         fill(registrationNumber, fields.registrationNumber, setRegistrationNumber, 'registrationNumber');
-        fill(registrationExpiry, fields.registrationExpiry, setRegistrationExpiry, 'registrationExpiry');
+        fill(emissionDate, fields.emissionDate, setEmissionDate, 'emissionDate');
+        fill(brand, fields.brand, setBrand, 'brand');
+        fill(model, fields.model, setModel, 'model');
+        fill(year, fields.year, setYear, 'year');
+        fill(vin, fields.vin, setVin, 'vin');
       } else if (docType === 'insurance') {
         fill(insuranceNumber, fields.insuranceNumber, setInsuranceNumber, 'insuranceNumber');
         fill(insuranceCompany, fields.insuranceCompany, setInsuranceCompany, 'insuranceCompany');
@@ -445,20 +462,35 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
         setUploadProgress(totalProgress);
       }
 
+      // Datos del vehículo declarados en la circulación → PATCH de vehicles
+      // (el doc de compliance copia después esos mismos campos como declared_*).
+      const yearNumber = parseInt(year, 10);
+      await vehiclesService.updateVehicle(vehicleId, {
+        brand,
+        model,
+        ...(Number.isInteger(yearNumber) ? { year: yearNumber } : {}),
+        vin,
+        ...(uploadedUrls['vehicle_photo'] ? { vehicle_photo: uploadedUrls['vehicle_photo'] } : {}),
+      });
+
       // Registrar en el sistema de compliance (versiones vigentes + historial;
       // el backend mantiene las columnas legacy sincronizadas)
       console.log('💾 Registrando documentos del vehículo en compliance...');
       const loaded = loadedDocumentsRef.current;
       if (!loaded?.hasCard ||
           loaded.data.registrationNumber !== registrationNumber ||
-          loaded.data.registrationExpiry !== registrationExpiry ||
+          loaded.data.emissionDate !== emissionDate ||
+          loaded.data.brand !== brand ||
+          loaded.data.model !== model ||
+          loaded.data.year !== year ||
+          loaded.data.vin !== vin ||
           loaded.data.registrationPhotoFront !== uploadedUrls['registration_front'] ||
           loaded.data.registrationPhotoBack !== uploadedUrls['registration_back']) {
         await complianceService.submitVehicleDocument({
           vehicleId,
           documentType: 'circulation_card',
           cardNumber: registrationNumber,
-          declaredValidUntil: registrationExpiry,
+          issuedAt: emissionDate,
           documentPath: uploadedUrls['registration_front'],
           documentPathBack: uploadedUrls['registration_back'],
           ...(registrationOcrYear != null ? { ocrYear: registrationOcrYear } : {}),
@@ -530,13 +562,6 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
           validUntil: revisadoValidUntil,
           stickerYear: Number(revisadoValidUntil.slice(0, 4)) || undefined,
           documentPath: uploadedUrls['revisado_photo'],
-        });
-      }
-
-      // Foto del vehículo sigue por el endpoint legacy (no es documento de compliance)
-      if (uploadedUrls['vehicle_photo']) {
-        await vehiclesService.updateVehicle(vehicleId, {
-          vehicle_photo: uploadedUrls['vehicle_photo'],
         });
       }
 
@@ -630,12 +655,55 @@ export default function VehicleVerificationScreen({ route, navigation }: Vehicle
           placeholderTextColor={colors.textSecondary}
         />
 
-        <Text style={styles.label}>{t(`${ns}.form.registrationExpiryLabel`)}</Text>
+        <Text style={styles.label}>{t(`${ns}.form.brandLabel`)}</Text>
+        <TextInput
+          style={styles.input}
+          autoCapitalize="words"
+          autoCorrect={false}
+          placeholder={t(`${ns}.form.brandPlaceholder`)}
+          value={brand}
+          onChangeText={manualEdit('brand', setBrand)}
+          placeholderTextColor={colors.textSecondary}
+        />
+
+        <Text style={styles.label}>{t(`${ns}.form.modelLabel`)}</Text>
+        <TextInput
+          style={styles.input}
+          autoCapitalize="words"
+          autoCorrect={false}
+          placeholder={t(`${ns}.form.modelPlaceholder`)}
+          value={model}
+          onChangeText={manualEdit('model', setModel)}
+          placeholderTextColor={colors.textSecondary}
+        />
+
+        <Text style={styles.label}>{t(`${ns}.form.yearLabel`)}</Text>
+        <TextInput
+          style={styles.input}
+          placeholder={t(`${ns}.form.yearPlaceholder`)}
+          value={year}
+          onChangeText={manualEdit('year', setYear)}
+          keyboardType="numeric"
+          placeholderTextColor={colors.textSecondary}
+        />
+
+        <Text style={styles.label}>{t(`${ns}.form.vinLabel`)}</Text>
+        <TextInput
+          style={styles.input}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          placeholder={t(`${ns}.form.vinPlaceholder`)}
+          value={vin}
+          onChangeText={manualEdit('vin', setVin)}
+          placeholderTextColor={colors.textSecondary}
+        />
+
+        <Text style={styles.label}>{t(`${ns}.form.emissionDateLabel`)}</Text>
         <DatePickerField
           style={styles.input}
-          placeholder={t(`${ns}.form.registrationExpiryPlaceholder`)}
-          value={registrationExpiry}
-          onChangeText={manualEdit('registrationExpiry', setRegistrationExpiry)}
+          placeholder={t(`${ns}.form.emissionDatePlaceholder`)}
+          value={emissionDate}
+          onChangeText={manualEdit('emissionDate', setEmissionDate)}
           placeholderTextColor={colors.textSecondary}
         />
 
@@ -852,13 +920,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderRadius: 16,
     borderWidth: 0.1,
     borderColor: colors.border,
-    shadowColor: '#000000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    boxShadow: '0px 0px 2px rgba(0, 0, 0, 0.05)',
     elevation: 2,
   },
   sectionTitle: {

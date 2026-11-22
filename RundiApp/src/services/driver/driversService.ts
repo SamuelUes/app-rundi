@@ -50,7 +50,6 @@ type VehicleUpdatePayload = {
   insurance_photo?: string;
   vehicle_photo?: string;
   registration_number?: string;
-  registration_expiry?: string;
   insurance_number?: string;
   insurance_company?: string;
   insurance_start_date?: string;

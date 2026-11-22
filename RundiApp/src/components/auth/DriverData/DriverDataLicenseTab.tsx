@@ -18,8 +18,10 @@ interface DriverDataLicenseTabProps {
   departmentsList: string[];
   municipalities: string[];
   colors: any;
+  licenseIssueDate: string;
   onSetLicenseNumber: (v: string) => void;
   onSetLicenseExpiry: (v: string) => void;
+  onSetLicenseIssueDate: (v: string) => void;
   onSetDepartment: (v: string) => void;
   onSetMunicipality: (v: string) => void;
   onTakeProfilePhoto: () => void;
@@ -45,8 +47,10 @@ export function DriverDataLicenseTab({
   departmentsList,
   municipalities,
   colors,
+  licenseIssueDate,
   onSetLicenseNumber,
   onSetLicenseExpiry,
+  onSetLicenseIssueDate,
   onSetDepartment,
   onSetMunicipality,
   onTakeProfilePhoto,
@@ -165,6 +169,21 @@ export function DriverDataLicenseTab({
               placeholderTextColor={colors.textSecondary}
               value={licenseExpiry}
               onChangeText={onSetLicenseExpiry}
+              editable={!loading}
+            />
+          </View>
+
+          {/* Fecha de Emisión */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>
+              {t('authScreens.driverData.license.issueLabel')}
+            </Text>
+            <DatePickerField
+              style={styles.input}
+              placeholder={t('authScreens.driverData.license.issuePlaceholder')}
+              placeholderTextColor={colors.textSecondary}
+              value={licenseIssueDate}
+              onChangeText={onSetLicenseIssueDate}
               editable={!loading}
             />
           </View>

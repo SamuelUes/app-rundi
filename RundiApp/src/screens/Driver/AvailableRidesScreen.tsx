@@ -7,6 +7,7 @@ import {
   Pressable,
   RefreshControl,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -41,6 +42,7 @@ import driverAvailabilityService from '../../services/driver/driverAvailabilityS
 import { isUnauthenticatedError } from '../../utils/firebase/firebaseAuthReady';
 import { ArrivalVehiclePhotoModal } from '../../components/driver/DesignatedCrew/ArrivalVehiclePhotoModal';
 import { useArrivalPhotoGate } from '../../hooks/driver/shared/useArrivalPhotoGate';
+import { withAlpha } from '../../utils/format/colors';
 
 const SCREEN_ENTRY_WINDOW_MS = 3000;
 let screenEntryCountInWindow = 0;
@@ -657,10 +659,7 @@ export default function AvailableRidesScreeNewDesign({ navigation }: any) {
               borderWidth: 0.25,
               borderColor: colors.border,
               backgroundColor: isDark ? '#212121' : '#ffffff',
-              shadowColor: isDark ? '#000000' : '#B87F1E',
-              shadowOpacity: 0.1,
-              shadowRadius: 12,
-              shadowOffset: { width: 0, height: 4 },
+              boxShadow: [{ offsetX: 0, offsetY: 4, blurRadius: 12, color: withAlpha(isDark ? '#000000' : '#B87F1E', 0.1)  }],
               elevation: 4,
             },
             pressed && { opacity: 0.92, transform: [{ scale: 0.99 }] },
@@ -859,9 +858,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
+    boxShadow: '0px 5px 10px rgba(0, 0, 0, 0.12)',
     elevation: 3,
   },
   assignIconWrap: {
@@ -942,10 +939,7 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 12,
     borderWidth: 0.61,
-    shadowColor: '#000',
-    shadowOpacity: 0.07,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
+    boxShadow: '0px 4px 10px rgba(0, 0, 0, 0.07)',
     elevation: 2,
   },
   rideCardLight: {
@@ -955,7 +949,7 @@ const styles = StyleSheet.create({
   rideCardDark: {
     backgroundColor: '#1F1F1F',
     borderColor: '#303030',
-    shadowOpacity: 0.2,
+    boxShadow: '0px 0px 3px rgba(0, 0, 0, 0.2)',
   },
   designatedCard: {
     borderColor: '#E8DFCF',
@@ -968,13 +962,11 @@ const styles = StyleSheet.create({
   scheduledCardLight: {
     borderStyle: 'dashed',
     opacity: 0.82,
-    shadowOpacity: 0,
     elevation: 0,
   },
   scheduledCardDark: {
     borderStyle: 'dashed',
     opacity: 0.82,
-    shadowOpacity: 0,
     elevation: 0,
   },
   scheduledBanner: {
@@ -1007,8 +999,10 @@ const styles = StyleSheet.create({
     borderColor: '#b38737',
     borderWidth: 1.5,
     backgroundColor: 'rgba(179,135,55,0.05)',
-    shadowColor: '#b38737',
-    shadowOpacity: 0.2,
+    ...Platform.select({
+      ios: { filter: [{ dropShadow: { offsetX: 0, offsetY: 0, standardDeviation: 3, color: 'rgba(179,135,55,0.2)' } }] },
+      default: {},
+    }),
     elevation: 0,
   },
   cardTopRow: {
@@ -1293,10 +1287,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderWidth: 1,
-    shadowColor: '#000',
-    shadowOpacity: 0.24,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 10 },
+    boxShadow: '0px 10px 14px rgba(0, 0, 0, 0.24)',
     elevation: 10,
   },
   assignModalTopAccent: {

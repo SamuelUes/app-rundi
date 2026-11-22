@@ -215,12 +215,12 @@ func loadFactsWithQuerier(ctx context.Context, db factsQuerier, driverID, vehicl
 		// Circulación
 		var c CirculationFacts
 		if err := db.QueryRow(ctx, `
-			SELECT id::text, status, card_number, issued_at::text, declared_valid_until::text,
+			SELECT id::text, status, card_number, issued_at::text,
 			       declared_plate, declared_vin, declared_chasis, declared_motor, declared_service_type
 			FROM public.vehicle_circulation_cards
 			WHERE vehicle_id = $1::uuid AND is_current = TRUE AND deleted_at IS NULL
 			ORDER BY created_at DESC LIMIT 1`, vid).
-			Scan(&c.ID, &c.Status, &c.CardNumber, &c.IssuedAt, &c.DeclaredValidUntil,
+			Scan(&c.ID, &c.Status, &c.CardNumber, &c.IssuedAt,
 				&c.DeclaredPlate, &c.DeclaredVin, &c.DeclaredChasis, &c.DeclaredMotor, &c.DeclaredServiceType); err == nil {
 			f.Circulation = &c
 		} else if !errors.Is(err, pgx.ErrNoRows) {

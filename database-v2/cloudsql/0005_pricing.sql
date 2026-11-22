@@ -433,7 +433,16 @@ ON CONFLICT (code) DO UPDATE SET
   eligibility_subject = EXCLUDED.eligibility_subject,
   eligibility_mode = EXCLUDED.eligibility_mode,
   metadata = EXCLUDED.metadata,
-  updated_at = NOW();
+  updated_at = NOW()
+WHERE (features.name, features.description, features.enabled, features.start_time,
+       features.end_time, features.timezone, features.pricing_type, features.pricing_value,
+       features.priority, features.stackable, features.eligibility_subject,
+       features.eligibility_mode, features.metadata)
+  IS DISTINCT FROM
+      (EXCLUDED.name, EXCLUDED.description, EXCLUDED.enabled, EXCLUDED.start_time,
+       EXCLUDED.end_time, EXCLUDED.timezone, EXCLUDED.pricing_type, EXCLUDED.pricing_value,
+       EXCLUDED.priority, EXCLUDED.stackable, EXCLUDED.eligibility_subject,
+       EXCLUDED.eligibility_mode, EXCLUDED.metadata);
 
 -- Features habilitados por servicio
 INSERT INTO public.service_feature_assignments (service_id, feature_id, enabled)
@@ -475,7 +484,11 @@ ON CONFLICT (min_demand_supply_ratio) DO UPDATE SET
   multiplier = EXCLUDED.multiplier,
   priority = EXCLUDED.priority,
   enabled = TRUE,
-  updated_at = NOW();
+  updated_at = NOW()
+WHERE (pricing_surge_rules.max_demand_supply_ratio, pricing_surge_rules.multiplier,
+       pricing_surge_rules.priority, pricing_surge_rules.enabled)
+  IS DISTINCT FROM
+      (EXCLUDED.max_demand_supply_ratio, EXCLUDED.multiplier, EXCLUDED.priority, TRUE);
 
 -- 'night' legacy queda inactivo (referencia histórica; el feature 'night' lo reemplaza).
 -- Guarda is_active: un UPDATE no-op bumpea rules:global (ver nota en el upsert).

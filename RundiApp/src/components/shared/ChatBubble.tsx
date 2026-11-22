@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { formatNicaraguaTime } from '../../utils/format/dateUtils';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { withAlpha } from '../../utils/format/colors';
 
 export type BubbleGroupPosition = 'single' | 'first' | 'middle' | 'last';
 
@@ -104,10 +105,7 @@ const createStyles = (colors: any, isDark: boolean) =>
     },
     ownBubble: {
       backgroundColor: colors.primary,
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.18,
-      shadowRadius: 6,
+      boxShadow: [{ offsetX: 0, offsetY: 2, blurRadius: 6, color: withAlpha(colors.primary, 0.18)  }],
       elevation: 2,
     },
     ownBubbleTail: {

@@ -40,6 +40,7 @@ import { RegisterBaseFields } from '../../components/auth/Register/RegisterBaseF
 import { RegisterPasswordFields } from '../../components/auth/Register/RegisterPasswordFields';
 import { RegisterPhoneSubmit } from '../../components/auth/Register/RegisterPhoneSubmit';
 import { PressableScale } from '../../components/ui/PressableScale';
+import { withAlpha } from '../../utils/format/colors';
 
 export default function RegisterScreen() {
   const navigation = useNavigation<any>();
@@ -559,10 +560,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       borderWidth: isDark ? 1 : 0,
       borderColor: colors.border,
       gap: 20,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: isDark ? 0.24 : 0.14,
-      shadowRadius: 12,
+      boxShadow: [{ offsetX: 0, offsetY: 4, blurRadius: 12, color: withAlpha('#000', isDark ? 0.24 : 0.14)  }],
       elevation: 6,
     },
     cardHeader: {
@@ -688,10 +686,7 @@ const createStyles = (colors: any, isDark: boolean) =>
     },
     inputSuccess: {
       borderColor: colors.success,
-      shadowColor: colors.success,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.2,
-      shadowRadius: 4,
+      boxShadow: [{ offsetX: 0, offsetY: 2, blurRadius: 4, color: withAlpha(colors.success, 0.2)  }],
       elevation: 3,
     },
     helperText: {
@@ -715,10 +710,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       borderRadius: 14,
       alignItems: 'center',
       marginTop: 8,
-      shadowColor: 'rgba(214, 182, 122, 1)',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.3,
-      shadowRadius: 6,
+      boxShadow: '0px 4px 6px rgba(214, 182, 122, 0.3)',
       elevation: 5,
     },
     primaryButtonText: {
@@ -741,10 +733,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       backgroundColor: 'rgba(172, 127, 44, 1)',
       justifyContent: 'center',
       alignItems: 'center',
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.3,
-      shadowRadius: 6,
+      boxShadow: [{ offsetX: 0, offsetY: 4, blurRadius: 6, color: withAlpha(colors.primary, 0.3)  }],
       elevation: 5,
     },
     phoneNextIcon: {

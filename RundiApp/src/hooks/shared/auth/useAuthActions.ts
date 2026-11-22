@@ -15,6 +15,8 @@ import localAuthService from '../../../services/auth/localAuthService';
 import mainAuthService from '../../../services/auth/authService';
 import backgroundLocationService from '../../../services/map/backgroundLocationService';
 import sessionService from '../../../services/user/sessionService';
+import fcmService from '../../../services/notification/fcmService';
+import { clearVoipToken } from '../../../native/voip';
 import preflightService from '../../../services/ride/preflightService';
 import { clearPreflightResult } from '../../../stores/preflightStore';
 import { useAuthStore, User } from '../../../stores/authStore';
@@ -164,6 +166,17 @@ export function useAuthActions() {
         } catch (fbError) {
           console.log('⚠️ No se pudo actualizar Firebase:', fbError);
         }
+      }
+
+      // Los docs fcmTokens/voipTokens solo se pueden borrar con la sesión
+      // Firebase aún viva (rules exigen isOwner): esto va ANTES de
+      // authService.logout(), que hace signOut. Si quedan huérfanos, el
+      // backend sigue mandando push de la cuenta cerrada a este dispositivo.
+      try {
+        await fcmService.clearToken();
+        await clearVoipToken(user?.id ?? null);
+      } catch (pushError) {
+        console.log('⚠️ No se pudieron limpiar tokens push:', pushError);
       }
 
       try { await sessionService.endSession(); } catch {}

@@ -410,10 +410,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     backgroundColor: '#667eea',
     borderRadius: 16,
     padding: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
+    boxShadow: '0px 8px 16px rgba(0, 0, 0, 0.3)',
     elevation: 8,
   },
   cardChip: {

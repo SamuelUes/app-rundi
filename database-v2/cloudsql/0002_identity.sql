@@ -155,7 +155,6 @@ CREATE TABLE IF NOT EXISTS public.vehicles (
   lien VARCHAR(100) NULL DEFAULT 'NINGUNO',
   emission_date DATE NULL,
   registration_number VARCHAR(50) NULL,
-  registration_expiry DATE NULL,
   registration_photo_front VARCHAR(500) NULL,
   registration_photo_back VARCHAR(500) NULL,
   insurance_number VARCHAR(50) NULL,

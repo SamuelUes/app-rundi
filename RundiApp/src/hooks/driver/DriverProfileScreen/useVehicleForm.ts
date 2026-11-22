@@ -26,7 +26,6 @@ export interface VehicleFormData {
   lien: string;
   emission_date: string;
   registration_number: string;
-  registration_expiry: string;
   registration_photo_front: string | null;
   registration_photo_back: string | null;
   insurance_number: string;
@@ -58,7 +57,6 @@ const createEmptyForm = (): VehicleFormData => ({
   lien: 'NINGUNO',
   emission_date: '',
   registration_number: '',
-  registration_expiry: '',
   registration_photo_front: null,
   registration_photo_back: null,
   insurance_number: '',
@@ -114,7 +112,6 @@ export function useVehicleForm(
         lien: vehicleFormData.lien || 'NINGUNO',
         emission_date: vehicleFormData.emission_date || undefined,
         registration_number: vehicleFormData.registration_number || undefined,
-        registration_expiry: vehicleFormData.registration_expiry || undefined,
         registration_photo_front: vehicleFormData.registration_photo_front || undefined,
         registration_photo_back: vehicleFormData.registration_photo_back || undefined,
         insurance_number: vehicleFormData.insurance_number || undefined,

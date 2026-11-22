@@ -16,14 +16,19 @@ import (
 )
 
 var privateDocumentFields = map[string]map[string]bool{
-	"license":     {"status": true, "licenseNumber": true, "licenseType": true, "categories": true, "issueDate": true, "expiryDate": true},
-	"vehicle":     {"id": true, "plate": true, "type": true, "year": true, "brand": true, "model": true, "color": true},
-	"circulation": {"status": true, "issuedAt": true, "validUntil": true},
-	"insurance":   {"status": true, "policyNumber": true, "insurer": true, "coverageType": true, "insuredPlate": true, "effectiveFrom": true, "effectiveUntil": true},
-	"inspection":  {"status": true, "result": true, "validUntil": true},
-	"emissions":   {"status": true, "result": true, "validUntil": true},
-	"revisado":    {"status": true, "validUntil": true, "stickerYear": true},
-	"roadTax":     {"status": true, "taxYear": true, "exempt": true},
+	"license": {"status": true, "licenseNumber": true, "licenseType": true, "categories": true, "issueDate": true, "expiryDate": true},
+	"vehicle": {"id": true, "plate": true, "type": true, "year": true, "brand": true, "model": true, "color": true, "vin": true},
+	"circulation": {"status": true, "cardNumber": true, "issuedAt": true,
+		"declaredPlate": true, "declaredVin": true, "declaredChasis": true, "declaredMotor": true,
+		"declaredBrand": true, "declaredModel": true, "declaredYear": true, "declaredColor": true,
+		"declaredVehicleClass": true, "declaredServiceType": true, "declaredOwnerName": true},
+	"insurance": {"status": true, "policyNumber": true, "insurer": true, "insurerCode": true, "coverageType": true,
+		"insuredPlate": true, "insuredVin": true, "insuredMotor": true, "insuredChasis": true,
+		"policyholderName": true, "effectiveFrom": true, "effectiveUntil": true},
+	"inspection": {"status": true, "result": true, "validUntil": true, "inspectedAt": true, "certificateNumber": true, "issuer": true},
+	"emissions":  {"status": true, "result": true, "validUntil": true, "testedAt": true, "certificateNumber": true, "issuer": true},
+	"revisado":   {"status": true, "validUntil": true, "stickerYear": true, "issuedAt": true},
+	"roadTax":    {"status": true, "taxYear": true, "exempt": true, "paidAt": true, "receiptNumber": true, "municipality": true, "exemptReason": true},
 }
 
 func validPrivateDocuments(docs map[string]any) bool {
@@ -80,7 +85,7 @@ func validPrivateDocuments(docs map[string]any) bool {
 						return false
 					}
 				}
-			case "year", "stickerYear", "taxYear":
+			case "year", "stickerYear", "taxYear", "declaredYear":
 				switch n := item.(type) {
 				case int, int32, int64:
 				case float64:

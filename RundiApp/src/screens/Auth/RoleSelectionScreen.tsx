@@ -26,6 +26,7 @@ import registrationService from '../../services/auth/registrationService';
 import phoneAuthService from '../../services/auth/phoneAuthService';
 import { AuthStackParamList, RegistrationAuthProvider, RegistrationMethod } from '../../navigation/types';
 import { useTranslation } from 'react-i18next';
+import { withAlpha } from '../../utils/format/colors';
 
 export type RoleSelectionNavigationProp = NativeStackNavigationProp<
   AuthStackParamList,
@@ -544,10 +545,7 @@ const createStyles = (colors: any, isDark: boolean) => {
       backgroundColor: isDark ? 'rgba(118, 118, 118, 0.32)' : 'rgba(242, 242, 242, 0.52)',
       borderWidth: 0,
       borderColor: colors.border,
-      shadowColor: colors.border,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.5,
-      shadowRadius: 4,
+      boxShadow: [{ offsetX: 0, offsetY: 2, blurRadius: 4, color: withAlpha(colors.border, 0.5)  }],
       elevation: 2,
     },
     roleCardMuted: {

@@ -8,7 +8,9 @@ import type { NearbyPlace } from '../../../services/map/googleMapsService';
 const FADE_DURATION_MS = 300;
 const STATE_DURATION_MS = 320;
 const STATE_EASING = Easing.out(Easing.cubic);
-const MARKER_ANCHOR_Y = 40 / 48;
+const MARKER_ANCHOR_POINT_Y = 40;
+const MARKER_FRAME_HEIGHT = 54;
+const MARKER_ANCHOR_Y = MARKER_ANCHOR_POINT_Y / MARKER_FRAME_HEIGHT;
 
 // react-native-maps tipa Marker.Animated como AnimatedComponent<typeof MapMarker>
 // — con la Strict TS API de RN 0.88 esa firma espera las props (no el componente)
@@ -218,7 +220,8 @@ export default function NearbyPlacesLayer({
 const styles = StyleSheet.create({
   markerFrame: {
     width: 30,
-    height: 48,
+    height: MARKER_FRAME_HEIGHT,
+    overflow: 'visible',
   },
   defaultIcon: {
     position: 'absolute',

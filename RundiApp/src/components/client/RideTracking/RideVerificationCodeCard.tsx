@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../../hooks/shared/theme/useTheme';
+import { withAlpha } from '../../../utils/format/colors';
 
 interface RideVerificationCodeCardProps {
   code: string | null | undefined;
@@ -29,7 +30,7 @@ export function RideVerificationCodeCard({
           {
             backgroundColor: colors.card,
             borderColor: colors.primary,
-            shadowColor: colors.shadow,
+            boxShadow: [{ offsetX: 0, offsetY: 0, blurRadius: 3, color: withAlpha(colors.shadow, 1)  }],
           },
         ]}
       >
@@ -68,9 +69,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 16,
     borderWidth: 0.1,
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
+    boxShadow: '0px 4px 10px rgba(0, 0, 0, 0.2)',
     elevation: 10,
   },
   headerRow: {

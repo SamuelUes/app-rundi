@@ -120,10 +120,7 @@ const menuStyles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.16,
-    shadowRadius: 12,
+    boxShadow: '0px 6px 12px rgba(0, 0, 0, 0.16)',
     elevation: 8,
   },
   action: {

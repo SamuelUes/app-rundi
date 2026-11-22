@@ -10,6 +10,7 @@ import { FS_COL } from '../../constants/firestore';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import alertService from '../../services/notification/alertService';
+import { withAlpha } from '../../utils/format/colors';
 
 function address(value: unknown, fallback: string): string {
   if (value && typeof value === 'object' && 'address' in value && typeof value.address === 'string') {
@@ -374,10 +375,7 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     gap: 15, 
     borderWidth: 0.2, 
     borderColor: colors.border,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.16,
-    shadowRadius: 3,
+    boxShadow: [{ offsetX: 0, offsetY: 2, blurRadius: 3, color: withAlpha(colors.shadow, 0.16)  }],
     elevation: 2,
   },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 14 },

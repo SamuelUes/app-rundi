@@ -116,10 +116,7 @@ const styles = StyleSheet.create({
     minWidth: 180,
     ...Platform.select({
       ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 8,
+        boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.2)',
       },
       android: {
         elevation: 8,

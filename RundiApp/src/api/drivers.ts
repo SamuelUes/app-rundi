@@ -144,6 +144,9 @@ export interface Vehicle {
   is4x4?: boolean;
   isActive?: boolean;
   vehiclePhoto?: string;
+  vin?: string;
+  emissionDate?: string;
+  registrationNumber?: string;
   createdAt: string;
 }
 
@@ -164,7 +167,6 @@ export interface RegisterVehicleRequest {
   motor?: string;
   chasis?: string;
   registrationNumber?: string;
-  registrationExpiry?: string;
   insuranceNumber?: string;
   insuranceCompany?: string;
   insuranceExpiry?: string;

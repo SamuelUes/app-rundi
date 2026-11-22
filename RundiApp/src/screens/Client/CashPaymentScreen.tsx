@@ -37,6 +37,7 @@ import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
 import StorageImage from '../../components/shared/StorageImage';
 import sessionService from '../../services/user/sessionService';
 import BiometricService from '../../services/user/biometricService';
+import { withAlpha } from '../../utils/format/colors';
 
 const resolveDriverName = (driverInfo: any): string | null => {
   const fullName = [driverInfo?.firstName, driverInfo?.lastName].filter(Boolean).join(' ').trim();
@@ -101,10 +102,7 @@ const createStyles = (colors: any, accentAlt: string) => StyleSheet.create({
     marginBottom: 16,
     borderWidth: 0.1,
     borderColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
+    boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.06)',
     elevation: 2,
   },
   driverSection: {
@@ -240,15 +238,11 @@ const createStyles = (colors: any, accentAlt: string) => StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     backgroundColor: colors.primary,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
+    boxShadow: [{ offsetX: 0, offsetY: 6, blurRadius: 12, color: withAlpha(colors.primary, 0.3)  }],
     elevation: 5,
   },
   confirmButtonDisabled: {
     opacity: 0.7,
-    shadowOpacity: 0,
     elevation: 0,
   },
   confirmButtonText: {

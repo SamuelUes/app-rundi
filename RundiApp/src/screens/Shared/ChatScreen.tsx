@@ -26,6 +26,7 @@ import { useRideCalls } from '../../hooks/shared/calls/useRideCalls';
 import ChatBubble, { BubbleGroupPosition } from '../../components/shared/ChatBubble';
 import { toNicaraguaDate, getNicaraguaDate } from '../../utils/format/dateUtils';
 import { useTranslation } from 'react-i18next';
+import { withAlpha } from '../../utils/format/colors';
 
 type ListItem =
   | { type: 'message'; id: string; message: ChatMessage; position: BubbleGroupPosition }
@@ -787,10 +788,7 @@ const createStyles = (
       borderColor: colors.border,
       justifyContent: 'center',
       alignItems: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: isDark ? 0.3 : 0.12,
-      shadowRadius: 8,
+      boxShadow: [{ offsetX: 0, offsetY: 2, blurRadius: 8, color: withAlpha('#000', isDark ? 0.3 : 0.12)  }],
       elevation: 4,
     },
     unseenBadge: {
@@ -842,10 +840,7 @@ const createStyles = (
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: colors.border,
       backgroundColor: colors.card,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: -4 },
-      shadowOpacity: isDark ? 0.25 : 0.05,
-      shadowRadius: 12,
+      boxShadow: [{ offsetX: 0, offsetY: -4, blurRadius: 12, color: withAlpha('#000', isDark ? 0.25 : 0.05)  }],
       elevation: 10,
     },
     inputPill: {

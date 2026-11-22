@@ -216,14 +216,18 @@ do_api() {
 do_jobs() {
   seed_secrets
   build consumer; build scheduler
-  for j in consumer scheduler; do
-    gcloud run jobs deploy "rundi-$j" \
-      --image "$REGION-docker.pkg.dev/$PROJECT/$REPO/$j:latest" \
-      --region="$REGION" --service-account="$WORKER_SA" \
-      --set-cloudsql-instances="$CONN" --max-retries=0 \
-      --set-env-vars="$(base_env)" \
-      $(secrets_arg)
-  done
+  gcloud run jobs deploy "rundi-consumer" \
+    --image "$REGION-docker.pkg.dev/$PROJECT/$REPO/consumer:latest" \
+    --region="$REGION" --service-account="$WORKER_SA" \
+    --set-cloudsql-instances="$CONN" --max-retries=0 \
+    --set-env-vars="$(base_env)" \
+    $(secrets_arg)
+  gcloud run jobs deploy "rundi-scheduler" \
+    --image "$REGION-docker.pkg.dev/$PROJECT/$REPO/scheduler:latest" \
+    --region="$REGION" --service-account="$WORKER_SA" \
+    --set-cloudsql-instances="$CONN" --max-retries=0 \
+    --set-env-vars="$(base_env);SCHEDULER_ONLY=realtime" \
+    $(secrets_arg)
   # Job dedicado a viajes programados: misma imagen del scheduler, solo el
   # sweep de promoción (gracia de 2 min — el tick general de 5 min no basta).
   gcloud run jobs deploy "rundi-programmed" \
@@ -232,6 +236,13 @@ do_jobs() {
     --set-cloudsql-instances="$CONN" --max-retries=0 \
     --set-env-vars="$(base_env);SCHEDULER_ONLY=programmed" \
     $(secrets_arg)
+  # Batch work uses the same scheduler image at a lower cadence.
+  gcloud run jobs deploy "rundi-maintenance" \
+    --image "$REGION-docker.pkg.dev/$PROJECT/$REPO/scheduler:latest" \
+    --region="$REGION" --service-account="$WORKER_SA" \
+    --set-cloudsql-instances="$CONN" --max-retries=0 \
+    --set-env-vars="$(base_env);SCHEDULER_ONLY=maintenance;RECONCILE_WINDOW_MINUTES=${RECONCILE_WINDOW_MINUTES:-420}" \
+    $(secrets_arg)
   # El SA de Cloud Tasks invoca jobs: consumer (wakes deduplicados por
   # mutación) y programmed (promoción agendada por viaje).
   for j in consumer programmed; do
@@ -239,7 +250,7 @@ do_jobs() {
       --member="serviceAccount:${CLOUD_TASKS_SA_EMAIL:-$API_SA}" \
       --role=roles/run.invoker --region="$REGION" --quiet >/dev/null
   done
-  for j in consumer scheduler programmed; do
+  for j in consumer scheduler programmed maintenance; do
     gcloud run jobs add-iam-policy-binding "rundi-$j" \
       --member="serviceAccount:$SCHED_SA" --role=roles/run.invoker \
       --region="$REGION" --quiet >/dev/null
@@ -251,6 +262,7 @@ do_jobs() {
   CONSUMER_TICK_SCHEDULE="${CONSUMER_TICK_SCHEDULE:-*/5 * * * *}"
   SCHEDULER_TICK_SCHEDULE="${SCHEDULER_TICK_SCHEDULE:-*/5 * * * *}"
   PROGRAMMED_TICK_SCHEDULE="${PROGRAMMED_TICK_SCHEDULE:-*/5 * * * *}"
+  MAINTENANCE_TICK_SCHEDULE="${MAINTENANCE_TICK_SCHEDULE:-0 */6 * * *}"
   # OAuth (no OIDC): el target es la API de Google run.googleapis.com — para
   # endpoints Google se usa OAuth token con scope cloud-platform; OIDC con
   # audience custom es para invocar servicios propios (Cloud Run services).
@@ -283,6 +295,15 @@ do_jobs() {
     || gcloud scheduler jobs update http rundi-programmed-tick \
       --location="$REGION" --schedule="$PROGRAMMED_TICK_SCHEDULE" \
       --uri="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT/jobs/rundi-programmed:run" \
+      --http-method=POST --oauth-service-account-email="$SCHED_SA"
+  gcloud scheduler jobs create http rundi-maintenance-tick \
+    --location="$REGION" --schedule="$MAINTENANCE_TICK_SCHEDULE" \
+    --uri="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT/jobs/rundi-maintenance:run" \
+    --http-method=POST \
+    --oauth-service-account-email="$SCHED_SA" 2>/dev/null \
+    || gcloud scheduler jobs update http rundi-maintenance-tick \
+      --location="$REGION" --schedule="$MAINTENANCE_TICK_SCHEDULE" \
+      --uri="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT/jobs/rundi-maintenance:run" \
       --http-method=POST --oauth-service-account-email="$SCHED_SA"
   echo "Jobs + triggers listos"
 }

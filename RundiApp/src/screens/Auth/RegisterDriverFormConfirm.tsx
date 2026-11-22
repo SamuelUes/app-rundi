@@ -23,6 +23,7 @@ import driversService from '../../services/driver/driversService';
 import vehiclesService from '../../services/driver/vehiclesService';
 import supabaseStorage from '../../services/media/storageService';
 import { submitVehicleDocument } from '../../api/compliance';
+import complianceService from '../../services/driver/complianceService';
 import { setRegistrationUploadsInProgress } from '../../services/ride/proximityService';
 import { AuthStackParamList } from '../../navigation/types';
 import { useTranslation } from 'react-i18next';
@@ -217,6 +218,8 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
           uploadErrors.push('profilePhoto');
         }
       }
+      let licenseFrontUrl: string | null = null;
+      let licenseBackUrl: string | null = null;
       if (
         localDriverData.licensePhotoFront &&
         typeof localDriverData.licensePhotoFront === 'string' &&
@@ -224,8 +227,8 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
       ) {
         try {
           console.log('📤 [RegisterConfirm] Subiendo licensePhotoFront...');
-          const url = await supabaseStorage.uploadLicensePhoto(userId, localDriverData.licensePhotoFront, 'front');
-          await driversService.updateDriver({ license_photo_front: url });
+          licenseFrontUrl = await supabaseStorage.uploadLicensePhoto(userId, localDriverData.licensePhotoFront, 'front');
+          await driversService.updateDriver({ license_photo_front: licenseFrontUrl });
         } catch (error) {
           console.warn('⚠️ [RegisterConfirm] Error subiendo licensePhotoFront:', error);
           uploadErrors.push('licensePhotoFront');
@@ -238,11 +241,28 @@ export default function RegisterConfirmScreen({ navigation, route }: Props) {
       ) {
         try {
           console.log('📤 [RegisterConfirm] Subiendo licensePhotoBack...');
-          const url = await supabaseStorage.uploadLicensePhoto(userId, localDriverData.licensePhotoBack, 'back');
-          await driversService.updateDriver({ license_photo_back: url });
+          licenseBackUrl = await supabaseStorage.uploadLicensePhoto(userId, localDriverData.licensePhotoBack, 'back');
+          await driversService.updateDriver({ license_photo_back: licenseBackUrl });
         } catch (error) {
           console.warn('⚠️ [RegisterConfirm] Error subiendo licensePhotoBack:', error);
           uploadErrors.push('licensePhotoBack');
+        }
+      }
+
+      // Doc de licencia en driver_licenses (compliance): número + emisión +
+      // vencimiento + fotos — crea la versión 'pending' para revisión.
+      if (licenseFrontUrl || licenseBackUrl) {
+        try {
+          await complianceService.submitDriverLicense({
+            licenseNumber: localDriverData.licenseNumber ?? '',
+            issueDate: localDriverData.licenseIssueDate,
+            expiryDate: localDriverData.licenseExpiry,
+            photoFront: licenseFrontUrl ?? undefined,
+            photoBack: licenseBackUrl ?? undefined,
+          });
+        } catch (error) {
+          console.warn('⚠️ [RegisterConfirm] Error registrando doc de licencia:', error);
+          uploadErrors.push('licenseDoc');
         }
       }
 
@@ -721,10 +741,7 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     paddingVertical: 26,
     borderWidth: 1,
     borderColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
+    boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.05)',
     elevation: 2,
   },
   summaryContainer: {},

@@ -46,6 +46,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
 
   const [licenseNumber, setLicenseNumber] = useState('');
   const [licenseExpiry, setLicenseExpiry] = useState('');
+  const [licenseIssueDate, setLicenseIssueDate] = useState('');
   const [documentsStatus, setDocumentsStatus] = useState<string | null>(null);
 
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -64,6 +65,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
     back: string | null;
     number: string;
     expiry: string;
+    issueDate: string;
   } | null>(null);
   
   // Solicitar permisos para la cámara
@@ -89,7 +91,13 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
     
     try {
       const profile = await driversService.getMyDriverProfile();
-      
+      // La emisión de la licencia no está en el perfil legacy: se lee del
+      // documento vigente de compliance (driver_licenses.issue_date).
+      const complianceDocs = await complianceService.getMyDocuments().catch(() => null);
+      const currentLicense = (complianceDocs?.licenses ?? []).find(
+        (item: any) => item?.is_current === true,
+      );
+
       if (profile) {
         console.log('✅ Datos del conductor cargados desde backend:', {
           license_number: profile.licenseNumber || profile.license_number,
@@ -108,11 +116,13 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
         const loaded = {
           number: profile.licenseNumber || profile.license_number || '',
           expiry: profile.licenseExpiry || profile.license_expiry || '',
+          issueDate: currentLicense?.issue_date || '',
           front: profile.license_photo_front || profile.licensePhotoFront || null,
           back: profile.license_photo_back || profile.licensePhotoBack || null,
         };
         setLicenseNumber(loaded.number);
         setLicenseExpiry(loaded.expiry);
+        setLicenseIssueDate(loaded.issueDate);
         setLicensePhotoFront(loaded.front);
         setLicensePhotoBack(loaded.back);
         loadedDataRef.current = loaded;
@@ -151,6 +161,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
 
       fill(licenseNumber, fields.licenseNumber, setLicenseNumber, 'licenseNumber');
       fill(licenseExpiry, fields.licenseExpiry, setLicenseExpiry, 'licenseExpiry');
+      fill(licenseIssueDate, fields.licenseIssueDate, setLicenseIssueDate, 'licenseIssueDate');
 
       setOcrMessage(
         applied.length > 0
@@ -287,6 +298,7 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
       await complianceService.submitDriverLicense({
         licenseNumber,
         expiryDate: licenseExpiry,
+        ...(licenseIssueDate ? { issueDate: licenseIssueDate } : {}),
         photoFront: uploadedUrls['license_front'],
         photoBack: uploadedUrls['license_back'],
       });
@@ -335,7 +347,8 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
     : licensePhotoFront !== loaded.front ||
       licensePhotoBack !== loaded.back ||
       licenseNumber !== loaded.number ||
-      licenseExpiry !== loaded.expiry;
+      licenseExpiry !== loaded.expiry ||
+      licenseIssueDate !== loaded.issueDate;
   const showVerifiedNotice = documentsVerified && !hasChanges;
 
   return (
@@ -376,6 +389,15 @@ export default function DriversDocumentsInspectionScreen({ route, navigation }: 
           placeholder={t(`${diNS}.licenseSection.expiryPlaceholder`)}
           value={licenseExpiry}
           onChangeText={manualEdit('licenseExpiry', setLicenseExpiry)}
+          placeholderTextColor={colors.textSecondary}
+        />
+
+        <Text style={styles.label}>{t(`${diNS}.licenseSection.issueLabel`)}</Text>
+        <DatePickerField
+          style={styles.input}
+          placeholder={t(`${diNS}.licenseSection.issuePlaceholder`)}
+          value={licenseIssueDate}
+          onChangeText={manualEdit('licenseIssueDate', setLicenseIssueDate)}
           placeholderTextColor={colors.textSecondary}
         />
       </View>

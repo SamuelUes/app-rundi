@@ -73,13 +73,13 @@ export const AnimatedButton: React.FC<AnimatedButtonProps> = ({
       case 'primary':
         return { ...baseStyle, backgroundColor: accentColor };
       case 'secondary':
-        return { ...baseStyle, backgroundColor: colors.surface2, shadowOpacity: 0, elevation: 0 };
+        return { ...baseStyle, backgroundColor: colors.surface2, boxShadow: [], elevation: 0 };
       case 'danger':
         return { ...baseStyle, backgroundColor: colors.error };
       case 'success':
         return { ...baseStyle, backgroundColor: colors.success };
       case 'outline':
-        return { ...baseStyle, backgroundColor: 'transparent', borderWidth: 1.5, borderColor: accentColor, shadowOpacity: 0, elevation: 0 };
+        return { ...baseStyle, backgroundColor: 'transparent', borderWidth: 1.5, borderColor: accentColor, boxShadow: [], elevation: 0 };
       default:
         return baseStyle;
     }
@@ -142,10 +142,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
+    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.08)',
     elevation: 2,
   },
   button_small: {

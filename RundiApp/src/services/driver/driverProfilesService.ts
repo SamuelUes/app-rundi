@@ -12,7 +12,7 @@ export interface DriverProfileVehicle {
   type?: string | null;
   isActive?: boolean | null;
   registrationNumber?: string | null;
-  registrationExpiry?: string | null;
+  emissionDate?: string | null;
   registrationPhotoFront?: string | null;
   registrationPhotoBack?: string | null;
   insuranceNumber?: string | null;

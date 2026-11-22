@@ -731,10 +731,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     elevation: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
+    boxShadow: '0px 3px 8px rgba(0, 0, 0, 0.2)',
   },
   nearbyTitle: {
     fontSize: 13,
@@ -791,10 +788,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 24,
     elevation: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: -4 },
+    boxShadow: '0px -4px 12px rgba(0, 0, 0, 0.15)',
     paddingTop: 8,
   },
   handleArea: {
@@ -826,10 +820,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 10,
     elevation: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
+    ...Platform.select({
+      ios: { filter: [{ dropShadow: { offsetX: 0, offsetY: 3, standardDeviation: 6, color: 'rgba(0,0,0,0.2)' } }] },
+      default: {},
+    }),
   },
   avatarPlaceholder: {
     width: 52,
@@ -923,13 +917,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 18,
     gap: 16,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    boxShadow: '0px 0px 2px rgba(0, 0, 0, 0.1)',
     elevation: Platform.OS === 'android' ? 0 : 4,
   },
   priceHeaderRow: {

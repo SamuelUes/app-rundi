@@ -46,6 +46,7 @@ import FloatingCompass from '../../components/driver/FloatingCompass';
 import designatedCrewService from '../../services/driver/designatedCrewService';
 import alertService from '../../services/notification/alertService';
 import type { ImageSourcePropType } from 'react-native';
+import { withAlpha } from '../../utils/format/colors';
 
 type NearbyDriverMarker = {
   id: string;
@@ -503,10 +504,7 @@ const createStyles = (
       backgroundColor: isDark ? 'rgba(24,20,17,0.92)' : 'rgba(255,255,255,0.94)',
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(28,25,23,0.1)',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: isDark ? 0.4 : 0.14,
-      shadowRadius: 12,
+      boxShadow: [{ offsetX: 0, offsetY: 6, blurRadius: 12, color: withAlpha('#000', isDark ? 0.4 : 0.14)  }],
       elevation: 8,
     },
     emergencyChipButton: {
@@ -524,10 +522,7 @@ const createStyles = (
       backgroundColor: isDark ? 'rgba(24,20,17,0.92)' : 'rgba(255,255,255,0.94)',
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(28,25,23,0.1)',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: isDark ? 0.4 : 0.14,
-      shadowRadius: 12,
+      boxShadow: [{ offsetX: 0, offsetY: 6, blurRadius: 12, color: withAlpha('#000', isDark ? 0.4 : 0.14)  }],
       elevation: 8,
     },
     profileAvatarWrap: {
@@ -628,10 +623,7 @@ const createStyles = (
       paddingVertical: 14,
       paddingLeft: 14,
       paddingRight: 12,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.26,
-      shadowRadius: 16,
+      boxShadow: '0px 8px 16px rgba(0, 0, 0, 0.26)',
       elevation: 14,
     },
     bannerPressed: {
@@ -723,10 +715,7 @@ const createStyles = (
       backgroundColor: isDark ? '#F8F5F1' : '#1C1917',
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: isDark ? 'rgba(28,25,23,0.08)' : 'rgba(255,255,255,0.1)',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.22,
-      shadowRadius: 10,
+      boxShadow: '0px 6px 10px rgba(0, 0, 0, 0.22)',
       elevation: 10,
     },
     designatedChipActive: {
@@ -775,10 +764,7 @@ const createStyles = (
       backgroundColor: isDark ? '#F8F5F1' : '#1C1917',
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: isDark ? 'rgba(28,25,23,0.08)' : 'rgba(255,255,255,0.08)',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 12 },
-      shadowOpacity: 0.35,
-      shadowRadius: 22,
+      boxShadow: '0px 12px 22px rgba(0, 0, 0, 0.35)',
       elevation: 20,
     },
     navChipsRow: {
@@ -797,10 +783,7 @@ const createStyles = (
       backgroundColor: isDark ? 'rgba(24,20,17,0.92)' : 'rgba(255,255,255,0.94)',
       borderWidth: 0.5,
       borderColor: isDark ? colors.SecondBorder : colors.primary,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: isDark ? 0.35 : 0.12,
-      shadowRadius: 3,
+      boxShadow: [{ offsetX: 0, offsetY: 4, blurRadius: 3, color: withAlpha('#000', isDark ? 0.35 : 0.12)  }],
       elevation: 1,
     },
     navChipPressed: {

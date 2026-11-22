@@ -33,6 +33,7 @@ import alertService from '../../services/notification/alertService';
 import { normalizeSuggestion, type NormalizedSuggestion } from '../../utils/ride/suggestions';
 import type { Coords } from '../../utils/geo/rideCoords';
 import type { RecurringRide, RecurringRideVehicleType } from '../../types/recurringRide';
+import { withAlpha } from '../../utils/format/colors';
 
 const { MANUAL_ORIGIN } = MAP_ICONS;
 const FALLBACK = { latitude: 12.1364, longitude: -86.2514 };
@@ -674,10 +675,7 @@ const createStyles = (colors: any, isDark: boolean) => {
       backgroundColor: isDark ? 'rgba(24,20,17,0.94)' : 'rgba(255,255,255,0.96)',
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(28,25,23,0.08)',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: isDark ? 0.35 : 0.12,
-      shadowRadius: 12,
+      boxShadow: [{ offsetX: 0, offsetY: 6, blurRadius: 12, color: withAlpha('#000', isDark ? 0.35 : 0.12)  }],
       elevation: 10,
       zIndex: 20,
     },
@@ -769,10 +767,7 @@ const createStyles = (colors: any, isDark: boolean) => {
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: accent,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.28,
-      shadowRadius: 12,
+      boxShadow: '0px 6px 12px rgba(0, 0, 0, 0.28)',
       elevation: 12,
       zIndex: 25,
     },
@@ -798,10 +793,7 @@ const createStyles = (colors: any, isDark: boolean) => {
       backgroundColor: isDark ? 'rgba(24,20,17,0.97)' : 'rgba(255,255,255,0.98)',
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(28,25,23,0.1)',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: -6 },
-      shadowOpacity: isDark ? 0.4 : 0.14,
-      shadowRadius: 16,
+      boxShadow: [{ offsetX: 0, offsetY: -6, blurRadius: 16, color: withAlpha('#000', isDark ? 0.4 : 0.14)  }],
       elevation: 16,
       overflow: 'hidden',
     },
@@ -887,10 +879,7 @@ const createStyles = (colors: any, isDark: boolean) => {
       borderRadius: 999,
       backgroundColor: accent,
       marginTop: 20,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.22,
-      shadowRadius: 12,
+      boxShadow: '0px 6px 12px rgba(0, 0, 0, 0.22)',
       elevation: 10,
     },
     saveButtonDisabled: { opacity: 0.45 },
@@ -909,13 +898,10 @@ const createStyles = (colors: any, isDark: boolean) => {
       borderRadius: 22,
       padding: 16,
       maxHeight: '78%',
-      backgroundColor: isDark ? 'rgba(24,20,17,0.98)' : '#FFFFFF',
+      backgroundColor: isDark ? '#181411' : '#FFFFFF',
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(28,25,23,0.08)',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 10 },
-      shadowOpacity: 0.3,
-      shadowRadius: 20,
+      boxShadow: '0px 10px 20px rgba(0, 0, 0, 0.3)',
       elevation: 20,
     },
     searchHeader: {

@@ -26,7 +26,7 @@ export function findDateIssues(snapshot: PrivateDocumentSnapshot | null, now = n
   const issues: DateIssue[] = [];
   const docs: [DocumentKind, DatedDocument | undefined, unknown, unknown][] = [
     ['license', snapshot.license, snapshot.license?.issueDate, snapshot.license?.expiryDate],
-    ['circulation', snapshot.circulation, snapshot.circulation?.issuedAt, snapshot.circulation?.validUntil],
+    ['circulation', snapshot.circulation, snapshot.circulation?.issuedAt, null],
     ['insurance', snapshot.insurance, snapshot.insurance?.effectiveFrom, snapshot.insurance?.effectiveUntil],
     ['inspection', snapshot.inspection, null, snapshot.inspection?.validUntil],
     ['emissions', snapshot.emissions, null, snapshot.emissions?.validUntil],

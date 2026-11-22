@@ -74,7 +74,6 @@ export interface VehicleDocInput {
   documentPathBack?: string;
   cardNumber?: string;
   issuedAt?: string;
-  declaredValidUntil?: string;
   /** Año leído por OCR del reverso de la circulación — actualiza
    *  vehicles.registration_ocr_year (elegibilidad premium). */
   ocrYear?: number;

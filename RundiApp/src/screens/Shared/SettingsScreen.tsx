@@ -198,7 +198,7 @@ export default function SettingsScreen({ navigation }: any) {
       alignItems: 'center',
     },
     header: {
-      backgroundColor: 'rgba(211, 153, 46, 0.94)',
+      backgroundColor: '#D3992E',
       paddingVertical: 18,
       paddingHorizontal: 18,
       marginTop: insets.top + 8,
@@ -209,10 +209,7 @@ export default function SettingsScreen({ navigation }: any) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 14,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.16,
-      shadowRadius: 16,
+      boxShadow: '0px 6px 16px rgba(0, 0, 0, 0.16)',
       elevation: 8,
     },
     headerText: {
@@ -241,10 +238,7 @@ export default function SettingsScreen({ navigation }: any) {
       borderWidth: 0.1,
       borderColor: colors.border,
       backgroundColor: colors.card,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.08,
-      shadowRadius: 12,
+      boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.08)',
       elevation: 6,
     },
     sectionTitle: {

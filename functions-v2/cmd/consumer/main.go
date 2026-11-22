@@ -25,6 +25,7 @@ import (
 	"github.com/rundi/functions-v2/internal/calls"
 	"github.com/rundi/functions-v2/internal/compliance"
 	"github.com/rundi/functions-v2/internal/config"
+	"github.com/rundi/functions-v2/internal/crew"
 	"github.com/rundi/functions-v2/internal/db"
 	"github.com/rundi/functions-v2/internal/fcm"
 	"github.com/rundi/functions-v2/internal/fs"
@@ -279,17 +280,26 @@ func sweep(ctx context.Context, pool *pgxpool.Pool, fsClient *firestore.Client, 
 		published = append(published, ev)
 	}
 
-	// Retención: borra publicados viejos (los 'failed' NO se purgan —
-	// requieren revisión humana). Índice: idx_outbox_published_cleanup.
-	if _, err := pool.Exec(ctx, `
-		DELETE FROM public.outbox_events
-		WHERE status = 'published' AND published_at < NOW() - interval '7 days'`); err != nil {
-		slog.Warn("outbox purge", "err", err)
-	}
-
 	// Efectos post-commit no críticos (fallos no desmarcan el evento).
+	crewSvc := crew.NewService(pool, fsClient)
 	for _, ev := range published {
 		notifySideEffects(ctx, pool, notify, ev)
+		// driver.deactivated: si el conductor que se apagó era seguidor de un
+		// crew con viaje activo, marcarlo 'abandoned' (paridad driverOffline de
+		// v1). Cubre TODOS los emisores del evento — deactivate manual/cambio
+		// de modo, sesión expirada, ride_completed — además de presence_expired
+		// (donde el sweep también lo llama directo; la segunda llamada es no-op
+		// porque follower_released limpia currentRideId).
+		if ev.EventType == "driver.deactivated" {
+			var p struct {
+				DriverUID string `json:"driverUid"`
+			}
+			if err := json.Unmarshal(ev.Payload, &p); err == nil && p.DriverUID != "" {
+				if err := crewSvc.MarkFollowerAbandoned(ctx, p.DriverUID); err != nil {
+					slog.Warn("crew follower abandon", "uid", p.DriverUID, "err", err)
+				}
+			}
+		}
 	}
 	return len(published), nil
 }

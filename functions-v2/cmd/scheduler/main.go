@@ -8,6 +8,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strconv"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -55,10 +56,10 @@ func main() {
 	// SCHEDULER_ONLY selecciona el grupo de barridos (job dedicado por
 	// cadencia; el job general sin la variable sigue corriéndolo TODO):
 	//   programmed  — solo promoción de programados (gracia de 2min).
-	//   realtime    — presencia, sesiones de conductor, ofertas, llamadas y
-	//                 promoción de programados (barridos sensibles a latencia).
+	//   realtime    — presencia, sesiones, ofertas, crew, llamadas y programados
+	//                 (rundi-scheduler cada 5min).
 	//   maintenance — reconcile, compliance diario, cleanups y retención
-	//                 (trabajo por lotes; candidato a cadencia baja).
+	//                 (rundi-maintenance cada 6h).
 	only := os.Getenv("SCHEDULER_ONLY")
 	if only == "" || only == "programmed" || only == "realtime" {
 		var sender *fcm.Sender
@@ -118,7 +119,7 @@ func main() {
 	}
 	if maintenance {
 		// Reconciliación: autoridad SQL → repara proyecciones atrasadas/ausentes.
-		repaired, errs := reconcile.Run(ctx, pool, fsClient, 2*time.Hour)
+		repaired, errs := reconcile.Run(ctx, pool, fsClient, reconcileWindow())
 		slog.Info("reconcile done", "repaired", repaired, "errors", errs)
 		// Cumplimiento diario: reevalúa conductores activos (complianceDaily v1).
 		ev, cerr := compSvc.ScheduledSweep(ctx)
@@ -130,6 +131,11 @@ func main() {
 		runProgrammed(ctx, progSvc, "scheduler")
 	}
 	if maintenance {
+		// Failed events require human review and are never purged here.
+		if _, err := pool.Exec(ctx, `DELETE FROM public.outbox_events
+			WHERE status = 'published' AND published_at < NOW() - interval '7 days'`); err != nil {
+			slog.Warn("outbox purge", "err", err)
+		}
 		if _, err := pool.Exec(ctx, `DELETE FROM public.api_rate_limits WHERE ctid IN
 			(SELECT ctid FROM public.api_rate_limits WHERE last_seen < NOW() - interval '1 hour' LIMIT 10000)`); err != nil {
 			slog.Warn("rate limit cleanup", "err", err)
@@ -144,6 +150,14 @@ func main() {
 		retentionSweep(ctx, fsClient)
 	}
 	slog.Info("scheduler done")
+}
+
+func reconcileWindow() time.Duration {
+	minutes, err := strconv.ParseInt(os.Getenv("RECONCILE_WINDOW_MINUTES"), 10, 64)
+	if err == nil && minutes > 0 && minutes <= int64((1<<63-1)/time.Minute) {
+		return time.Duration(minutes) * time.Minute
+	}
+	return 7 * time.Hour
 }
 
 func runProgrammed(ctx context.Context, progSvc *programmed.Service, source string) {

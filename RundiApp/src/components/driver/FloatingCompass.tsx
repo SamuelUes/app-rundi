@@ -12,6 +12,7 @@ import {
 import * as Location from 'expo-location';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
+import { withAlpha } from '../../utils/format/colors';
 
 interface FloatingCompassProps {
   // Rumbo GPS (course over ground) usado solo como respaldo cuando el
@@ -148,10 +149,7 @@ const createStyles = (colors: any, isDark: boolean) =>
       backgroundColor: isDark ? 'rgba(24,20,17,0.92)' : 'rgba(255,255,255,0.94)',
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(28,25,23,0.1)',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: isDark ? 0.4 : 0.14,
-      shadowRadius: 12,
+      boxShadow: [{ offsetX: 0, offsetY: 6, blurRadius: 12, color: withAlpha('#000', isDark ? 0.4 : 0.14)  }],
       elevation: 8,
       zIndex: 20,
     },

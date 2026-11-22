@@ -243,7 +243,6 @@ CREATE TABLE IF NOT EXISTS public.vehicle_circulation_cards (
   vehicle_id UUID NOT NULL,
   card_number VARCHAR(60) NULL,
   issued_at DATE NULL,
-  declared_valid_until DATE NULL,
   declared_plate VARCHAR(20) NULL,
   declared_vin VARCHAR(50) NULL,
   declared_chasis VARCHAR(50) NULL,

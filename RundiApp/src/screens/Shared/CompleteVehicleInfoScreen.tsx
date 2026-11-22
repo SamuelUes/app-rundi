@@ -95,7 +95,7 @@ export default function CompleteVehicleInfoScreen({ navigation }: any) {
       vehicleInfo: !!formState.plate && !!formState.brand && !!formState.model &&
                    !!formState.year && !!formState.color && !!formState.vehicleType,
       documentsInfo: !!formState.registrationNumber && !!formState.insuranceNumber &&
-                     !!formState.insuranceCompany && !!formState.registrationExpiry &&
+                     !!formState.insuranceCompany && !!formState.emissionDate &&
                      !!formState.insuranceExpiry,
       licensePhotos: licensePhotosComplete,
       registrationPhotos: registrationPhotosComplete,

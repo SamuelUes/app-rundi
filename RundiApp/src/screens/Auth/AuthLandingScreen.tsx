@@ -21,6 +21,7 @@ import StorageImage from '../../components/shared/StorageImage';
 import deviceIdentityService from '../../services/auth/deviceIdentityService';
 import alertService from '../../services/notification/alertService';
 import type { RecognizedDevice } from '../../api/devices';
+import { withAlpha } from '../../utils/format/colors';
 
 type AuthLandingNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'AuthLanding'>;
 
@@ -463,10 +464,7 @@ const createStyles = (colors: any, isDark: boolean) => {
       // Relieve: filo inferior más oscuro + sombra dorada suave.
       borderBottomWidth: 1.2,
       borderBottomColor: goldDeep,
-      shadowColor: gold,
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.15,
-      shadowRadius: 4,
+      boxShadow: [{ offsetX: 0, offsetY: 8, blurRadius: 4, color: withAlpha(gold, 0.15)  }],
       elevation: 4,
     },
     primaryButtonText: {

@@ -30,6 +30,7 @@ import { PaymentCostCard } from '../../components/client/Payment/PaymentCostCard
 import { PaymentTipCard } from '../../components/client/Payment/PaymentTipCard';
 import { PaymentMethodCard } from '../../components/client/Payment/PaymentMethodCard';
 import { PaymentPayButton } from '../../components/client/Payment/PaymentPayButton';
+import { withAlpha } from '../../utils/format/colors';
 
 interface PaymentScreenProps {
   route: {
@@ -527,10 +528,7 @@ const createStyles = (colors: any, accentAlt: string) => {
     borderRadius: 20,
     padding: 20,
     marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
+    boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.06)',
     elevation: 2,
     borderWidth: 1,
     borderColor: colors.border,
@@ -897,19 +895,15 @@ const createStyles = (colors: any, accentAlt: string) => {
     gap: 8,
     marginTop: 8,
     marginBottom: 16,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
+    boxShadow: [{ offsetX: 0, offsetY: 6, blurRadius: 12, color: withAlpha(colors.primary, 0.3)  }],
     elevation: 5,
   },
   payButtonPending: {
     backgroundColor: colors.warning,
-    shadowColor: colors.warning,
+    boxShadow: [{ offsetX: 0, offsetY: 0, blurRadius: 3, color: withAlpha(colors.warning, 1)  }],
   },
   payButtonDisabled: {
     opacity: 0.7,
-    shadowOpacity: 0,
     elevation: 0,
   },
   payButtonText: {

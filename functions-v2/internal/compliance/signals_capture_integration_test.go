@@ -54,7 +54,7 @@ func TestComplianceSignalCaptureIntegration(t *testing.T) {
 			chasis text, motor text, year int, emission_date date, is_active boolean,
 			created_at timestamptz, deleted_at timestamptz)`,
 		"CREATE TABLE " + s + `.vehicle_circulation_cards (id uuid, vehicle_id uuid,
-			status text, card_number text, issued_at date, declared_valid_until date,
+			status text, card_number text, issued_at date,
 			declared_plate text, declared_vin text, declared_chasis text,
 			declared_motor text, declared_service_type text, is_current boolean,
 			deleted_at timestamptz, created_at timestamptz)`,

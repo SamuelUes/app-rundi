@@ -35,7 +35,6 @@ interface VehicleData {
   lien?: string;
   emission_date?: string;
   registration_number?: string;
-  registration_expiry?: string;
   registration_photo?: string | null;
   registration_photo_front?: string | null;
   registration_photo_back?: string | null;
@@ -76,7 +75,6 @@ class VehiclesService {
         motor: vehicleData.motor,
         chasis: vehicleData.chasis,
         registrationNumber: vehicleData.registration_number,
-        registrationExpiry: vehicleData.registration_expiry,
         insuranceNumber: vehicleData.insurance_number,
         insuranceCompany: vehicleData.insurance_company,
         insuranceExpiry: vehicleData.insurance_expiry,
@@ -112,7 +110,6 @@ class VehiclesService {
           documentPathBack: regBack ?? undefined,
           cardNumber: vehicleData.registration_number,
           issuedAt: vehicleData.emission_date,
-          declaredValidUntil: vehicleData.registration_expiry,
         }).catch((err) => console.warn('⚠️ circulation_card doc:', err));
       }
       if (insurancePhoto) {
@@ -187,7 +184,6 @@ class VehiclesService {
       'is_active': 'isActive',
       'is4x4': 'is4x4',
       'registration_number': 'registrationNumber',
-      'registration_expiry': 'registrationExpiry',
       'emission_date': 'emissionDate',
       'registration_photo_front': 'registrationPhotoFront',
       'registration_photo_back': 'registrationPhotoBack',
@@ -205,7 +201,7 @@ class VehiclesService {
       }
     });
 
-    const dateFields = ['registrationExpiry', 'insuranceExpiry'];
+    const dateFields = ['emissionDate', 'insuranceExpiry'];
     dateFields.forEach(field => {
       if (normalized[field]) {
         if (typeof normalized[field] === 'object' && Object.keys(normalized[field]).length === 0) {
@@ -285,7 +281,6 @@ class VehiclesService {
           documentPathBack: regBack,
           cardNumber: anyData.registration_number ?? anyData.registrationNumber,
           issuedAt: anyData.emission_date ?? anyData.emissionDate,
-          declaredValidUntil: anyData.registration_expiry ?? anyData.registrationExpiry,
         });
       }
       return { success: true, vehicle: { id: vehicleId, ...data } };

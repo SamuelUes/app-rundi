@@ -1,4 +1,5 @@
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
+import { withAlpha } from '../../utils/format/colors';
 
 export const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   container: {
@@ -110,10 +111,10 @@ export const createStyles = (colors: any, isDark: boolean) => StyleSheet.create(
     borderRadius: 18,
     alignSelf: 'flex-start',
     marginTop: 10,
-    shadowColor: 'rgb(0, 0, 0, 0.4)',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
+    ...Platform.select({
+      ios: { filter: [{ dropShadow: { offsetX: 0, offsetY: 2, standardDeviation: 4, color: 'rgba(0,0,0,0.06)' } }] },
+      default: {},
+    }),
     elevation: 3,
   },
   editProfileText: {
@@ -131,10 +132,7 @@ export const createStyles = (colors: any, isDark: boolean) => StyleSheet.create(
     paddingBottom: 32,
     marginTop: -16,
     marginHorizontal: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
+    boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.08)',
     elevation: 6,
   },
   section: {
@@ -167,10 +165,7 @@ export const createStyles = (colors: any, isDark: boolean) => StyleSheet.create(
     marginTop: 4,
     borderWidth: 0.21,
     borderColor: colors.border,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
+    boxShadow: [{ offsetX: 0, offsetY: 2, blurRadius: 8, color: withAlpha(colors.shadow, 0.08)  }],
     elevation: 2,
   },
   profileModeHeader: {
@@ -226,10 +221,7 @@ export const createStyles = (colors: any, isDark: boolean) => StyleSheet.create(
     paddingVertical: 6,
     borderWidth: 0.21,
     borderColor: colors.border,
-    shadowColor: colors.shadow,
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
+    boxShadow: [{ offsetX: 0, offsetY: 4, blurRadius: 12, color: withAlpha(colors.shadow, 0.08)  }],
     elevation: 4,
   },
   prefRow: {
@@ -284,10 +276,7 @@ export const createStyles = (colors: any, isDark: boolean) => StyleSheet.create(
     borderWidth: 0.21,
     borderColor: colors.border,
     backgroundColor: colors.surface,
-      shadowColor: colors.shadow,
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
+      boxShadow: [{ offsetX: 0, offsetY: 4, blurRadius: 12, color: withAlpha(colors.shadow, 0.08)  }],
     elevation: 4,
   },
   themeChipActive: {
@@ -313,10 +302,7 @@ export const createStyles = (colors: any, isDark: boolean) => StyleSheet.create(
     borderWidth: 0.21,
     backgroundColor: colors.card,
     borderColor: colors.border,
-    shadowColor: colors.shadow,
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
+    boxShadow: [{ offsetX: 0, offsetY: 4, blurRadius: 12, color: withAlpha(colors.shadow, 0.04)  }],
     elevation: 4,
   },
   optionCardLast: {

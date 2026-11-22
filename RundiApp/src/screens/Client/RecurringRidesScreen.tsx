@@ -19,6 +19,7 @@ import DestPinImg from '../../assets/icons/final-marker/final-marker.svg';
 import StopPinImg from '../../assets/icons/extra-marker/extra-marker.svg';
 import alertService from '../../services/notification/alertService';
 import type { RecurringRide } from '../../types/recurringRide';
+import { withAlpha } from '../../utils/format/colors';
 
 const VEHICLE_LABEL_KEYS: Record<RecurringRide['vehicleType'], string> = {
   moto: 'shared.searchRide.vehicle.motoLabel',
@@ -246,10 +247,7 @@ const createStyles = (colors: any, isDark: boolean) => {
       backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF',
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(28,25,23,0.08)',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: isDark ? 0.25 : 0.08,
-      shadowRadius: 10,
+      boxShadow: [{ offsetX: 0, offsetY: 4, blurRadius: 10, color: withAlpha('#000', isDark ? 0.25 : 0.08)  }],
       elevation: 4,
     },
     cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },

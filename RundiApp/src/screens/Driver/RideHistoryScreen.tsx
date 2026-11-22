@@ -517,13 +517,7 @@ const createStyles = (colors: any) =>
       marginBottom: 12,
       borderWidth: 0.1,
       borderColor: colors.border,
-      shadowColor: '#000000',
-      shadowOffset: {
-        width: 0,
-        height: 1,
-      },
-      shadowOpacity: 0.05,
-      shadowRadius: 2,
+      boxShadow: '0px 0px 2px rgba(0, 0, 0, 0.05)',
       elevation: 2,
     },
     rideHeader: {

@@ -32,26 +32,39 @@ func LoadDriverDocumentData(ctx context.Context, pool *pgxpool.Pool, uid string)
 		    FROM public.driver_licenses WHERE driver_id = (SELECT id FROM d)
 		      AND is_current AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1),
 		  'vehicle', (SELECT jsonb_build_object('id', id, 'plate', plate, 'type', type,
-		      'year', year, 'brand', brand, 'model', model, 'color', color) FROM v),
-		  'circulation', (SELECT jsonb_build_object('status', status, 'issuedAt', issued_at, 'validUntil', declared_valid_until)
+		      'year', year, 'brand', brand, 'model', model, 'color', color, 'vin', vin) FROM v),
+		  'circulation', (SELECT jsonb_build_object('status', status, 'cardNumber', card_number, 'issuedAt', issued_at,
+		      'declaredPlate', declared_plate, 'declaredVin', declared_vin, 'declaredChasis', declared_chasis,
+		      'declaredMotor', declared_motor, 'declaredBrand', declared_brand, 'declaredModel', declared_model,
+		      'declaredYear', declared_year, 'declaredColor', declared_color,
+		      'declaredVehicleClass', declared_vehicle_class, 'declaredServiceType', declared_service_type,
+		      'declaredOwnerName', declared_owner_name)
 		    FROM public.vehicle_circulation_cards WHERE vehicle_id = (SELECT id FROM v)
 		      AND is_current AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1),
 		  'insurance', (SELECT jsonb_build_object(
-		      'status', status, 'policyNumber', policy_number, 'insurer', insurer_name, 'coverageType', coverage_type,
-		      'insuredPlate', insured_plate, 'effectiveFrom', effective_from, 'effectiveUntil', effective_until)
+		      'status', status, 'policyNumber', policy_number, 'insurer', insurer_name, 'insurerCode', insurer_code,
+		      'coverageType', coverage_type,
+		      'insuredPlate', insured_plate, 'insuredVin', insured_vin, 'insuredMotor', insured_motor,
+		      'insuredChasis', insured_chasis, 'policyholderName', policyholder_name,
+		      'effectiveFrom', effective_from, 'effectiveUntil', effective_until)
 		    FROM public.vehicle_insurance_policies WHERE vehicle_id = (SELECT id FROM v)
 		      AND coverage_type = 'rc_obligatorio' AND is_current AND deleted_at IS NULL
 		    ORDER BY created_at DESC LIMIT 1),
-		  'inspection', (SELECT jsonb_build_object('status', status, 'result', result, 'validUntil', valid_until)
+		  'inspection', (SELECT jsonb_build_object('status', status, 'result', result, 'validUntil', valid_until,
+		      'inspectedAt', inspected_at, 'certificateNumber', certificate_number, 'issuer', issuer)
 		    FROM public.vehicle_inspections WHERE vehicle_id = (SELECT id FROM v)
 		      AND is_current AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1),
-		  'emissions', (SELECT jsonb_build_object('status', status, 'result', result, 'validUntil', valid_until)
+		  'emissions', (SELECT jsonb_build_object('status', status, 'result', result, 'validUntil', valid_until,
+		      'testedAt', tested_at, 'certificateNumber', certificate_number, 'issuer', issuer)
 		    FROM public.vehicle_emission_certificates WHERE vehicle_id = (SELECT id FROM v)
 		      AND is_current AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1),
-		  'revisado', (SELECT jsonb_build_object('status', status, 'validUntil', valid_until, 'stickerYear', sticker_year)
+		  'revisado', (SELECT jsonb_build_object('status', status, 'validUntil', valid_until, 'stickerYear', sticker_year,
+		      'issuedAt', issued_at)
 		    FROM public.vehicle_revisado_stickers WHERE vehicle_id = (SELECT id FROM v)
 		      AND is_current AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1),
-		  'roadTax', (SELECT jsonb_build_object('status', status, 'taxYear', tax_year, 'exempt', exempt)
+		  'roadTax', (SELECT jsonb_build_object('status', status, 'taxYear', tax_year, 'exempt', exempt,
+		      'paidAt', paid_at, 'receiptNumber', receipt_number, 'municipality', municipality,
+		      'exemptReason', exempt_reason)
 		    FROM public.vehicle_road_taxes WHERE vehicle_id = (SELECT id FROM v)
 		      AND is_current AND deleted_at IS NULL ORDER BY tax_year DESC, created_at DESC LIMIT 1)
 		)`, uid).Scan(&raw)

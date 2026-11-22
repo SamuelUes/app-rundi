@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { getFirebaseAuth } from '../../../config/firebase';
 import { useAuth } from '../auth/useAuth';
+import { useAuthStore } from '../../../stores/authStore';
 import sessionService from '../../../services/user/sessionService';
 import alertService from '../../../services/notification/alertService';
 import backgroundLocationService from '../../../services/map/backgroundLocationService';
@@ -17,13 +18,10 @@ export function useClientPresence() {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    // Solo para usuarios autenticados en modo cliente
-    if (
-      loading ||
-      !user?.id ||
-      (user.role !== 'client' && user.role !== 'admin') ||
-      userMode !== 'client'
-    ) {
+    // Cualquier usuario autenticado en modo cliente — incluidos conductores
+    // (role driver/designated_driver) que cambiaron a modo cliente: su sesión
+    // y presencia también deben reflejar 'client'/online.
+    if (loading || !user?.id || userMode !== 'client') {
       return;
     }
 
@@ -126,6 +124,9 @@ export function useClientPresence() {
         .then((auth) => {
           const uid = auth.currentUser?.uid;
           if (!uid || uid !== user?.id) return;
+          // Si el cleanup vino de un cambio de modo (p.ej. a conductor), el
+          // hook del nuevo modo ya escribió 'online' — no pisarlo.
+          if (useAuthStore.getState().userMode !== 'client') return;
           writePresence(uid, 'offline').catch(() => {});
         })
         .catch(() => {});

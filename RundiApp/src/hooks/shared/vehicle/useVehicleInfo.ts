@@ -18,7 +18,8 @@ export interface VehicleData {
   color: string;
   type: string;
   registration_number?: string;
-  registration_expiry?: string;
+  emission_date?: string;
+  emissionDate?: string;
   registration_photo?: string;
   registration_photo_front?: string;
   registration_photo_back?: string;
@@ -68,7 +69,7 @@ export interface VehicleFormState {
   color: string;
   vehicleType: string;
   registrationNumber: string;
-  registrationExpiry: string;
+  emissionDate: string;
   insuranceNumber: string;
   insuranceCompany: string;
   insuranceExpiry: string;
@@ -98,7 +99,7 @@ const defaultFormState: VehicleFormState = {
   color: '',
   vehicleType: '',
   registrationNumber: '',
-  registrationExpiry: '',
+  emissionDate: '',
   insuranceNumber: '',
   insuranceCompany: '',
   insuranceExpiry: '',
@@ -188,7 +189,7 @@ export function useVehicleInfo(userId: string | undefined, defaultLienValue: str
             color: safeString(vehicle.color),
             vehicleType: safeString(vehicle.type),
             registrationNumber: safeString(vehicle.registration_number),
-            registrationExpiry: formatDateValue(vehicle.registration_expiry),
+            emissionDate: formatDateValue(vehicle.emission_date ?? vehicle.emissionDate),
             insuranceNumber: safeString(vehicle.insurance_number),
             insuranceCompany: safeString(vehicle.insurance_company),
             insuranceExpiry: formatDateValue(vehicle.insurance_expiry),
@@ -263,7 +264,7 @@ export function useVehicleInfo(userId: string | undefined, defaultLienValue: str
       if (formState.color !== (vehicleData?.color || '')) vehicleUpdates.color = formState.color;
       if (formState.vehicleType !== (vehicleData?.type || '')) vehicleUpdates.type = formState.vehicleType;
       if (formState.registrationNumber !== (vehicleData?.registration_number || '')) vehicleUpdates.registration_number = formState.registrationNumber;
-      if (formState.registrationExpiry !== (vehicleData?.registration_expiry || '')) vehicleUpdates.registration_expiry = formState.registrationExpiry;
+      if (formState.emissionDate !== (vehicleData?.emission_date || vehicleData?.emissionDate || '')) vehicleUpdates.emission_date = formState.emissionDate;
       if (formState.insuranceNumber !== (vehicleData?.insurance_number || '')) vehicleUpdates.insurance_number = formState.insuranceNumber;
       if (formState.insuranceCompany !== (vehicleData?.insurance_company || '')) vehicleUpdates.insurance_company = formState.insuranceCompany;
       if (formState.insuranceExpiry !== (vehicleData?.insurance_expiry || '')) vehicleUpdates.insurance_expiry = formState.insuranceExpiry;

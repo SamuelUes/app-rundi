@@ -76,10 +76,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.07,
-    shadowRadius: 10,
+    boxShadow: '0px 4px 10px rgba(0, 0, 0, 0.07)',
     elevation: 2,
   },
   route: {

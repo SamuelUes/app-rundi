@@ -19,6 +19,7 @@ export type DocumentOcrType = 'license' | 'registration' | 'insurance' | 'inspec
 export interface ExtractedDocumentFields {
   licenseNumber?: string;
   licenseExpiry?: string;
+  licenseIssueDate?: string;
   plate?: string;
   brand?: string;
   model?: string;
@@ -27,7 +28,6 @@ export interface ExtractedDocumentFields {
   type?: string;
   passengers?: string;
   registrationNumber?: string;
-  registrationExpiry?: string;
   emissionDate?: string;
   insuranceNumber?: string;
   insuranceCompany?: string;
@@ -117,6 +117,9 @@ const SPANISH_MONTHS: Record<string, number> = {
 const EXPIRY_KEYWORDS = /(vence|vencimiento|vigente|v[áa]lida?|expira|expiraci[oó]n|hasta)/i;
 // Fechas que NO son vencimiento: emisión, expedición, nacimiento, "desde".
 const ISSUE_KEYWORDS = /(emisi[oó]n|emitida|expedida|expedici[oó]n|nacimiento|desde)/i;
+// Keywords que SÍ marcan emisión (nacimiento queda fuera: la fecha de
+// nacimiento de la licencia se excluye del vencimiento pero no es emisión).
+const EMISSION_KEYWORDS = /(emisi[oó]n|emitida|expedida|expedici[oó]n|desde)/i;
 
 interface FoundDate {
   iso: string;
@@ -193,6 +196,10 @@ const CLUSTER_DATE = /([A-Za-z0-9]{1,3})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/g;
 // Variante con mes+año fusionados: "A4/022029" → 02/2029. El \b final evita
 // partir secuencias de dígitos largas (barcode "0900515645").
 const CLUSTER_DATE_FUSED = /([A-Za-z0-9]{1,3})[\/\-.](\d{2})(\d{4})\b/g;
+// Variante con día+mes fusionados: "RAF402/2029" → cluster día("RAF4"→14) +
+// mes(02) + año. El mes son los 2 dígitos finales del cluster; el resto va a
+// mapDayCluster (exige letra → cédulas "40206-10028" no cuelan).
+const CLUSTER_DAY_MONTH_FUSED = /([A-Za-z0-9]{1,4}\d{2})[\/\-.](\d{4})\b/g;
 // Fragmento "día/mes" SIN año ("A4/02", "14/02"): el OCR rojo de la licencia
 // suele cortar el año a otra línea. El lookahead exige que no sigan dígitos,
 // así no corta cadenas de ID ("001-140206-1002S").
@@ -242,6 +249,18 @@ function findDatesLenient(text: string, strict: FoundDate[]): FoundDate[] {
     const day = mapDayCluster(m[1]);
     if (day === null) continue;
     const iso = toIso(Number(m[3]), Number(m[2]), day);
+    if (iso) found.push({ iso, index: matchIndex });
+  }
+
+  while ((m = CLUSTER_DAY_MONTH_FUSED.exec(text)) !== null) {
+    const matchIndex = m.index;
+    if ([...strict, ...found].some((d) => Math.abs(d.index - matchIndex) < 4)) continue;
+    const cluster = m[1];
+    const month = Number(cluster.slice(-2));
+    if (month < 1 || month > 12) continue;
+    const day = mapDayCluster(cluster.slice(0, -2));
+    if (day === null) continue;
+    const iso = toIso(Number(m[2]), month, day);
     if (iso) found.push({ iso, index: matchIndex });
   }
 
@@ -358,7 +377,7 @@ function pickIssueDate(text: string): string | undefined {
   );
   if (!dates.length) return undefined;
 
-  for (const kw of text.matchAll(new RegExp(ISSUE_KEYWORDS.source, 'gi'))) {
+  for (const kw of text.matchAll(new RegExp(EMISSION_KEYWORDS.source, 'gi'))) {
     const kwIndex = kw.index ?? 0;
     let nearest: FoundDate | undefined;
     let nearestDistance = Infinity;
@@ -442,6 +461,8 @@ function extractLicenseFields(text: string): ExtractedDocumentFields {
 
   const expiry = pickExpiryDate(text);
   if (expiry) fields.licenseExpiry = expiry;
+  const issue = pickIssueDate(text);
+  if (issue) fields.licenseIssueDate = issue;
 
   return fields;
 }
@@ -522,12 +543,10 @@ function extractRegistrationFields(text: string): ExtractedDocumentFields {
 
   fillIdentifiers(norm, fields);
 
-  // La tarjeta NI trae "Emisión" (no "Vencimiento") → emission_date;
-  // "VÁLIDA HASTA" solo aparece en formatos viejos → registrationExpiry.
+  // La tarjeta NI trae "Emisión" (no "Vencimiento") → emission_date; la
+  // circulación no tiene vencimiento en el modelo v2.
   const issue = pickIssueDate(text);
   if (issue) fields.emissionDate = issue;
-  const expiry = pickExpiryDate(text);
-  if (expiry) fields.registrationExpiry = expiry;
 
   return fields;
 }

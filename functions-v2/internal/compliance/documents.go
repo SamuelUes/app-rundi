@@ -49,9 +49,8 @@ type VehicleDocInput struct {
 	DocumentBack string `json:"documentPathBack"`
 
 	// circulation_card
-	CardNumber         string `json:"cardNumber"`
-	IssuedAt           string `json:"issuedAt"`
-	DeclaredValidUntil string `json:"declaredValidUntil"`
+	CardNumber string `json:"cardNumber"`
+	IssuedAt   string `json:"issuedAt"`
 	// Año leído por OCR de la foto del documento — año autoritativo para
 	// elegibilidad premium (no editable por PATCH de vehículos).
 	OcrYear *int `json:"ocrYear,omitempty"`
@@ -228,16 +227,20 @@ func (s *Service) SubmitDriverLicense(ctx context.Context, uid string, in Licens
 }
 
 type vehicleRow struct {
-	ID, DriverID, Plate             string
-	Vin, Chasis, Motor, ServiceType *string
+	ID, DriverID, Plate               string
+	Vin, Chasis, Motor, ServiceType   *string
+	Brand, Model, Color, VehicleClass *string
+	Year                              *int
 }
 
 func (s *Service) vehicleForDriver(ctx context.Context, vehicleID, driverUUID string) (*vehicleRow, error) {
 	v := &vehicleRow{}
 	err := s.pool.QueryRow(ctx, `
-		SELECT id::text, driver_id::text, plate, vin, chasis, motor, service_type
+		SELECT id::text, driver_id::text, plate, vin, chasis, motor, service_type,
+		       brand, model, year, color, vehicle_class
 		FROM public.vehicles WHERE id = $1::uuid AND deleted_at IS NULL`, vehicleID).
-		Scan(&v.ID, &v.DriverID, &v.Plate, &v.Vin, &v.Chasis, &v.Motor, &v.ServiceType)
+		Scan(&v.ID, &v.DriverID, &v.Plate, &v.Vin, &v.Chasis, &v.Motor, &v.ServiceType,
+			&v.Brand, &v.Model, &v.Year, &v.Color, &v.VehicleClass)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperr.New(404, "Vehículo no encontrado")
 	}
@@ -277,16 +280,20 @@ func (s *Service) SubmitVehicleDocument(ctx context.Context, uid string, in Vehi
 	switch in.DocumentType {
 	case "circulation_card":
 		data = map[string]any{
-			"card_number":           nilIfEmpty(in.CardNumber),
-			"issued_at":             dateOrNil(toDateOnly(in.IssuedAt)),
-			"declared_valid_until":  dateOrNil(toDateOnly(in.DeclaredValidUntil)),
-			"declared_plate":        v.Plate,
-			"declared_vin":          v.Vin,
-			"declared_chasis":       v.Chasis,
-			"declared_motor":        v.Motor,
-			"declared_service_type": v.ServiceType,
-			"document_path":         nilIfEmpty(in.DocumentPath),
-			"document_path_back":    nilIfEmpty(in.DocumentBack),
+			"card_number":            nilIfEmpty(in.CardNumber),
+			"issued_at":              dateOrNil(toDateOnly(in.IssuedAt)),
+			"declared_plate":         v.Plate,
+			"declared_vin":           v.Vin,
+			"declared_chasis":        v.Chasis,
+			"declared_motor":         v.Motor,
+			"declared_brand":         v.Brand,
+			"declared_model":         v.Model,
+			"declared_year":          v.Year,
+			"declared_color":         v.Color,
+			"declared_vehicle_class": v.VehicleClass,
+			"declared_service_type":  v.ServiceType,
+			"document_path":          nilIfEmpty(in.DocumentPath),
+			"document_path_back":     nilIfEmpty(in.DocumentBack),
 		}
 		if in.OcrYear != nil && (*in.OcrYear < 1900 || *in.OcrYear > 2100) {
 			return "", apperr.New(400, "ocrYear must be between 1900 and 2100")
@@ -294,14 +301,12 @@ func (s *Service) SubmitVehicleDocument(ctx context.Context, uid string, in Vehi
 		legacySQL = `UPDATE public.vehicles SET
 			registration_number = COALESCE($2, registration_number),
 			emission_date = COALESCE($3, emission_date),
-			registration_expiry = COALESCE($4, registration_expiry),
-			registration_photo_front = COALESCE($5, registration_photo_front),
-			registration_photo_back = COALESCE($6, registration_photo_back),
-			registration_ocr_year = COALESCE($7, registration_ocr_year)
+			registration_photo_front = COALESCE($4, registration_photo_front),
+			registration_photo_back = COALESCE($5, registration_photo_back),
+			registration_ocr_year = COALESCE($6, registration_ocr_year)
 			WHERE id = $1::uuid`
 		legacyArgs = []any{v.ID, nilIfEmpty(in.CardNumber), dateOrNil(toDateOnly(in.IssuedAt)),
-			dateOrNil(toDateOnly(in.DeclaredValidUntil)), nilIfEmpty(in.DocumentPath), nilIfEmpty(in.DocumentBack),
-			in.OcrYear}
+			nilIfEmpty(in.DocumentPath), nilIfEmpty(in.DocumentBack), in.OcrYear}
 
 	case "insurance":
 		ct := in.CoverageType

@@ -53,6 +53,11 @@ describe('documentOcrService parsers', () => {
       expect(fields.licenseExpiry).toBe('2030-08-15');
     });
 
+    it('extrae la fecha de emisión además del vencimiento', () => {
+      const fields = extractLicenseFields(licenseText);
+      expect(fields.licenseIssueDate).toBe('2025-08-16');
+    });
+
     it('extrae número simple después de LICENCIA', () => {
       const fields = extractLicenseFields('LICENCIA No. 123456789\nVENCE 31/12/2028');
       expect(fields.licenseNumber).toBe('123456789');
@@ -86,6 +91,7 @@ describe('documentOcrService parsers', () => {
     it('frente: elige expiración (roja) sobre emisión', () => {
       const fields = extractLicenseFields(licenseFront);
       expect(fields.licenseExpiry).toBe('2029-02-14');
+      expect(fields.licenseIssueDate).toBe('2024-03-15');
     });
 
     it('reverso: extrae el número de licencia serie C', () => {
@@ -113,6 +119,27 @@ describe('documentOcrService parsers', () => {
         'POLICIA NACIONAL\nLICENCIA DE CONDUCIR\nNACION\nAMUEL ULISES',
       );
       expect(fields.licenseNumber).toBeUndefined();
+    });
+
+    it('rescata "RAF402/2029" (día+mes fusionados con basura) como expiración', () => {
+      // Texto crudo real de Apple Vision: la expiración roja salió como
+      // "RAF402/2029" (= 14/02/2029) y su etiqueta ni siquiera se leyó.
+      const raw = [
+        'República de Nicaragua', 'POLICIA NACIONAL', 'LICENCIA DE CONDUCIR',
+        '*CION', 'DEL ULISES', 'NOZA SAAVEDRA', '40206-10028', 'RAGUENSE',
+        'Emisión', '15/03/2024', 'RAF402/2029', 'SESMDI', 'VORAC', 'Reyess',
+        'Autorizado', 'CIONAL',
+      ].join('\n');
+      const fields = extractLicenseFields(raw);
+      expect(fields.licenseIssueDate).toBe('2024-03-15');
+      expect(fields.licenseExpiry).toBe('2029-02-14');
+    });
+
+    it('la cédula mutilada "40206-10028" no genera fecha falsa', () => {
+      const fields = extractLicenseFields(
+        'Cédula 40206-10028\nVencimiento 05/03/2031',
+      );
+      expect(fields.licenseExpiry).toBe('2031-03-05');
     });
 
     it('rescata día+mes fusionados con letra (RA4/022029 → 14/02/2029)', () => {
@@ -187,9 +214,9 @@ describe('documentOcrService parsers', () => {
       expect(fields.registrationNumber).toBe('B2301230');
     });
 
-    it('extrae el vencimiento', () => {
+    it('la circulación no tiene campo de vencimiento en el modelo', () => {
       const fields = extractRegistrationFields(registrationText);
-      expect(fields.registrationExpiry).toBe('2029-02-28');
+      expect('registrationExpiry' in fields).toBe(false);
     });
 
     // Layout real tarjeta de circulación NI (Policía Nacional)
@@ -232,8 +259,8 @@ describe('documentOcrService parsers', () => {
       expect(fields.color).toBe('Blanco');
     });
 
-    it('frente: solo hay emisión, NO rellena vencimiento', () => {
-      expect(extractRegistrationFields(registrationFront).registrationExpiry).toBeUndefined();
+    it('frente: solo hay emisión, sin fecha de vencimiento', () => {
+      expect(extractRegistrationFields(registrationFront).emissionDate).toBe('2017-06-02');
     });
 
     it('frente: extrae la emisión de la circulación', () => {
