@@ -7,6 +7,7 @@ import type { TFunction } from 'i18next';
 interface PaymentPayButtonProps {
   isPendingPayment: boolean;
   processing: boolean;
+  blocked?: boolean;
   onPay: () => void;
   colors: any;
   styles: any;
@@ -16,6 +17,7 @@ interface PaymentPayButtonProps {
 export function PaymentPayButton({
   isPendingPayment,
   processing,
+  blocked = false,
   onPay,
   colors,
   styles,
@@ -27,10 +29,10 @@ export function PaymentPayButton({
         style={[
           styles.payButton,
           isPendingPayment && styles.payButtonPending,
-          processing && styles.payButtonDisabled,
+          (processing || blocked) && styles.payButtonDisabled,
         ]}
         onPress={onPay}
-        disabled={processing}
+        disabled={processing || blocked}
       >
         {processing ? (
           <LoadingIcon size={22} color="#fff" />

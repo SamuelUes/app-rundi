@@ -3,7 +3,7 @@ import i18n from '../../i18n';
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning' | 'confirm';
 
-export type ToastActionVariant = 'default' | 'primary' | 'destructive';
+export type ToastActionVariant = 'default' | 'primary' | 'secondary' | 'destructive';
 
 export interface ToastAction {
   label: string;
@@ -130,7 +130,7 @@ export const showConfirmAlert = (
 interface OptionsAlertButton {
   text: string;
   onPress?: () => void;
-  style?: 'default' | 'cancel' | 'destructive';
+  style?: 'default' | 'cancel' | 'secondary' | 'destructive';
 }
 
 export const showOptionsAlert = (
@@ -148,7 +148,14 @@ export const showOptionsAlert = (
     actions: options.map((option) => ({
       label: option.text,
       onPress: option.onPress,
-      variant: option.style === 'destructive' ? 'destructive' : option.style === 'cancel' ? 'default' : 'primary',
+      variant:
+        option.style === 'destructive'
+          ? 'destructive'
+          : option.style === 'cancel'
+            ? 'default'
+            : option.style === 'secondary'
+              ? 'secondary'
+              : 'primary',
     })),
   });
 };

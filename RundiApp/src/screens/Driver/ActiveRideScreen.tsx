@@ -28,7 +28,6 @@ import ridesService from '../../services/ride/ridesService';
 import { extractVehicleTypeFromInfo, ensureVehicleIconSource } from '../../utils/driver/vehicleIcons';
 import { getCrewRoleForRide, shouldShowSeparateCrewMarkers } from '../../utils/driver/designatedCrew';
 import { fetchClientProfile, ClientProfile } from '../../services/user/clientProfilesService';
-import notificationService from '../../services/notification/notificationService';
 import { useTranslation } from 'react-i18next';
 import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
 import {
@@ -48,6 +47,15 @@ import { ActiveRideCTAButtons } from '../../components/driver/ActiveRide/ActiveR
 import { DesignatedDriverEvidenceModal } from '../../components/driver/ActiveRide/DesignatedDriverEvidenceModal';
 import { RideVerificationCodeModal } from '../../components/driver/ActiveRide/RideVerificationCodeModal';
 import inspectionsService from '../../services/driver/inspectionsService';
+import { NavigationBanner } from '../../components/driver/ActiveRide/Nav/NavigationBanner';
+import { NavigationAppSelector } from '../../components/driver/ActiveRide/Nav/NavigationAppSelector';
+import { NavigationStatusBar } from '../../components/driver/ActiveRide/Nav/NavigationStatusBar';
+import { useTurnByTurnNavigation } from '../../hooks/driver/ActiveRide/useTurnByTurnNavigation';
+import type { NavVoiceCue } from '../../hooks/driver/ActiveRide/useTurnByTurnNavigation';
+import {
+  maneuverFallbackEs,
+  maneuverTextKey,
+} from '../../utils/navigation/maneuverIcons';
 
 interface RouteParams {
   rideId: string;
@@ -60,7 +68,8 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
-  const styles = useMemo(() => createStyles(colors, insets), [colors, insets]);
+  const { isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, insets, isDark), [colors, insets, isDark]);
   const { user } = useAuth();
   const { settings: voiceSettings, speak: speakVoice, stopCategory: stopVoiceCategory } = useVoiceAssistant();
   const { coords } = useLocation(DRIVER_LOCATION_OPTIONS);
@@ -105,6 +114,8 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const [recenterTarget, setRecenterTarget] = useState<{ latitude: number; longitude: number } | null>(null);
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
   const [voicePaused, setVoicePaused] = useState(false);
+  const [navMode, setNavMode] = useState(false);
+  const [navigationSelectorStep, setNavigationSelectorStep] = useState<'apps' | 'googleMaps' | null>(null);
   const [progressNow, setProgressNow] = useState(() => Date.now());
   const lastRideAnnouncedRef = useRef<string | null>(null);
   const handledCancellationRef = useRef(false);
@@ -194,16 +205,6 @@ export default function ActiveRideScreen({ route, navigation }: any) {
       clearInterval(id);
     };
   }, [isInProgress]);
-
-  // Notificación de retorno rápido: visible mientras el viaje está activo
-  useEffect(() => {
-    // Mostrar una notificación local que permita volver a la app con un toque
-    notificationService.showQuickReturnActiveRide(rideId);
-    return () => {
-      // Limpiar al salir de la pantalla o cambiar de viaje
-      void notificationService.clearQuickReturn();
-    };
-  }, [rideId]);
 
   // Tracking por viaje: mientras el viaje está vivo la app debe publicar la
   // posición en activeRides/{rideId}/driverLocation además del shard global
@@ -676,6 +677,68 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     isInProgress,
   ]);
 
+  const navTargetPoint = useMemo(
+    () => (navTarget ? { latitude: navTarget.lat, longitude: navTarget.lng } : null),
+    [navTarget],
+  );
+
+  const handleNavVoiceCue = useCallback(
+    (cue: NavVoiceCue) => {
+      if (!voiceSettings.enabled || voicePaused) return;
+      const streetSuffix = cue.step?.streetName
+        ? t('driver.activeRide.nav.onStreet', {
+            street: cue.step.streetName,
+            defaultValue: 'en {{street}}',
+          })
+        : '';
+      const stepInstruction = cue.step
+        ? `${t(maneuverTextKey(cue.step), { defaultValue: maneuverFallbackEs(cue.step) })}${streetSuffix ? ` ${streetSuffix}` : ''}`
+        : '';
+      let text: string;
+      if (cue.kind === 'rerouted') {
+        text = t('driver.activeRide.nav.voiceRerouted', { defaultValue: 'Ruta recalculada' });
+      } else if (cue.kind === 'arrived') {
+        text = t('driver.activeRide.nav.voiceArrived', { defaultValue: 'Has llegado a tu destino' });
+      } else if (cue.kind === 'now') {
+        text = t('driver.activeRide.nav.voiceNow', {
+          instruction: stepInstruction,
+          defaultValue: '{{instruction}} ahora',
+        });
+      } else {
+        text = t('driver.activeRide.nav.voiceApproach', {
+          distance: Math.max(10, Math.round(cue.distanceM / 10) * 10),
+          instruction: stepInstruction,
+          defaultValue: 'En {{distance}} metros, {{instruction}}',
+        });
+      }
+      speakVoice(text, 'navigation', undefined, true);
+    },
+    [voiceSettings.enabled, voicePaused, speakVoice, t],
+  );
+
+  const nav = useTurnByTurnNavigation({
+    active: navMode,
+    coords,
+    target: navTargetPoint,
+    onVoiceCue: handleNavVoiceCue,
+  });
+
+  // Salir del modo navegación cuando el viaje deja de ser conducible.
+  useEffect(() => {
+    if (navMode && (isCompleted || isCanceled || isPendingPayment)) {
+      setNavMode(false);
+    }
+  }, [navMode, isCompleted, isCanceled, isPendingPayment]);
+
+  const navArrivalLabel = useMemo(
+    () =>
+      new Date(Date.now() + nav.remainingDurationSec * 1000).toLocaleTimeString(undefined, {
+        hour: 'numeric',
+        minute: '2-digit',
+      }),
+    [nav.remainingDurationSec],
+  );
+
   // Handlers
   const handleCallClient = () => {
     if (ride?.clientPhone) {
@@ -693,30 +756,33 @@ export default function ActiveRideScreen({ route, navigation }: any) {
 
   const handleNavigate = () => {
     if (!navTarget) return;
+    setNavigationSelectorStep('apps');
+  };
+
+  const handleOpenGoogleMapsApp = () => {
+    if (!navTarget) return;
     const { lat, lng } = navTarget;
-    alertService.showOptionsAlert(
-      t('driver.activeRide.navigation.title'),
-      t('driver.activeRide.navigation.subtitle'),
-      [
-        {
-          text: t('driver.activeRide.navigation.googleMaps'),
-          onPress: () => {
-            const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-            Linking.openURL(url);
-          },
-        },
-        {
-          text: t('driver.activeRide.navigation.waze'),
-          onPress: () => {
-            const url = `waze://?ll=${lat},${lng}&navigate=yes`;
-            Linking.canOpenURL(url).then((supported) => {
-              Linking.openURL(supported ? url : `https://www.waze.com/ul?ll=${lat},${lng}`);
-            });
-          },
-        },
-        { text: t('driver.activeRide.navigation.cancel'), style: 'cancel' },
-      ]
-    );
+    setNavigationSelectorStep(null);
+    const url =
+      `https://www.google.com/maps/dir/?api=1` +
+      `&destination=${encodeURIComponent(`${lat},${lng}`)}` +
+      '&travelmode=driving&dir_action=navigate';
+    void Linking.openURL(url);
+  };
+
+  const handleOpenWaze = () => {
+    if (!navTarget) return;
+    const { lat, lng } = navTarget;
+    setNavigationSelectorStep(null);
+    const url = `waze://?ll=${lat},${lng}&navigate=yes`;
+    Linking.canOpenURL(url).then((supported) => {
+      Linking.openURL(supported ? url : `https://www.waze.com/ul?ll=${lat},${lng}`);
+    });
+  };
+
+  const handleSelectInRundi = () => {
+    setNavigationSelectorStep(null);
+    setNavMode(true);
   };
 
   const handleMarkDriverArrived = async () => {
@@ -800,7 +866,6 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   const handleCompleteRide = async () => {
     try {
       setUpdating(true);
-      await notificationService.clearQuickReturn();
       const startedAtValue = ride?.startedAt;
       const startedAtMs =
         typeof startedAtValue === 'number'
@@ -847,7 +912,6 @@ export default function ActiveRideScreen({ route, navigation }: any) {
     cancelErrorLabel: t('driver.activeRide.alerts.cancelRideError'),
     onSuccess: async () => {
       setUpdating(true);
-      await notificationService.clearQuickReturn();
       handledCancellationRef.current = true;
       navigation.reset({
         index: 0,
@@ -990,29 +1054,46 @@ export default function ActiveRideScreen({ route, navigation }: any) {
             latitude={coords.latitude}
             longitude={coords.longitude}
             allowRouteZoomOut
+            scrollEnabled={!navMode}
+            zoomEnabled={!navMode}
+            autoFitEnabled={!navMode}
             fitEdgePadding={{
               top: 100,
               left: 60,
               right: 60,
               bottom: Math.min(windowHeight - 180, (panelExpanded ? Math.max(minPanelHeight, Math.min(540, windowHeight - insets.top - 12)) : minPanelHeight) + 16),
             }}
-            showMarker={true}
+            showMarker={!navMode}
+            showUserLocation
+            navigationMarker={navMode}
+            userLocation={navMode ? { latitude: coords.latitude, longitude: coords.longitude } : undefined}
             markerPosition={{ latitude: coords.latitude, longitude: coords.longitude }}
             markerType="car"
             markerVehicleIconSource={captainVehicleIcon}
             markerVehicleHeading={typeof coords.heading === 'number' && Number.isFinite(coords.heading) ? coords.heading : undefined}
-            cameraTarget={recenterTarget}
-            nearbyDrivers={followerMarkers}
-            originMarker={(isAccepted || isDriverOnRoute || isDriverArrived) && ride?.origin ? {
+            cameraTarget={
+              navMode
+                ? {
+                    latitude: coords.latitude,
+                    longitude: coords.longitude,
+                    heading: nav.camera?.heading ?? (typeof coords.heading === 'number' && coords.heading >= 0 ? coords.heading : 0),
+                    pitch: 52,
+                    zoom: 17.4,
+                    durationMs: 900,
+                  }
+                : recenterTarget
+            }
+            nearbyDrivers={navMode ? [] : followerMarkers}
+            originMarker={!navMode && (isAccepted || isDriverOnRoute || isDriverArrived) && ride?.origin ? {
               latitude: ride.origin.lat || ride.origin.latitude,
               longitude: ride.origin.lng || ride.origin.longitude,
             } : undefined}
-            destinationMarker={ride?.destination ? {
+            destinationMarker={!navMode && ride?.destination ? {
               latitude: ride.destination.lat || ride.destination.latitude,
               longitude: ride.destination.lng || ride.destination.longitude,
             } : undefined}
             extraStopMarkers={
-              Array.isArray(ride?.extraDestinations)
+              !navMode && Array.isArray(ride?.extraDestinations)
                 ? ride!.extraDestinations.map((stop: any, idx: number) => ({
                     latitude: stop?.lat || stop?.latitude,
                     longitude: stop?.lng || stop?.longitude,
@@ -1026,11 +1107,12 @@ export default function ActiveRideScreen({ route, navigation }: any) {
             destinationTitle={t('common.mapPins.destination')}
             originLabel={ride?.origin?.address}
             destinationLabel={ride?.destination?.address}
-            showPinBubbles={true}
-            routeCoordinates={routePolyline}
-            secondaryRouteCoordinates={pickupLegPolyline}
+            showPinBubbles={!navMode}
+            routeCoordinates={navMode ? nav.route?.coords ?? [] : routePolyline}
+            routeColor={navMode ? '#1BD7E2' : undefined}
+            secondaryRouteCoordinates={navMode ? [] : pickupLegPolyline}
             secondaryRouteColor={colors.SecondBorder}
-            tertiaryRouteCoordinates={stopsLegPolyline}
+            tertiaryRouteCoordinates={navMode ? [] : stopsLegPolyline}
             tertiaryRouteColor={colors.warning}
           />
         ) : (
@@ -1038,13 +1120,52 @@ export default function ActiveRideScreen({ route, navigation }: any) {
         )}
       </View>
 
-      <FloatingCompass
-        heading={coords?.heading}
-        onPress={handleCompassPress}
-        style={styles.compass}
-      />
+      {navigationSelectorStep ? (
+        <NavigationAppSelector
+          step={navigationSelectorStep}
+          onClose={() => setNavigationSelectorStep(null)}
+          onSelectGoogleMaps={() => setNavigationSelectorStep('googleMaps')}
+          onSelectWaze={handleOpenWaze}
+          onSelectInRundi={handleSelectInRundi}
+          onSelectGoogleMapsApp={handleOpenGoogleMapsApp}
+        />
+      ) : null}
+
+      {navMode && nav.banner ? (
+        <NavigationBanner banner={nav.banner} t={t} style={styles.navBanner} />
+      ) : null}
+
+      {!navMode && (
+        <FloatingCompass
+          heading={coords?.heading}
+          onPress={handleCompassPress}
+          style={styles.compass}
+        />
+      )}
 
       {/* Bottom Sheet Colapsable */}
+      {navMode ? (
+        <NavigationStatusBar
+          remainingMin={nav.remainingDurationSec / 60}
+          distanceKm={nav.remainingDistanceM / 1000}
+          arrivalLabel={navArrivalLabel}
+          routeStatus={nav.status}
+          speedKmh={nav.speedKmh}
+          onExit={() => {
+            if (coords) setRecenterTarget({ latitude: coords.latitude, longitude: coords.longitude });
+            setNavMode(false);
+          }}
+          ctaLabel={ctaMeta.show ? ctaMeta.label : undefined}
+          ctaIcon={ctaMeta.icon}
+          primaryColor={colors.primary}
+          ctaLoading={updating}
+          onCTAPress={ctaMeta.show ? ctaMeta.onPress : undefined}
+          onCancelPress={handleCancelRide}
+          cancelLoading={isCancellingRide}
+          t={t}
+          style={styles.navStatusBar}
+        />
+      ) : (
       <Animated.View style={[styles.bottomSheet, { height: panelHeight }]}>
         {/* Grabber */}
         <View {...panHandlers}>
@@ -1153,6 +1274,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
           </View>
         )}
       </Animated.View>
+      )}
 
       <DesignatedDriverEvidenceModal
         visible={showDesignatedEvidenceModal}
@@ -1195,7 +1317,7 @@ export default function ActiveRideScreen({ route, navigation }: any) {
   );
 }
 
-const createStyles = (colors: any, insets: { top: number; bottom: number }) => StyleSheet.create({
+const createStyles = (colors: any, insets: { top: number; bottom: number }, isDark: boolean) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -1218,6 +1340,21 @@ const createStyles = (colors: any, insets: { top: number; bottom: number }) => S
     marginTop: 16,
     fontSize: 15,
     textAlign: 'center',
+  },
+  navBanner: {
+    position: 'absolute',
+    top: insets.top + 12,
+    left: 16,
+    right: 16,
+    zIndex: 30,
+  },
+  navStatusBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingBottom: Math.max(8, insets.bottom),
+    zIndex: 30,
   },
   bottomSheet: {
     position: 'absolute',
@@ -1443,7 +1580,7 @@ const createStyles = (colors: any, insets: { top: number; bottom: number }) => S
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: colors.success,
+    backgroundColor: isDark ? '#4e8f2f' : colors.success,
     height: 42,
     paddingHorizontal: 16,
     borderRadius: 12,

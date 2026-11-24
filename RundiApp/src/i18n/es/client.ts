@@ -124,6 +124,7 @@ const client = {
             buttons: {
               confirm: 'Confirmar pago en efectivo',
               processing: 'Procesando...',
+              waiting: 'Esperando confirmación del conductor',
             },
             alerts: {
               methodChangedTitle: 'Método de pago cambiado',

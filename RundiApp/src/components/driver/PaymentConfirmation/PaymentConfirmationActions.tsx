@@ -9,7 +9,6 @@ interface PaymentConfirmationActionsProps {
     switchToCard: string;
     switchToCash: string;
     reportIssue: string;
-    generateCode: string;
   };
   confirming: boolean;
   switching: boolean;

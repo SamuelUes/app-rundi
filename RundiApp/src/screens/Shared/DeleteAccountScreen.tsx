@@ -130,7 +130,7 @@ export default function DeleteAccountScreen({ navigation }: any) {
     user?.role === 'driver' ? 'driver' : user?.role === 'client' ? 'client' : 'default';
   const warningBulletKeys = [
     'accountAccess',
-    'dataRetained',
+    // 'dataRetained',
     'reactivation',
   ];
 

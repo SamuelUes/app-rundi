@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { View, Text, TextInput } from 'react-native';
 import {
   TextInputInstance,
@@ -8,20 +8,17 @@ import { AnimatedButton } from '../../ui/AnimatedButton';
 import { useIsDark } from '../../../stores/themeStore';
 
 interface PaymentConfirmationCodeInputProps {
-  codeSent: boolean;
   codeDigits: string[];
   confirming: boolean;
   switching: boolean;
-  buttonTexts: { generateCode: string };
+  buttonTexts: { enterCode: string; hideCode: string };
   colors: any;
   t: any;
   onSetCodeDigits: (digits: string[]) => void;
-  onRequestCode: () => void;
   styles: any;
 }
 
 export function PaymentConfirmationCodeInput({
-  codeSent,
   codeDigits,
   confirming,
   switching,
@@ -29,27 +26,26 @@ export function PaymentConfirmationCodeInput({
   colors,
   t,
   onSetCodeDigits,
-  onRequestCode,
   styles,
 }: PaymentConfirmationCodeInputProps) {
   const codeInputsRef = useRef<Array<TextInputInstance | null>>([]);
+  const [codeVisible, setCodeVisible] = useState(false);
   const isDark = useIsDark();
   const accent = isDark ? colors.SecondBorder : colors.primary;
 
   return (
     <>
       <AnimatedButton
-        title={buttonTexts.generateCode}
-        iconName="vpn-key"
+        title={codeVisible ? buttonTexts.hideCode : buttonTexts.enterCode}
+        iconName={codeVisible ? 'visibility-off' : 'vpn-key'}
         variant="outline"
         color={accent}
-        onPress={onRequestCode}
-        loading={confirming}
+        onPress={() => setCodeVisible((v) => !v)}
         disabled={confirming || switching}
         style={{ marginBottom: 12 }}
       />
 
-      <View style={styles.codeContainer}>
+      {codeVisible && <View style={styles.codeContainer}>
         <Text style={styles.codeLabel}>
           {t('driver.paymentConfirmation.codeLabel')}
         </Text>
@@ -60,10 +56,7 @@ export function PaymentConfirmationCodeInput({
               ref={(el) => {
                 codeInputsRef.current[index] = el;
               }}
-              style={[
-                styles.codeBox,
-                codeSent && styles.codeBoxValidated,
-              ]}
+              style={styles.codeBox}
               keyboardType="number-pad"
               maxLength={1}
               value={codeDigits[index]}
@@ -91,7 +84,7 @@ export function PaymentConfirmationCodeInput({
             />
           ))}
         </View>
-      </View>
+      </View>}
     </>
   );
 }

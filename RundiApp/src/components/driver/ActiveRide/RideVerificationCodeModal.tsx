@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Modal,
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -56,68 +55,78 @@ export function RideVerificationCodeModal({
       onShow={() => setShown(true)}
       onRequestClose={loading ? undefined : onClose}
     >
-      {/* Android: sin behavior — 'height' dentro de Modal re-layoutea al atar
-          el IME y puede cerrar el teclado; el sistema hace adjustPan solo. */}
-      <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.sheet}>
-          <View style={styles.header}>
-            <View style={styles.headerCopy}>
-              <Text style={styles.title}>{t('driver.activeRide.verification.title')}</Text>
-              <Text style={styles.subtitle}>{t('driver.activeRide.verification.subtitle')}</Text>
+      <View style={styles.modalRoot}>
+        <View pointerEvents="none" style={styles.backdrop} />
+        <KeyboardAvoidingView
+          style={styles.overlay}
+          behavior="padding"
+        >
+          <View style={styles.sheet}>
+            <View style={styles.header}>
+              <View style={styles.headerCopy}>
+                <Text style={styles.title}>{t('driver.activeRide.verification.title')}</Text>
+                <Text style={styles.subtitle}>{t('driver.activeRide.verification.subtitle')}</Text>
+              </View>
+              <Pressable
+                style={styles.closeButton}
+                onPress={onClose}
+                disabled={loading}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={t('driver.activeRide.verification.close')}
+              >
+                <MaterialIcons name="close" size={20} color={colors.textSecondary} />
+              </Pressable>
             </View>
-            <Pressable
-              style={styles.closeButton}
-              onPress={onClose}
+
+            {visible && shown && <OtpCodeInput
+              value={code}
+              onChange={setCode}
+              length={4}
               disabled={loading}
-              hitSlop={8}
+              autoFocus
+              accessibilityLabel={t('driver.activeRide.verification.inputLabel')}
+            />}
+
+            {!!error && <Text style={styles.errorText}>{error}</Text>}
+
+            <TouchableOpacity
+              style={[styles.submitButton, !canSubmit && styles.submitDisabled]}
+              onPress={() => canSubmit && onSubmit(code)}
+              disabled={!canSubmit}
+              activeOpacity={0.85}
               accessibilityRole="button"
-              accessibilityLabel={t('driver.activeRide.verification.close')}
+              accessibilityState={{ disabled: !canSubmit }}
             >
-              <MaterialIcons name="close" size={20} color={colors.textSecondary} />
-            </Pressable>
+              {loading ? (
+                <LoadingIcon size={18} color="#1C1917" animation="spin" />
+              ) : (
+                <MaterialIcons name="check-circle" size={18} color="#1C1917" />
+              )}
+              <Text style={styles.submitText}>
+                {loading
+                  ? t('driver.activeRide.verification.confirming')
+                  : t('driver.activeRide.verification.confirm')}
+              </Text>
+            </TouchableOpacity>
           </View>
-
-          {visible && shown && <OtpCodeInput
-            value={code}
-            onChange={setCode}
-            length={4}
-            disabled={loading}
-            autoFocus
-            accessibilityLabel={t('driver.activeRide.verification.inputLabel')}
-          />}
-
-          {!!error && <Text style={styles.errorText}>{error}</Text>}
-
-          <TouchableOpacity
-            style={[styles.submitButton, !canSubmit && styles.submitDisabled]}
-            onPress={() => canSubmit && onSubmit(code)}
-            disabled={!canSubmit}
-            activeOpacity={0.85}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: !canSubmit }}
-          >
-            {loading ? (
-              <LoadingIcon size={18} color="#1C1917" animation="spin" />
-            ) : (
-              <MaterialIcons name="check-circle" size={18} color="#1C1917" />
-            )}
-            <Text style={styles.submitText}>
-              {loading
-                ? t('driver.activeRide.verification.confirming')
-                : t('driver.activeRide.verification.confirm')}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 }
 
 const createStyles = (colors: any) =>
   StyleSheet.create({
+    modalRoot: {
+      flex: 1,
+    },
+    backdrop: {
+      ...StyleSheet.absoluteFill,
+      backgroundColor: 'rgba(0,0,0,0.55)',
+    },
     overlay: {
       flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.55)',
       justifyContent: 'center',
       paddingHorizontal: 24,
     },

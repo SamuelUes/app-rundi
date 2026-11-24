@@ -55,10 +55,14 @@ export interface PendingDebt {
   rideId: string;
   paymentId: string;
   driverId: string;
+  driverName?: string;
+  driverPhoto?: string;
   paymentMethod: 'cash' | 'card';
   amount: number;
   tip: number;
   total: number;
+  origin?: string;
+  destination?: string;
   status: string;
   createdAt: string;
 }

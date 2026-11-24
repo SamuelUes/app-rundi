@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
+import StorageImage from '../../components/shared/StorageImage';
 import { assignProgrammedDriver, cancelProgrammedRide, confirmProgrammedRide, removeProgrammedDriver, searchProgrammedDrivers, type ProgrammedDriverCandidate, type ProgrammedRide } from '../../api/programmed';
 import { getFirebaseFirestore } from '../../config/firebase';
 import { FS_COL } from '../../constants/firestore';
@@ -128,7 +129,17 @@ export default function ProgrammedRidesScreen({ navigation }: any) {
     setSearching(true);
     try {
       const results = await searchProgrammedDrivers(rideId, searchText.trim());
-      if (version === searchVersion.current) setCandidates(results);
+      const db = await getFirebaseFirestore();
+      const withPhotos = await Promise.all(results.map(async candidate => {
+        try {
+          const profile = await getDoc(doc(db, FS_COL.driverPublic, candidate.driverId));
+          const photoUrl = profile.data()?.photoUrl;
+          return typeof photoUrl === 'string' ? { ...candidate, photoUrl } : candidate;
+        } catch {
+          return candidate;
+        }
+      }));
+      if (version === searchVersion.current) setCandidates(withPhotos);
     } catch {
       if (version === searchVersion.current) alertService.showErrorAlert(t('client.programmedRides.actionError'));
     } finally {
@@ -168,7 +179,7 @@ export default function ProgrammedRidesScreen({ navigation }: any) {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
         <Pressable onPress={() => navigation.goBack()} accessibilityRole="button" accessibilityLabel={t('buttons.back')} style={styles.back}>
           <MaterialIcons name="arrow-back" size={24} color={colors.text} />
         </Pressable>
@@ -291,6 +302,12 @@ export default function ProgrammedRidesScreen({ navigation }: any) {
                   {candidates?.length === 0 ? <Text style={styles.statusText}>{t('client.programmedRides.noCandidates')}</Text> : null}
                   {candidates?.map(candidate => (
                     <View style={styles.candidateRow} key={candidate.driverId}>
+                      <View style={styles.candidateAvatar}>
+                        <MaterialIcons name="person-outline" size={21} color={colors.primary} />
+                        {candidate.photoUrl ? (
+                          <StorageImage uri={candidate.photoUrl} style={styles.candidatePhoto} />
+                        ) : null}
+                      </View>
                       <View style={styles.routeText}>
                         <Text style={styles.address}>{candidate.name || t('client.programmedRides.driverFallback')}</Text>
                         <Text style={styles.label}>{t('client.programmedRides.rating', { rating: candidate.rating.toFixed(1) })}</Text>
@@ -411,6 +428,8 @@ const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   searchInput: { flex: 1, minHeight: 46, paddingHorizontal: 12, borderRadius: 12, color: colors.text, backgroundColor: isDark ? '#383430' : '#F3F0EB' },
   searchButton: { width: 46, height: 46, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: '#B38737' },
   candidateRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
+  candidateAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: isDark ? '#403521' : '#F5EBDD' },
+  candidatePhoto: { ...StyleSheet.absoluteFill, borderRadius: 20 },
   codeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   codeLabel: { color: colors.textSecondary, fontSize: 12, fontWeight: '600', flex: 1 },
   code: { color: colors.text, fontSize: 16, fontWeight: '800', letterSpacing: 1.5, fontVariant: ['tabular-nums'] },

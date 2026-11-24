@@ -20,7 +20,7 @@ import { AnimatedButton } from '../../components/ui/AnimatedButton';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { getFirebaseFirestore } from '../../config/firebase';
 import { FS_COL } from '../../constants/firestore';
-import { cancelCashPayment, confirmCashPayment, generateCashCode } from '../../api/payments';
+import { cancelCashPayment, confirmCashPayment } from '../../api/payments';
 import { initializeFirebase } from '../../config/firebase';
 import cardsService from '../../services/payment/cardsService';
 import alertService from '../../services/notification/alertService';
@@ -94,7 +94,8 @@ export default function PaymentConfirmationScreen({
     switchToCard: string;
     switchToCash: string;
     reportIssue: string;
-    generateCode: string;
+    enterCode: string;
+    hideCode: string;
   };
   const methodBadgeTexts = t('driver.paymentConfirmation.methodBadge', { returnObjects: true }) as {
     label: string;
@@ -149,9 +150,9 @@ export default function PaymentConfirmationScreen({
   const [clientConfirmed, setClientConfirmed] = useState(false);
   const [hasCardOnFile, setHasCardOnFile] = useState<boolean | null>(null);
 
-  // Código de confirmación: el cliente lo ostenta (payments_live/private/cash),
-  // el conductor lo digita; la validación es server-side en confirm-cash.
-  const [codeSent, setCodeSent] = useState(false);
+  // Código de confirmación: el cliente lo ostenta (payments_live/private/cash,
+  // generado en CompleteRide), el conductor lo digita; la validación es
+  // server-side en confirm-cash. Las casillas quedan ocultas por defecto.
   const [codeDigits, setCodeDigits] = useState(['', '', '', '']);
   const completionHandledRef = useRef(false);
   const lastPaymentStatusRef = useRef<string | null>(null);
@@ -305,28 +306,6 @@ export default function PaymentConfirmationScreen({
 
     setupListener();
   }, [rideId]);
-
-  // (Re)generar código: el backend lo proyecta a payments_live/private/cash,
-  // legible solo por el cliente — el conductor nunca lo ve.
-  const handleRequestCode = async () => {
-    try {
-      setConfirming(true);
-      const { app } = await initializeFirebase();
-      if (!app) throw new Error('Firebase no inicializado');
-
-      await generateCashCode(rideId);
-      setCodeSent(true);
-      alertService.showInfoAlert(
-        t('driver.paymentConfirmation.alerts.codeSentTitle'),
-        t('driver.paymentConfirmation.alerts.codeSentMessage')
-      );
-    } catch (e: any) {
-      console.error('❌ Error generando código:', e);
-      alertService.showErrorAlert(e.message || 'No se pudo generar el código');
-    } finally {
-      setConfirming(false);
-    }
-  };
 
   // Confirmar pago en efectivo. El código es opcional: si el conductor lo
   // digita se verifica server-side; sin código se confirma igual.
@@ -524,7 +503,6 @@ export default function PaymentConfirmationScreen({
           />
 
           <PaymentConfirmationCodeInput
-            codeSent={codeSent}
             codeDigits={codeDigits}
             confirming={confirming}
             switching={switching}
@@ -532,7 +510,6 @@ export default function PaymentConfirmationScreen({
             colors={colors}
             t={t}
             onSetCodeDigits={setCodeDigits}
-            onRequestCode={handleRequestCode}
             styles={styles}
           />
 

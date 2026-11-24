@@ -83,23 +83,6 @@ export const routeNotification = async (data: any, options: RouteOptions = {}): 
       return;
     }
 
-    case 'quick_return_active_ride': {
-      if (typeof rideId !== 'string') return;
-      const isDriver = options?.userRole === 'driver' || options?.userRole === 'designated_driver';
-      if (!isDriver) return;
-      const doNavigate = () => {
-        const current = navigationRef.getCurrentRoute();
-        if (current?.name === 'ActiveRide' && (current.params as any)?.rideId === rideId) return;
-        navigate('ActiveRide', { rideId });
-      };
-      if (delay > 0) {
-        setTimeout(doNavigate, delay);
-      } else {
-        doNavigate();
-      }
-      return;
-    }
-
     case 'programmed_ride_client_confirm': {
       const ready = await waitForNavigation();
       if (!ready) return;

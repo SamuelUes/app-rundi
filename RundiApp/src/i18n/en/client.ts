@@ -123,6 +123,7 @@ const client = {
           buttons: {
             confirm: 'Confirm cash payment',
             processing: 'Processing...',
+            waiting: 'Waiting for driver confirmation',
           },
           alerts: {
             methodChangedTitle: 'Payment method changed',

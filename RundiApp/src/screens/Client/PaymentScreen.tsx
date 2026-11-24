@@ -60,6 +60,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'cash'>('cash');
   const [selectedBank, setSelectedBank] = useState<'bac' | 'banpro' | 'lafise' | 'ficohsa' | 'avanz'>('bac');
   const [processing, setProcessing] = useState(false);
+  const [paymentDone, setPaymentDone] = useState(false);
 
   // Hooks compartidos
   const { rideDetails, loading } = useRideDetails(rideId, amount);
@@ -145,6 +146,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
   };
 
   const handlePayment = async () => {
+    if (processing || paymentDone) return;
     // Tarjetas desactivadas temporalmente
     // if (paymentMethod === 'card') {
     //   await processCardPayment();
@@ -235,6 +237,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
       // El cliente NO tiene permisos para escribir en /paymentStatus en Firebase Realtime DB
       // Esto es por seguridad - solo el backend puede actualizar estados de pago
 
+      setPaymentDone(true);
       alertService.showInfoAlert(
         t('shared.payment.alerts.cashInfoTitle'),
         t('shared.payment.alerts.cashInfoMessage', { amount: totalAmount.toFixed(2) }),
@@ -512,6 +515,7 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
         <PaymentPayButton
           isPendingPayment={isPendingPayment}
           processing={processing}
+          blocked={paymentDone}
           onPay={handlePayment}
           colors={colors}
           styles={styles}

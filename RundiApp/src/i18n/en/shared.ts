@@ -1583,10 +1583,10 @@ const shared = {
          },
          warning: {
           title: 'Account deletion',
-          intro: 'Your access will be removed. The previous UID profile and history will be retained.',
+          intro: 'Your access will be removed.',
           bullets: {
             accountAccess: 'You will no longer be able to sign in with this identity.',
-            dataRetained: 'The previous profile will be marked deleted and kept separate from any new account.',
+            //dataRetained: 'The previous profile will be marked deleted and kept separate from any new account.',
             reactivation: 'You can register again with the same email or phone; it will create a separate account.',
           },
          },

@@ -280,6 +280,7 @@ export default function CashPaymentScreen({ route, navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
   const confirmingRef = useRef(false);
+  const [paymentDeclared, setPaymentDeclared] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<string>('pending');
   const [driverPhotoURL, setDriverPhotoURL] = useState<string | null>(null);
   const [driverNameFromInfo, setDriverNameFromInfo] = useState<string | null>(null);
@@ -557,6 +558,7 @@ export default function CashPaymentScreen({ route, navigation }: any) {
         : { biometricAuthenticated: false };
       const payment = await registerCashPayment(rideId, paymentTipRef.current ?? 0, paymentAuth);
       console.log('✅ Respuesta del backend:', payment);
+      setPaymentDeclared(true);
 
       if (payment.status === 'confirmed' || payment.status === 'completed') {
         alertService.showSuccessAlert(
@@ -746,17 +748,28 @@ export default function CashPaymentScreen({ route, navigation }: any) {
         {paymentStatus === 'pending' || paymentStatus === 'pending_capture' || paymentStatus === 'pending_confirmation' ? (
           <TouchableOpacity
             onPress={handleConfirmPayment}
-            style={[styles.confirmButton, confirming && styles.confirmButtonDisabled]}
-            disabled={confirming}
+            style={[
+              styles.confirmButton,
+              (confirming || paymentDeclared || paymentStatus === 'pending_confirmation') && styles.confirmButtonDisabled,
+            ]}
+            disabled={confirming || paymentDeclared || paymentStatus === 'pending_confirmation'}
             activeOpacity={0.85}
           >
             {confirming ? (
               <LoadingIcon size={20} color="#fff" />
             ) : (
-              <MaterialIcons name="check-circle" size={20} color="#fff" />
+              <MaterialIcons
+                name={paymentDeclared || paymentStatus === 'pending_confirmation' ? 'hourglass-top' : 'check-circle'}
+                size={20}
+                color="#fff"
+              />
             )}
             <Text style={styles.confirmButtonText}>
-              {confirming ? t('client.cashPayment.buttons.processing') : t('client.cashPayment.buttons.confirm')}
+              {confirming
+                ? t('client.cashPayment.buttons.processing')
+                : paymentDeclared || paymentStatus === 'pending_confirmation'
+                  ? t('client.cashPayment.buttons.waiting')
+                  : t('client.cashPayment.buttons.confirm')}
             </Text>
           </TouchableOpacity>
         ) : (

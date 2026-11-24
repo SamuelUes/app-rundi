@@ -15,7 +15,7 @@ import (
 	"github.com/rundi/functions-v2/internal/outbox"
 )
 
-// CheckAvailability — checkUserAvailability v1: email/phone únicos.
+// CheckAvailability: deleted emails and inactive phone profiles may be reused.
 func (s *Service) CheckAvailability(ctx context.Context, email, phone string) (map[string]bool, error) {
 	out := map[string]bool{"emailAvailable": true, "phoneAvailable": true}
 	if email != "" {
@@ -30,7 +30,7 @@ func (s *Service) CheckAvailability(ctx context.Context, email, phone string) (m
 	if phone != "" {
 		var taken bool
 		if err := s.pool.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM public.users WHERE phone = $1 AND deleted_at IS NULL)`,
+			`SELECT EXISTS(SELECT 1 FROM public.users WHERE phone = $1 AND is_active = TRUE AND deleted_at IS NULL)`,
 			phone).Scan(&taken); err != nil {
 			return nil, err
 		}

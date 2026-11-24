@@ -80,8 +80,16 @@ interface DynamicMapProps {
   rideRequests?: Array<RideRequestMarker>; // Solicitudes de viaje disponibles
   onRideRequestPress?: (rideRequest: RideRequestMarker) => void; // Callback cuando se presiona una solicitud de viaje
   showUserLocation?: boolean;
+  navigationMarker?: boolean;
   userLocation?: { latitude: number; longitude: number };
-  cameraTarget?: { latitude: number; longitude: number } | null;
+  cameraTarget?: {
+    latitude: number;
+    longitude: number;
+    heading?: number;
+    pitch?: number;
+    zoom?: number;
+    durationMs?: number;
+  } | null;
   mapType?: 'standard' | 'satellite' | 'hybrid' | 'terrain';
   mapStyle?: any;
   showTraffic?: boolean;

@@ -362,20 +362,31 @@ type PendingDebt struct {
 	RideID        string    `json:"rideId"`
 	PaymentID     string    `json:"paymentId"`
 	DriverID      string    `json:"driverId"`
+	DriverName    string    `json:"driverName"`
+	DriverPhoto   string    `json:"driverPhoto"`
 	PaymentMethod string    `json:"paymentMethod"`
 	Amount        float64   `json:"amount"`
 	Tip           float64   `json:"tip"`
 	Total         float64   `json:"total"`
+	Origin        string    `json:"origin"`
+	Destination   string    `json:"destination"`
 	Status        string    `json:"status"`
 	CreatedAt     time.Time `json:"createdAt"`
 }
 
 func (s *Service) ListPending(ctx context.Context, uid string) ([]PendingDebt, float64, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT p.ride_id::text, p.id::text, COALESCE(r.driver_id, ''), COALESCE(p.payment_method::text, 'cash'), p.amount, p.tip, p.total,
+		SELECT p.ride_id::text, p.id::text, COALESCE(r.driver_id, ''), COALESCE(u.name, ''),
+		       COALESCE(d.profile_photo, u.profile_photo, ''),
+		       COALESCE(p.payment_method::text, 'cash'), p.amount, p.tip, p.total,
+		       COALESCE(lo.address, ''), COALESCE(ld.address, ''),
 		       p.status::text, p.created_at
 		FROM public.payments p
 		JOIN public.rides r ON r.id = p.ride_id
+		LEFT JOIN public.users u ON u.id = r.driver_id
+		LEFT JOIN public.drivers d ON d.user_id = r.driver_id AND d.deleted_at IS NULL
+		LEFT JOIN public.ride_locations lo ON lo.ride_id = p.ride_id AND lo.location_type = 'origin'
+		LEFT JOIN public.ride_locations ld ON ld.ride_id = p.ride_id AND ld.location_type = 'destination'
 		WHERE r.client_id = $1
 		  AND p.status IN ('pending', 'pending_confirmation', 'payment_in_progress')
 		  AND p.deleted_at IS NULL
@@ -388,8 +399,9 @@ func (s *Service) ListPending(ctx context.Context, uid string) ([]PendingDebt, f
 	var total float64
 	for rows.Next() {
 		var d PendingDebt
-		if err := rows.Scan(&d.RideID, &d.PaymentID, &d.DriverID, &d.PaymentMethod, &d.Amount, &d.Tip,
-			&d.Total, &d.Status, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.RideID, &d.PaymentID, &d.DriverID, &d.DriverName, &d.DriverPhoto,
+			&d.PaymentMethod, &d.Amount, &d.Tip, &d.Total, &d.Origin, &d.Destination,
+			&d.Status, &d.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		total += d.Total

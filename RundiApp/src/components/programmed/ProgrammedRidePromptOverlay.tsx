@@ -306,6 +306,9 @@ const ProgrammedRidePromptOverlay: React.FC<Props> = ({ role }) => {
   const iconTintBg = isDark ? 'rgba(179,135,55,0.2)' : 'rgba(179,135,55,0.1)';
   const origin = currentPrompt.data?.origin?.address;
   const destination = currentPrompt.data?.destination?.address;
+  const extraDestinations = Array.isArray(currentPrompt.data?.extraDestinations)
+    ? currentPrompt.data.extraDestinations
+    : [];
   const amount = currentPrompt.data?.clientSuggestedPrice ?? currentPrompt.data?.estimatedPrice;
 
   return (
@@ -355,16 +358,31 @@ const ProgrammedRidePromptOverlay: React.FC<Props> = ({ role }) => {
             <View style={[styles.inviteDetails, { backgroundColor: colors.background }]}>
               {typeof origin === 'string' && origin ? (
                 <View style={styles.detailRow}>
-                  <MaterialIcons name="trip-origin" size={18} color={colors.primary} />
+                  <View style={[styles.routeRing, styles.originRing]} />
                   <View style={styles.detailText}>
                     <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{t('client.programmedRides.origin')}</Text>
                     <Text style={[styles.detailValue, { color: colors.text }]}>{origin}</Text>
                   </View>
                 </View>
               ) : null}
+              {extraDestinations.map((stop: any, index: number) => {
+                const stopAddress = typeof stop === 'string' ? stop : stop?.address;
+                if (typeof stopAddress !== 'string' || !stopAddress) return null;
+                return (
+                  <View style={styles.detailRow} key={`extra-stop-${index}`}>
+                    <View style={[styles.routeRing, styles.stopRing]} />
+                    <View style={styles.detailText}>
+                      <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>
+                        {t('client.programmedRides.stop', { number: index + 1 })}
+                      </Text>
+                      <Text style={[styles.detailValue, { color: colors.text }]}>{stopAddress}</Text>
+                    </View>
+                  </View>
+                );
+              })}
               {typeof destination === 'string' && destination ? (
                 <View style={styles.detailRow}>
-                  <MaterialIcons name="place" size={18} color={colors.primary} />
+                  <View style={[styles.routeRing, styles.destinationRing]} />
                   <View style={styles.detailText}>
                     <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{t('client.programmedRides.destination')}</Text>
                     <Text style={[styles.detailValue, { color: colors.text }]}>{destination}</Text>
@@ -463,6 +481,10 @@ const styles = StyleSheet.create({
   scrollContent: { alignItems: 'center' },
   inviteDetails: { alignSelf: 'stretch', borderRadius: 14, padding: 14, gap: 12, marginBottom: 16 },
   detailRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  routeRing: { width: 16, height: 16, borderRadius: 8, borderWidth: 3, backgroundColor: 'transparent' },
+  originRing: { borderColor: '#398BFA' },
+  stopRing: { borderColor: '#B38737' },
+  destinationRing: { borderColor: '#E35B5B' },
   detailText: { flex: 1, gap: 2 },
   detailLabel: { fontSize: 11, fontWeight: '600' },
   detailValue: { fontSize: 13, lineHeight: 19, fontWeight: '700' },

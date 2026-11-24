@@ -7,13 +7,15 @@ import {
   ScrollView,
   RefreshControl,
 } from 'react-native';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { useAuth } from '../../hooks/shared/auth/useAuth';
 import LoadingOverlay from '../../components/ui/LoadingOverlay';
 import SupportChatShortcut from '../../components/shared/SupportChatShortcut';
 import StorageImage from '../../components/shared/StorageImage';
 import { formatCurrency } from '../../utils/format/safeFormatters';
+import { withAlpha } from '../../utils/format/colors';
 import { getPendingPayments } from '../../api/payments';
 import { fetchDriverProfile } from '../../services/driver/driverProfilesService';
 import alertService from '../../services/notification/alertService';
@@ -30,9 +32,10 @@ interface PendingPayment {
 }
 
 export default function PendingPaymentsScreen({ navigation }: any) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const { user } = useAuth();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const { t } = useTranslation();
   
   const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>([]);
@@ -197,15 +200,15 @@ export default function PendingPaymentsScreen({ navigation }: any) {
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Text style={styles.backButtonText}>←</Text>
+          <Ionicons name="arrow-back" size={21} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{t('client.pendingPayments.title')}</Text>
-        <View style={styles.backButton} />
+        <View style={styles.backButtonPlaceholder} />
       </View>
 
       <ScrollView
@@ -221,7 +224,9 @@ export default function PendingPaymentsScreen({ navigation }: any) {
       >
         {pendingPayments.length === 0 ? (
           <View style={styles.emptyState}>
-            <MaterialIcons name="check-circle" size={64} color="#4CAF50" />
+            <View style={styles.emptyIconWrap}>
+              <Ionicons name="checkmark-circle-outline" size={34} color={colors.success} />
+            </View>
             <Text style={styles.emptyTitle}>{t('client.pendingPayments.emptyTitle')}</Text>
             <Text style={styles.emptyDescription}>
               {t('client.pendingPayments.emptyDescription')}
@@ -230,7 +235,7 @@ export default function PendingPaymentsScreen({ navigation }: any) {
         ) : (
           <>
             <View style={styles.infoCard}>
-              <MaterialIcons name="lightbulb" size={24} color={colors.primary} />
+              <Ionicons name="bulb-outline" size={22} color={colors.primary} />
               <Text style={styles.infoText}>
                 {t('client.pendingPayments.info.message', { count: pendingPayments.length })}{' '}
                 {t('client.pendingPayments.info.instruction')}
@@ -247,6 +252,11 @@ export default function PendingPaymentsScreen({ navigation }: any) {
               const driverPhoto = pendingPayment.driverProfile?.photo || ride.driver?.photoURL;
               const paymentMethod = t('client.pendingPayments.paymentMethod');
               const createdAt = payment.createdAt || ride.completedAt || Date.now();
+              const stops: any[] = Array.isArray(ride?.extraDestinations)
+                ? ride.extraDestinations
+                : Array.isArray(ride?.stops)
+                  ? ride.stops
+                  : [];
 
               return (
                 <TouchableOpacity
@@ -262,7 +272,7 @@ export default function PendingPaymentsScreen({ navigation }: any) {
                         <StorageImage
                           uri={driverPhoto}
                           style={styles.driverAvatar}
-                          resizeMode="cover"
+                          contentFit="cover"
                         />
                       ) : (
                         <View style={[styles.driverAvatar, { backgroundColor: colors.primary + '30' }]}>
@@ -285,35 +295,61 @@ export default function PendingPaymentsScreen({ navigation }: any) {
                   {/* Ruta del viaje */}
                   <View style={styles.routeSection}>
                     <View style={styles.routeRow}>
-                      <View style={styles.routeIcon}>
-                        <Text style={styles.routeIconText}>🔵</Text>
+                      <View style={styles.routeMarkerColumn}>
+                        <View style={[styles.routeDot, styles.originDot]} />
+                        <View style={styles.routeLine} />
                       </View>
-                      <Text style={styles.routeText} numberOfLines={1}>
-                        {ride.origin?.address || t('client.pendingPayments.route.originFallback')}
-                      </Text>
+                      <View style={styles.routeTextWrap}>
+                        <Text style={styles.routeLabel}>{t('shared.payment.summary.origin')}</Text>
+                        <Text style={styles.routeText} numberOfLines={1}>
+                          {ride.origin?.address || t('client.pendingPayments.route.originFallback')}
+                        </Text>
+                      </View>
                     </View>
-                    <View style={styles.routeDivider} />
-                    <View style={styles.routeRow}>
-                      <View style={styles.routeIcon}>
-                        <Text style={styles.routeIconText}>🔴</Text>
+                    {stops.map((stop: any, index: number) => (
+                      <View style={styles.routeRow} key={index}>
+                        <View style={styles.routeMarkerColumn}>
+                          <View style={[styles.routeDot, styles.stopDot]} />
+                          <View style={styles.routeLine} />
+                        </View>
+                        <View style={styles.routeTextWrap}>
+                          <Text style={styles.routeLabel}>
+                            {t('client.programmedRides.stop', { number: index + 1 })}
+                          </Text>
+                          <Text style={styles.routeText} numberOfLines={1}>
+                            {stop?.address || stop || t('client.pendingPayments.route.destinationFallback')}
+                          </Text>
+                        </View>
                       </View>
-                      <Text style={styles.routeText} numberOfLines={1}>
-                        {ride.destination?.address || t('client.pendingPayments.route.destinationFallback')}
-                      </Text>
+                    ))}
+                    <View style={styles.routeRow}>
+                      <View style={styles.routeMarkerColumn}>
+                        <View style={[styles.routeDot, styles.destinationDot]} />
+                      </View>
+                      <View style={styles.routeTextWrap}>
+                        <Text style={styles.routeLabel}>{t('shared.payment.summary.destination')}</Text>
+                        <Text style={styles.routeText} numberOfLines={1}>
+                          {ride.destination?.address || t('client.pendingPayments.route.destinationFallback')}
+                        </Text>
+                      </View>
                     </View>
                   </View>
 
                   {/* Footer con estado */}
                   <View style={styles.cardFooter}>
                     <View style={styles.statusBadge}>
-                      <Text style={styles.statusIcon}>⏳</Text>
+                      <Ionicons name="hourglass-outline" size={13} color={styles.statusText.color} />
                       <Text style={styles.statusText}>
                         {payment.status === 'pending_confirmation'
                           ? t('client.pendingPayments.status.pendingConfirmation')
                           : t('client.pendingPayments.status.pending')}
                       </Text>
                     </View>
-                    <Text style={styles.actionText}>💳 {t('client.pendingPayments.actionPay')}</Text>
+                    <View style={styles.payAction}>
+                      <Ionicons name="card-outline" size={16} color={colors.primary} />
+                      <Text style={styles.actionText}>{t('client.pendingPayments.actionPay')}</Text>
+                      {/* <Ionicons name="chevron-forward" size={14} color={colors.primary} /> */}
+                    </View>
                   </View>
                 </TouchableOpacity>
               );
@@ -335,7 +371,7 @@ export default function PendingPaymentsScreen({ navigation }: any) {
   );
 }
 
-const createStyles = (colors: any) => StyleSheet.create({
+const createStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -345,20 +381,19 @@ const createStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    paddingBottom: 4,
   },
   backButton: {
     width: 40,
     height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: colors.card,
   },
-  backButtonText: {
-    fontSize: 24,
-    color: colors.text,
+  backButtonPlaceholder: {
+    width: 40,
+    height: 40,
   },
   headerTitle: {
     fontSize: 18,
@@ -374,14 +409,11 @@ const createStyles = (colors: any) => StyleSheet.create({
   infoCard: {
     flexDirection: 'row',
     backgroundColor: colors.primary + '15',
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 16,
     marginBottom: 16,
     alignItems: 'center',
-  },
-  infoIcon: {
-    fontSize: 24,
-    marginRight: 12,
+    gap: 12,
   },
   infoText: {
     flex: 1,
@@ -392,29 +424,28 @@ const createStyles = (colors: any) => StyleSheet.create({
   paymentCard: {
     backgroundColor: colors.surface,
     borderRadius: 16,
-    padding: 16,
+    padding: 18,
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
-    elevation: 3,
+    boxShadow: [{ offsetX: 0, offsetY: 2, blurRadius: 3, color: withAlpha(colors.shadow, 0.16) }],
+    elevation: 2,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
+    gap: 10,
   },
   driverSection: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    gap: 12,
   },
   driverAvatar: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    marginRight: 12,
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
@@ -428,7 +459,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   driverName: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     color: colors.text,
     marginBottom: 2,
   },
@@ -441,44 +472,68 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   amount: {
     fontSize: 20,
-    fontWeight: '700',
-    color: '#FF9800',
+    fontWeight: '800',
+    color: isDark ? '#E8C47F' : '#946D29',
     marginBottom: 2,
+    fontVariant: ['tabular-nums'],
   },
   paymentMethod: {
     fontSize: 12,
     color: colors.textSecondary,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   routeSection: {
     backgroundColor: colors.background,
     borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
+    padding: 14,
+    marginBottom: 14,
+    gap: 12,
   },
   routeRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    gap: 10,
   },
-  routeIcon: {
-    width: 24,
+  routeMarkerColumn: {
+    width: 20,
     alignItems: 'center',
+    paddingTop: 3,
   },
-  routeIconText: {
-    fontSize: 12,
+  routeDot: {
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    borderWidth: 3,
+  },
+  originDot: {
+    borderColor: '#398BFA',
+  },
+  stopDot: {
+    borderColor: '#dd9251',
+  },
+  destinationDot: {
+    borderColor: '#E35B5B',
+  },
+  routeLine: {
+    width: 1,
+    backgroundColor: colors.border,
+    flex: 1,
+    marginTop: 4,
+    marginBottom: -13,
+  },
+  routeTextWrap: {
+    flex: 1,
+    gap: 3,
+  },
+  routeLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSecondary,
   },
   routeText: {
-    flex: 1,
     fontSize: 14,
     color: colors.text,
-    marginLeft: 8,
-  },
-  routeDivider: {
-    width: 2,
-    height: 12,
-    backgroundColor: colors.border,
-    marginLeft: 11,
-    marginVertical: 4,
+    fontWeight: '700',
+    lineHeight: 20,
   },
   cardFooter: {
     flexDirection: 'row',
@@ -488,23 +543,25 @@ const createStyles = (colors: any) => StyleSheet.create({
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FF9800' + '20',
-    paddingHorizontal: 12,
+    gap: 6,
+    backgroundColor: isDark ? '#38342B' : '#F4F0E8',
+    paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 16,
-  },
-  statusIcon: {
-    fontSize: 14,
-    marginRight: 6,
+    borderRadius: 999,
   },
   statusText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#FF9800',
+    fontWeight: '700',
+    color: isDark ? '#E3C98F' : '#846126',
+  },
+  payAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
   },
   actionText: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: colors.primary,
   },
   emptyState: {
@@ -512,20 +569,26 @@ const createStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 80,
+    gap: 12,
   },
-  emptyIcon: {
-    fontSize: 64,
-    marginBottom: 16,
+  emptyIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: isDark ? '#3E3321' : '#F4EBDC',
   },
   emptyTitle: {
     fontSize: 20,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 8,
   },
   emptyDescription: {
     fontSize: 14,
     color: colors.textSecondary,
     textAlign: 'center',
+    paddingHorizontal: 24,
+    lineHeight: 20,
   },
 });

@@ -984,7 +984,7 @@ const createStyles = (
     alignItems: 'center',
     justifyContent: 'space-between',
     height: 60,
-    borderRadius: 999,
+    borderRadius: 20,
     paddingLeft: 24,
     paddingRight: 13,
     backgroundColor: '#B38737',
@@ -1001,7 +1001,7 @@ const createStyles = (
   programmedButton: {
     width: 60,
     height: 60,
-    borderRadius: 30,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#B38737',

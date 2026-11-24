@@ -15,7 +15,7 @@ import { useTheme } from '../../hooks/shared/theme/useTheme';
 import { ToastAction, ToastPayload, setToastHandler } from '../../services/notification/alertService';
 import { useTranslation } from 'react-i18next';
 
-type ToastActionVariant = 'default' | 'primary' | 'destructive';
+type ToastActionVariant = 'default' | 'primary' | 'secondary' | 'destructive';
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
 const DEFAULT_DURATION = 3200;
@@ -433,16 +433,19 @@ const createStyles = (isDark: boolean) =>
     },
     actionButton: {
       minWidth: 76,
-      paddingVertical: 9,
+      minHeight: 46,
+      paddingVertical: 0,
       paddingHorizontal: 18,
       borderRadius: 999,
       alignItems: 'center',
+      justifyContent: 'center',
     },
     actionText: {
       // fontFamily: TOAST_FONT,
       fontSize: 13.5,
       fontWeight: '600',
       letterSpacing: 0.1,
+      textAlign: 'center',
     },
   });
 
@@ -451,6 +454,12 @@ const actionButtonVariant = (variant: ToastActionVariant = 'default', primary: s
     case 'primary':
       return {
         backgroundColor: primary,
+      };
+    case 'secondary':
+      return {
+        backgroundColor: withAlpha(primary, 0.14),
+        borderWidth: 1,
+        borderColor: withAlpha(primary, 0.48),
       };
     case 'destructive':
       return {
@@ -470,6 +479,10 @@ const actionTextVariant = (variant: ToastActionVariant = 'default') => {
     case 'primary':
       return {
         color: '#1A130B',
+      };
+    case 'secondary':
+      return {
+        color: '#E8C47F',
       };
     case 'destructive':
       return {

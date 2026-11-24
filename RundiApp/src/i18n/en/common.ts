@@ -79,16 +79,16 @@ const common = {
             },
           },
           emergencyButton: {
-            modalTitle: '🚨 Emergency',
+            modalTitle: 'mergency',
             modalSubtitle: 'Choose the emergency service you need',
             options: {
               police: {
-                title: '👮 Police',
+                title: 'Police',
                 description: 'Police emergencies, thefts, accidents',
                 number: '118',
               },
               ambulance: {
-                title: '🚑 Ambulance',
+                title: 'Ambulance',
                 description: 'Medical emergencies, accidents, injuries',
                 number: '102',
               },
@@ -1177,10 +1177,6 @@ const common = {
            channels: {
              default: 'Rundi notifications',
              activeRide: 'Active ride',
-           },
-           quickReturnActiveRide: {
-             title: 'Return to your active ride',
-             body: 'Tap to return to your current ride details.',
            },
            newRide: {
              title: 'New ride available',

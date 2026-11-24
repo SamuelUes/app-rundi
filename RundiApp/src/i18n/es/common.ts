@@ -1093,10 +1093,6 @@ const common = {
               default: 'Notificaciones de Rundi',
               activeRide: 'Viaje activo',
             },
-            quickReturnActiveRide: {
-              title: 'Vuelve a tu viaje activo',
-              body: 'Toca para regresar a los detalles del viaje en curso.',
-            },
             newRide: {
               title: 'Nuevo viaje disponible',
               body: 'Viaje desde {{origin}} · {{distance}} · {{price}}',

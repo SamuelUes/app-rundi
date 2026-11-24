@@ -20,7 +20,7 @@ func LoadDriverDocumentData(ctx context.Context, pool *pgxpool.Pool, uid string)
 		WITH d AS (
 			SELECT id FROM public.drivers WHERE user_id = $1 AND deleted_at IS NULL
 		), v AS (
-			SELECT id, plate, type, year, brand, model, color FROM public.vehicles
+			SELECT id, plate, type, year, brand, model, color, vin FROM public.vehicles
 			WHERE driver_id = (SELECT id FROM d) AND is_active AND deleted_at IS NULL
 			ORDER BY created_at DESC, id DESC LIMIT 1
 		)

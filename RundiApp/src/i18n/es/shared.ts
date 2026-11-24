@@ -1525,10 +1525,10 @@ const shared = {
           },
           warning: {
             title: 'Eliminación de cuenta',
-            intro: 'Se eliminará tu acceso. El perfil y el historial del UID anterior se conservarán.',
+            intro: 'Se eliminará tu acceso.',
             bullets: {
               accountAccess: 'No podrás volver a iniciar sesión con esta identidad.',
-              dataRetained: 'El perfil anterior quedará marcado como eliminado y no se mezclará con una cuenta nueva.',
+              //dataRetained: 'El perfil anterior quedará marcado como eliminado y no se mezclará con una cuenta nueva.',
               reactivation: 'Podrás registrarte otra vez con el mismo correo o teléfono; se creará una cuenta distinta.',
             },
           },

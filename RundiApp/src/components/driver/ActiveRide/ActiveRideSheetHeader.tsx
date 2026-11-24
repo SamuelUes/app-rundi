@@ -128,7 +128,7 @@ export function ActiveRideSheetHeader({
         </Text>
         {paymentLabel && paymentIcon && (
           <View style={styles.paymentChip}>
-            <MaterialIcons name={paymentIcon} size={12} color={colors.textSecondary} />
+            <MaterialIcons name={paymentIcon} size={16} color={colors.textSecondary} />
             <Text numberOfLines={1} style={[styles.paymentChipText, { color: colors.textSecondary }]}>
               {paymentLabel}
             </Text>

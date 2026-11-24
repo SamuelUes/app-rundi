@@ -69,6 +69,7 @@ export interface ProgrammedDriverCandidate {
   driverId: string;
   name: string;
   rating: number;
+  photoUrl?: string | null;
 }
 
 export async function searchProgrammedDrivers(id: string, q: string): Promise<ProgrammedDriverCandidate[]> {

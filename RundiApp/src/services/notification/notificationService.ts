@@ -20,7 +20,6 @@ Notifications.setNotificationHandler({
 });
 
 class NotificationService {
-  private quickReturnNotificationId: string | null = null;
   private managedNotifications = new Map<
     string,
     {
@@ -177,27 +176,6 @@ class NotificationService {
   }
 
   /**
-   * Canal dedicado para "Viaje activo" (Android)
-   */
-  private async ensureActiveRideChannel() {
-    try {
-      if (Platform.OS !== 'android') return;
-      await Notifications.setNotificationChannelAsync('rundi-active-ride-v2', {
-        name: this.tr('channels.activeRide'),
-        importance: Notifications.AndroidImportance.HIGH,
-        sound: 'notification.wav',
-        vibrationPattern: [0, 250, 250, 250],
-        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-        enableVibrate: true,
-        enableLights: true,
-        lightColor: '#D4AF37',
-      });
-    } catch (_) {
-      // noop
-    }
-  }
-
-  /**
    * Obtener token actual (deprecated — FCM handles tokens now)
    */
   getToken(): string | null {
@@ -222,66 +200,6 @@ class NotificationService {
       });
     } catch (error) {
       console.error('❌ Error mostrando notificación:', error);
-    }
-  }
-
-  /**
-   * Mostrar notificación de retorno rápido a la pantalla de viaje activo
-   */
-  async showQuickReturnActiveRide(rideId?: string | null) {
-    if (!rideId) {
-      return null;
-    }
-
-    try {
-      if (this.quickReturnNotificationId) {
-        await Notifications.dismissNotificationAsync(this.quickReturnNotificationId);
-        this.quickReturnNotificationId = null;
-      }
-
-      await this.ensureActiveRideChannel();
-
-      const id = await Notifications.scheduleNotificationAsync({
-        content: {
-          title: this.tr('quickReturnActiveRide.title'),
-          body: this.tr('quickReturnActiveRide.body'),
-          data: {
-            type: 'quick_return_active_ride',
-            rideId,
-          },
-          sound: 'notification.wav',
-          priority: Notifications.AndroidNotificationPriority.MAX,
-          sticky: true,
-          ...(Platform.OS === 'android' ? { channelId: 'rundi-active-ride-v2' } : {}),
-        },
-        trigger: null,
-      });
-
-      this.quickReturnNotificationId = id;
-      return id;
-    } catch (error) {
-      console.error('❌ Error creando notificación de retorno rápido:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Limpiar notificación de retorno rápido (usa dismissAll por confiabilidad)
-   */
-  async clearQuickReturn() {
-    try {
-      await Notifications.dismissAllNotificationsAsync();
-      this.quickReturnNotificationId = null;
-      this.managedNotifications.forEach((entry, key) => {
-        try {
-          clearTimeout(entry.timeoutHandle);
-        } catch (_) {
-          // noop
-        }
-        this.managedNotifications.delete(key);
-      });
-    } catch (error) {
-      console.error('❌ Error limpiando notificaciones:', error);
     }
   }
 

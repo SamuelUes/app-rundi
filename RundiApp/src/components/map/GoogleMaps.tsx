@@ -10,7 +10,7 @@ import MapView, {
   EdgePadding,
 } from 'react-native-maps';
 import { useTheme } from '../../hooks/shared/theme/useTheme';
-import { useMapCamera, isValidCoord, toLatLng, coordsAreClose } from '../../hooks/shared/map/useMapCamera';
+import { useMapCamera, isValidCoord, toLatLng, coordsAreClose, altitudeFromZoom } from '../../hooks/shared/map/useMapCamera';
 import { useMarkerHeading } from '../../hooks/shared/map/useMarkerHeading';
 import { useTracksViewChanges } from '../../hooks/shared/map/useTracksViewChanges';
 import { MAP_ICONS } from '../../constants/mapIcons';
@@ -39,6 +39,7 @@ const DESTINATION_PIN_SIZE = { width: 22, height: 39 };
 const EXTRA_STOP_PIN_SIZE = { width: 22, height: 39 };
 const MANUAL_ORIGIN_PIN_HEIGHT = 39;
 const MANUAL_ORIGIN_HOLD_PIN_HEIGHT = 41;
+const SEDAN_PERSPECTIVE_ICON = require('../../assets/icons/vehicles/perspective/sedan-perspective.png');
 
 export interface DriverMarker {
   id: string;
@@ -88,6 +89,7 @@ interface GoogleMapProps {
   onRideRequestPress?: (rideRequest: RideRequest) => void;
   // kept for type compat
   showUserLocation?: boolean;
+  navigationMarker?: boolean;
   mapType?: 'standard' | 'satellite' | 'hybrid' | 'terrain';
   customMapStyle?: any;
   trafficEnabled?: boolean;
@@ -118,7 +120,14 @@ interface GoogleMapProps {
   showPinBubbles?: boolean;
   disableMarkerPress?: boolean;
   onMarkerPress?: (coords: { latitude: number; longitude: number }) => void;
-  cameraTarget?: { latitude: number; longitude: number } | null;
+  cameraTarget?: {
+    latitude: number;
+    longitude: number;
+    heading?: number;
+    pitch?: number;
+    zoom?: number;
+    durationMs?: number;
+  } | null;
   routeColor?: string;
   secondaryRouteColor?: string;
   tertiaryRouteColor?: string;
@@ -165,6 +174,7 @@ export default function GoogleMap({
   rideRequests = [],
   onRideRequestPress,
   showUserLocation = true,
+  navigationMarker = false,
   mapType,
   customMapStyle = [],
   trafficEnabled = false,
@@ -204,6 +214,7 @@ export default function GoogleMap({
 }: GoogleMapProps) {
   const { isDark } = useTheme();
   const [isMarkerHeld, setIsMarkerHeld] = useState(false);
+  const [navigationIconFailed, setNavigationIconFailed] = useState(false);
   const [mapSize, setMapSize] = useState({ width: 0, height: 0 });
   const markerScale = useRef(new Animated.Value(1)).current;
 
@@ -259,7 +270,18 @@ export default function GoogleMap({
 
   useEffect(() => {
     if (!cameraTarget || !isMapReady || !isValidCoord(cameraTarget)) return;
-    applyCamera({ center: toLatLng(cameraTarget) }, 320);
+    applyCamera(
+      {
+        center: toLatLng(cameraTarget),
+        altitudeMeters:
+          typeof cameraTarget.zoom === 'number' && Number.isFinite(cameraTarget.zoom)
+            ? altitudeFromZoom(cameraTarget.zoom, cameraTarget.latitude)
+            : undefined,
+        heading: cameraTarget.heading,
+        pitch: cameraTarget.pitch,
+      },
+      cameraTarget.durationMs ?? 320,
+    );
   }, [cameraTarget, applyCamera, isMapReady]);
 
   const effectiveMarkerPosition =
@@ -296,6 +318,7 @@ export default function GoogleMap({
   // taken; afterwards it gets disabled so they stop re-rasterizing every frame.
   // Markers rendered via the native `image` prop don't need tracking at all.
   const carMarkerTracking = useTracksViewChanges([markerVehicleIconSource, Math.round(getVehicleIconSizeForZoom(currentZoom))]);
+  const navigationMarkerTracking = useTracksViewChanges([navigationMarker, navigationIconFailed]);
   const mainMarkerTracking = useTracksViewChanges([
     effectiveMarkerType,
     userMarkerIcon,
@@ -594,7 +617,29 @@ export default function GoogleMap({
           selectedPlaceId={nearbyPlaceSelectedId}
           isDark={isDark}
         />
-        {shouldShowUserMarker && effectiveUserLocation && userMarkerIcon && (
+        {navigationMarker && effectiveUserLocation && (
+          <Marker
+            coordinate={effectiveUserLocation}
+            anchor={{ x: 0.5, y: 0.5 }}
+            zIndex={20}
+            tracksViewChanges={navigationMarkerTracking.tracksViewChanges}
+          >
+            {navigationIconFailed ? (
+              <View style={styles.navigationFallback}>
+                <View style={styles.navigationArrow} />
+              </View>
+            ) : (
+              <Image
+                source={SEDAN_PERSPECTIVE_ICON}
+                style={styles.navigationVehicle}
+                resizeMode="contain"
+                onLoad={navigationMarkerTracking.notifyContentRendered}
+                onError={() => setNavigationIconFailed(true)}
+              />
+            )}
+          </Marker>
+        )}
+        {!navigationMarker && shouldShowUserMarker && effectiveUserLocation && userMarkerIcon && (
           <PinMarkerWithBubble
             coordinate={effectiveUserLocation}
             pinImage={userMarkerIcon}
@@ -873,5 +918,30 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  navigationVehicle: {
+    width: 24.9,
+    height: 43.6,
+  },
+  navigationFallback: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#0879ed',
+    borderColor: '#ffffff',
+    borderWidth: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navigationArrow: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 9,
+    borderRightWidth: 9,
+    borderBottomWidth: 20,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#ffffff',
+    marginTop: -2,
   },
 });
